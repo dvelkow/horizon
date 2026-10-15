@@ -19,8 +19,13 @@ import uuid
 import zipfile
 from pathlib import Path
 
+try:
+    from . import lab
+except ImportError:
+    import lab
+
 ROOT = Path(__file__).resolve().parents[1]
-GAME = ROOT / ".local/minecraft/26.3"
+GAME = lab.GAME
 
 OPTIONS = {
     "onboardAccessibility": "false",
@@ -113,8 +118,8 @@ def command(args):
            "-cp", os.pathsep.join(map(str, jars)), "net.minecraft.client.main.Main",
            "--username", args.name, "--uuid", offline_uuid(args.name).hex,
            "--accessToken", "0", "--offlineDeveloperMode",
-           "--version", "26.3", "--gameDir", str(args.game_dir),
-           "--assetsDir", str(assets), "--assetIndex", "34",
+           "--version", lab.VERSION, "--gameDir", str(args.game_dir),
+           "--assetsDir", str(assets), "--assetIndex", json.loads((GAME / "manifest.json").read_text())["assetIndex"]["id"],
            "--width", str(args.width), "--height", str(args.height)]
     if args.join:
         cmd += ["--quickPlayMultiplayer", args.join]
