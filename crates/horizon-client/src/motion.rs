@@ -1978,7 +1978,9 @@ mod tests {
 
     #[test]
     fn resident_spectator_flight_ignores_solid_and_climbable_blocks() {
-        let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../.local/horizon-client/26.3");
+        let root = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../.local/horizon-client")
+            .join(horizon_core::VANILLA_VERSION);
         if !root.join("movement-properties.nbt").exists() {
             return;
         }
@@ -2036,7 +2038,9 @@ mod tests {
 
     #[test]
     fn player_fire_damage_queues_hurt_sound_only_for_fresh_hits() {
-        let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../.local/horizon-client/26.3");
+        let root = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../.local/horizon-client")
+            .join(horizon_core::VANILLA_VERSION);
         if !root.join("movement-properties.nbt").exists() {
             return;
         }
@@ -2158,7 +2162,9 @@ mod tests {
     /// per `nextStep` metre while walking.
     #[test]
     fn resident_water_landing_cancels_a_preset_fall() {
-        let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../.local/horizon-client/26.3");
+        let root = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../.local/horizon-client")
+            .join(horizon_core::VANILLA_VERSION);
         if !root.join("movement-properties.nbt").exists() {
             return;
         }
@@ -2198,7 +2204,9 @@ mod tests {
 
     #[test]
     fn resident_water_and_lava_are_not_treated_as_air() {
-        let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../.local/horizon-client/26.3");
+        let root = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../.local/horizon-client")
+            .join(horizon_core::VANILLA_VERSION);
         if !root.join("movement-properties.nbt").exists() {
             return;
         }
@@ -2419,7 +2427,9 @@ mod tests {
 
     #[test]
     fn resident_swimming_uses_previous_eyes_and_requires_water_at_the_feet() {
-        let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../.local/horizon-client/26.3");
+        let root = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../.local/horizon-client")
+            .join(horizon_core::VANILLA_VERSION);
         if !root.join("movement-properties.nbt").exists() {
             return;
         }
@@ -2490,7 +2500,9 @@ mod tests {
 
     #[test]
     fn resident_fire_precedes_first_tick_lava_and_water_extinguishing() {
-        let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../.local/horizon-client/26.3");
+        let root = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../.local/horizon-client")
+            .join(horizon_core::VANILLA_VERSION);
         if !root.join("movement-properties.nbt").exists() {
             return;
         }
@@ -2540,7 +2552,9 @@ mod tests {
 
     #[test]
     fn resident_bubble_columns_and_nautilus_preserve_their_air_rules() {
-        let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../.local/horizon-client/26.3");
+        let root = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../.local/horizon-client")
+            .join(horizon_core::VANILLA_VERSION);
         if !root.join("movement-properties.nbt").exists() {
             return;
         }
@@ -2608,7 +2622,9 @@ mod tests {
 
     #[test]
     fn resident_mixed_fluids_use_lava_height_for_ground_jumps() {
-        let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../.local/horizon-client/26.3");
+        let root = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../.local/horizon-client")
+            .join(horizon_core::VANILLA_VERSION);
         if !root.join("movement-properties.nbt").exists() {
             return;
         }
@@ -2655,7 +2671,9 @@ mod tests {
 
     #[test]
     fn footsteps_follow_the_walked_distance_not_the_tick() {
-        let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../.local/horizon-client/26.3");
+        let root = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../.local/horizon-client")
+            .join(horizon_core::VANILLA_VERSION);
         if !root.join("movement-properties.nbt").exists() {
             return;
         }
