@@ -1,0 +1,37 @@
+[Unit]
+Description=Horizon authenticated browser entry
+After=network.target horizon-game.service
+
+[Service]
+Type=simple
+User=horizon
+Group=horizon
+WorkingDirectory=/opt/horizon/gateway
+ExecStart=/usr/local/bin/node /opt/horizon/gateway/cli.mjs /etc/horizon/gateway.json
+Environment=PATH=/usr/local/bin:/usr/bin:/bin
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=30
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+ReadWritePaths=/var/lib/horizon-portal
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+CapabilityBoundingSet=
+AmbientCapabilities=
+LockPersonality=true
+TasksMax=96
+MemoryHigh=200M
+MemoryMax=512M
+MemorySwapMax=512M
+LimitNOFILE=1024
+LimitCORE=0
+
+[Install]
+WantedBy=multi-user.target

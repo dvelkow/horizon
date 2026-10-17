@@ -1,0 +1,37 @@
+[Unit]
+Description=Horizon private world
+After=network.target
+
+[Service]
+Type=simple
+User=horizon
+Group=horizon
+WorkingDirectory=/var/lib/horizon/game
+ExecStart=/opt/horizon/bin/horizon-server --dir /var/lib/horizon/game run
+Environment=MALLOC_ARENA_MAX=2
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=90
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+ReadWritePaths=/var/lib/horizon/game
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+CapabilityBoundingSet=
+AmbientCapabilities=
+LockPersonality=true
+TasksMax=64
+MemoryHigh=700M
+MemoryMax=1500M
+MemorySwapMax=1500M
+LimitNOFILE=4096
+LimitCORE=0
+
+[Install]
+WantedBy=multi-user.target

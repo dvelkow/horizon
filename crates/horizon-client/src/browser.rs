@@ -22,6 +22,8 @@ extern "C" {
     fn set_pointer_capture(capture: bool) -> bool;
     #[wasm_bindgen(js_name = pointerCaptured)]
     pub fn pointer_captured() -> bool;
+    #[wasm_bindgen(catch, js_name = browserOptions)]
+    fn browser_options() -> Result<JsValue, JsValue>;
     #[wasm_bindgen(catch, js_name = loadResourceIndex)]
     async fn load_resource_index() -> Result<JsValue, JsValue>;
     #[wasm_bindgen(catch, js_name = fetchVerified)]
@@ -81,6 +83,13 @@ struct ResourceIndex {
     file_count: usize,
     expanded_bytes: u64,
     bundles: Vec<Bundle>,
+}
+#[derive(Deserialize)]
+struct BrowserOptions {
+    #[serde(default)]
+    name: Option<String>,
+    #[serde(default)]
+    join: bool,
 }
 #[derive(Deserialize)]
 struct Bundle {
@@ -144,7 +153,31 @@ fn verify(bytes: &[u8], expected: &str) -> Result<(), JsValue> {
 /// Does not create a replacement title screen or start gameplay itself.
 pub async fn ready() -> Result<(), JsValue> {
     install_gpu_error_handling();
-    let args: Vec<String> = ["horizon-client", "--resources", "/resources", "--render-distance", "6"].into_iter().map(String::from).collect();
+    let options: BrowserOptions = json(browser_options()?)?;
+    let mut args: Vec<String> = [
+        "horizon-client",
+        "--resources",
+        "/resources",
+        "--render-distance",
+        "6",
+    ]
+    .into_iter()
+    .map(String::from)
+    .collect();
+    if options.join {
+        let name = options
+            .name
+            .ok_or_else(|| fail("Sign in before joining the world"))?;
+        if name.is_empty()
+            || name.len() > 16
+            || !name.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_')
+        {
+            return Err(fail(
+                "Player names need 1–16 letters, numbers, or underscores",
+            ));
+        }
+        args.extend(["--server".into(), "gateway".into(), "--name".into(), name]);
+    }
     horizon_platform::env::set_args(args);
     loading_status("Checking game resources…", 0.0);
     let index: ResourceIndex = json(load_resource_index().await?)?;

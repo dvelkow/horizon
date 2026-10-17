@@ -3,6 +3,10 @@
 //! splits into a reader (for a receive thread) and a shareable writer. It runs
 //! over TCP, or over an in-memory pipe between two threads of one process
 //! (vanilla's `LocalChannel`, which an integrated server's player uses).
+
+#[path = "browser_transport.rs"]
+pub mod browser_transport;
+
 use crate::{Error, Result, buf::Reader, crypto::Cfb8, frame};
 use std::{
     io::{Read, Write},

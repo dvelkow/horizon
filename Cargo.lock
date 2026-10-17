@@ -1730,6 +1730,7 @@ dependencies = [
  "horizon-platform",
  "libm",
  "lz4_flex",
+ "serde",
  "serde_json",
  "xxhash-rust",
 ]

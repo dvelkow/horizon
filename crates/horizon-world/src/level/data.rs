@@ -664,9 +664,13 @@ pub(super) fn load_with_behaviour_json(
     root: &Path,
     behaviour: &Value,
 ) -> io::Result<Behaviours> {
-    let gameplay = read_json(&root.join("gameplay-facts.json"))?;
-    let gameplay_states = gameplay["states"]
-        .as_array()
+    let bytes = fs::read(root.join("gameplay-facts.json"))?;
+    let gameplay: super::gameplay_decode::Gameplay<'_> =
+        serde_json::from_slice(&bytes).map_err(|error| fail(&error.to_string()))?;
+    let gameplay_states = gameplay
+        .states
+        .0
+        .as_ref()
         .ok_or_else(|| fail("missing gameplay states"))?;
     load_with_gameplay(registry, root, behaviour, gameplay_states)
 }

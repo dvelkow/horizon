@@ -108,6 +108,7 @@ mod creaking;
 mod falling;
 mod feature_world;
 mod fluids;
+mod gameplay_decode;
 mod growth;
 mod hooks;
 mod interact;
