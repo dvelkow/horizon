@@ -1843,18 +1843,13 @@ impl Game<'_> {
     /// simulation distance, block events and moving pistons.
     fn tick_blocks(&mut self) -> Result<()> {
         self.sync_tick_chunks();
-        let Some(p) = self.player.as_ref() else {
-            return Ok(());
-        };
-        let (pcx, pcz) = (
-            (p.position.x.floor() as i32) >> 4,
-            (p.position.z.floor() as i32) >> 4,
-        );
-        let simulation = self.settings.render_distance.min(8);
+        // Dedicated/integrated servers have guests but no local player. Block
+        // simulation must use the same guest centres as entity simulation.
+        let in_range = self.entity_ticking_area();
         let mut ticking = Vec::new();
         let facts = &self.res.facts;
         for (&(x, z), chunk) in &self.world.chunks {
-            if (x - pcx).abs() > simulation || (z - pcz).abs() > simulation || !chunk.lit {
+            if !in_range(x * 16, z * 16) || !chunk.lit {
                 continue;
             }
             // Capture eligibility before inside-block and scheduled updates, as
@@ -10738,6 +10733,10 @@ pub fn run() -> Result<()> {
     }
     if let Ok(spec) = std::env::var("HORIZON_SCULK_FIXTURE") {
         return game.sculk_fixture(&spec);
+    }
+    #[cfg(not(target_arch = "wasm32"))]
+    if let Some(report) = std::env::var_os("HORIZON_GAMEPLAY_FIXTURE") {
+        return game.gameplay_fixture(report.as_ref());
     }
     if game.options.dedicated.is_some() {
         return game.run_dedicated();

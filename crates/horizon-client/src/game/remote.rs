@@ -6,6 +6,8 @@
 //! clicks). The player still moves with the local physics, as the vanilla
 //! client predicts its own movement; the server stays authoritative for
 //! everything else.
+#[cfg(not(target_arch = "wasm32"))]
+mod gameplay_fixture;
 use super::{Dim, Game, Mining, Screen};
 use horizon_client::{
     Result,
@@ -61,6 +63,12 @@ struct Tracked {
     kind: String,
     position: [f64; 3],
 }
+/// Spawn/motion packets can arrive before the item stack metadata.
+struct PendingItem {
+    position: [f64; 3],
+    velocity: [f64; 3],
+    on_ground: bool,
+}
 /// Smooth an entity toward a new position over three ticks (InterpolationHandler).
 #[derive(Clone, Copy)]
 struct Lerp {
@@ -105,7 +113,7 @@ pub(super) struct Remote {
     entities: HashMap<i32, Tracked>,
     lerps: HashMap<i32, Lerp>,
     /// Item entities waiting for their item data.
-    pending_items: HashMap<i32, [f64; 3]>,
+    pending_items: HashMap<i32, PendingItem>,
     health: (f32, i32, f32),
     game_mode: i32,
     pub chat: Vec<(String, Instant)>,
@@ -887,7 +895,14 @@ impl Game<'_> {
         }
         if let Some(r) = self.remote.as_mut() {
             if kind == "minecraft:item" {
-                r.pending_items.insert(id, position);
+                r.pending_items.insert(
+                    id,
+                    PendingItem {
+                        position,
+                        velocity: [0.0; 3],
+                        on_ground: false,
+                    },
+                );
             }
             r.entities.insert(
                 id,
@@ -905,19 +920,34 @@ impl Game<'_> {
         rotation: Option<(f32, f32)>,
         on_ground: bool,
     ) {
+        // Items simulate between the server's infrequent position corrections.
+        // Their packet base remains in Tracked, independent of prediction.
+        let item = self.dropped.iter_mut().find(|d| d.id == id as u32);
+        let is_item = item.is_some()
+            || self
+                .remote
+                .as_ref()
+                .is_some_and(|r| r.pending_items.contains_key(&id));
+        if let Some(item) = item {
+            item.position = Vec3::new(position[0], position[1], position[2]);
+            item.on_ground = on_ground;
+        }
         if let Some(r) = self.remote.as_mut() {
             if let Some(t) = r.entities.get_mut(&id) {
                 t.position = position;
             }
-            r.lerps.insert(
-                id,
-                Lerp {
-                    target: position,
-                    steps: 3,
-                },
-            );
+            if !is_item {
+                r.lerps.insert(
+                    id,
+                    Lerp {
+                        target: position,
+                        steps: 3,
+                    },
+                );
+            }
             if let Some(p) = r.pending_items.get_mut(&id) {
-                *p = position;
+                p.position = position;
+                p.on_ground = on_ground;
             }
         }
         if let Some(m) = self.mobs.iter_mut().find(|m| m.id == id as u32) {
@@ -926,6 +956,18 @@ impl Game<'_> {
                 m.body_yaw = yaw;
                 m.head_pitch = pitch;
             }
+        }
+    }
+    fn remote_entity_motion(&mut self, id: i32, velocity: [f64; 3]) {
+        if let Some(item) = self.dropped.iter_mut().find(|d| d.id == id as u32) {
+            item.velocity = Vec3::new(velocity[0], velocity[1], velocity[2]);
+        }
+        if let Some(pending) = self
+            .remote
+            .as_mut()
+            .and_then(|r| r.pending_items.get_mut(&id))
+        {
+            pending.velocity = velocity;
         }
     }
     fn remove_entity(&mut self, id: i32) {
@@ -1193,6 +1235,7 @@ impl Game<'_> {
                     }
                 }
                 self.spawn_entity(p.id, &kind, p.position, yaw, head);
+                self.remote_entity_motion(p.id, p.velocity);
             }
             C::RemoveEntities(p) => {
                 for id in p.ids {
@@ -1331,7 +1374,14 @@ impl Game<'_> {
                     };
                     self.add_pickup(super::pickups::Taken::Item(Box::new(item)), collector);
                 }
-                self.remove_entity(p.item);
+                // A full inventory may take only part of a ground stack.
+                // Keep the remaining entity until the server removes it.
+                if let Some(item) = self.dropped.iter_mut().find(|d| d.id == p.item as u32) {
+                    item.stack.count = item.stack.count.saturating_sub(p.amount.max(0) as u32);
+                    if item.stack.count == 0 {
+                        self.remove_entity(p.item);
+                    }
+                }
             }
             // ClientPacketListener.handleSetEntityMotion: knockback on this player.
             C::SetEntityMotion(p) if self.remote.as_ref().is_some_and(|r| r.entity_id == p.id) => {
@@ -1339,6 +1389,7 @@ impl Game<'_> {
                     pl.velocity = Vec3::new(p.velocity[0], p.velocity[1], p.velocity[2]);
                 }
             }
+            C::SetEntityMotion(p) => self.remote_entity_motion(p.id, p.velocity),
             C::HurtAnimation(p) => {
                 if let Some(m) = self.mobs.iter_mut().find(|m| m.id == p.id as u32) {
                     m.hurt_time = 10;
@@ -2009,7 +2060,7 @@ impl Game<'_> {
             return;
         }
         let Some(p) = position else { return };
-        let at = Vec3::new(p[0], p[1], p[2]);
+        let at = Vec3::new(p.position[0], p.position[1], p.position[2]);
         let bob_offset = self.world.random.next_float() * std::f32::consts::PI * 2.0;
         self.dropped.push(ItemEntity {
             health: 5,
@@ -2018,8 +2069,8 @@ impl Game<'_> {
             stack,
             position: at,
             previous: at,
-            velocity: Vec3::ZERO,
-            on_ground: false,
+            velocity: Vec3::new(p.velocity[0], p.velocity[1], p.velocity[2]),
+            on_ground: p.on_ground,
             age: 0,
             pickup_delay: 0,
             bob_offset,
@@ -2310,18 +2361,15 @@ impl Game<'_> {
             }
         }
         for d in self.dropped.iter_mut().filter(|_| running) {
-            d.previous = d.position;
-            d.age += 1;
-            if let Some(l) = lerps.get_mut(&(d.id as i32))
-                && l.steps > 0
+            // Prediction is visual only: the server owns pickup, damage and
+            // removal. Wait for terrain before resolving local collisions.
+            if self
+                .world
+                .loaded(d.position.x.floor() as i32, d.position.z.floor() as i32)
             {
-                let n = f64::from(l.steps);
-                d.position = Vec3::new(
-                    d.position.x + (l.target[0] - d.position.x) / n,
-                    d.position.y + (l.target[1] - d.position.y) / n,
-                    d.position.z + (l.target[2] - d.position.z) / n,
-                );
-                l.steps -= 1;
+                let _ = d.tick(&self.world, &self.res.facts, self.collision);
+            } else {
+                d.previous = d.position;
             }
         }
         lerps.retain(|_, l| l.steps > 0);

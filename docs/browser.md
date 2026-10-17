@@ -313,3 +313,28 @@ session credentials. Browser and Rust code verify imported skin hashes and size
 before adding them to bounded atlas slots. First-person arms, inventory and
 third-person models, remote players and tab-list faces use the selected skin.
 Native rendering behavior is unchanged.
+
+### World updates and dropped items
+
+Dedicated and integrated servers tick scheduled blocks and fluids without a local
+host player. Random block ticks use the configured simulation distance around
+the host and guest chunk centres. This restores water/lava spreading after
+mining and scheduled falling-block behavior on hosted worlds.
+
+Multiplayer item drops preserve spawn and motion packet velocities and simulate
+gravity, collision and buoyancy between authoritative server corrections. The
+server still owns pickups, inventory, damage and despawning. A partial pickup
+keeps the remaining stack visible.
+
+Run the headless gameplay regressions with prepared resources:
+
+```sh
+cargo +stable build -p horizon-client --bin horizon-client
+python3 tools/test_gameplay_updates.py
+```
+
+The fixture uses an isolated temporary world and an in-memory connection. It
+checks fluid refilling, waterfalls, unsupported sand, loot, drop movement,
+freeze handling, packet corrections, and partial/full pickups. It does not
+require a GPU or a Discord account. Set `--binary target/fast/horizon-client`
+to test the optimized server build.
