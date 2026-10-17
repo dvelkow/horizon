@@ -30,10 +30,11 @@ test('real coords-hud and server guest pass quarantine, owner approval, artifact
     await new Promise(resolve => gateway.server.listen(0, '127.0.0.1', resolve));
     t.after(async () => { await gateway.close(); await fs.rm(root, { recursive: true, force: true }); });
     const port = gateway.server.address().port;
-    const request = (path, { method = 'GET', body, session, contentType = 'application/json' } = {}) => new Promise((resolve, reject) => {
+    const request = (path, { method = 'GET', body, session, token, contentType = 'application/json' } = {}) => new Promise((resolve, reject) => {
       const req = httpRequest({ host: '127.0.0.1', port, path, method, headers: { Host: 'game.example.test', Origin: origin,
         ...(body ? { 'Content-Length': body.length, 'Content-Type': contentType } : {}),
         ...(session ? { Cookie: session.cookie, 'X-CSRF-Token': session.csrf } : {}),
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
       } }, res => {
         const chunks = []; res.on('data', value => chunks.push(value));
         res.on('end', () => resolve({ status: res.statusCode, headers: res.headers, bytes: Buffer.concat(chunks) }));
@@ -48,6 +49,8 @@ test('real coords-hud and server guest pass quarantine, owner approval, artifact
       return { ...JSON.parse(response.bytes), cookie: response.headers['set-cookie'][0].split(';')[0] };
     };
     const friend = await login(false), owner = await login(true);
+    const issued = await json('/api/admin/mod-api-tokens', {label:'Real validator agent'}, owner);
+    assert.equal(issued.status,201); const key=JSON.parse(issued.bytes);
     const ws = new WebSocket(`ws://127.0.0.1:${port}/mods/events`, { headers: { Host: 'game.example.test', Origin: origin, Cookie: friend.cookie } });
     const notifications = []; ws.on('message', bytes => notifications.push(JSON.parse(bytes)));
     await once(ws, 'open');
@@ -57,7 +60,10 @@ test('real coords-hud and server guest pass quarantine, owner approval, artifact
     ];
     for (const [position, path] of inputs.entries()) {
       const bytes = await fs.readFile(path), hash = sha256(bytes);
-      const upload = await request('/api/mods/upload', { method: 'POST', body: bytes, session: friend, contentType: 'application/octet-stream' });
+      const upload = position === 0 ? await request('/api/v1/mods/submissions', {method:'POST',token:key.token,body:Buffer.from(JSON.stringify({
+        packageBase64:bytes.toString('base64'),notes:'Read-only coordinates HUD: no inventory writes or world changes.',
+        files:await Promise.all(['Cargo.toml','horizon-mod.toml','src/lib.rs'].map(async path=>({path,content:await fs.readFile(join(repo,'crates/horizon-mod-sdk/examples/coords-hud',path),'utf8')}))),
+      }))}) : await request('/api/mods/upload', { method: 'POST', body: bytes, session: friend, contentType: 'application/octet-stream' });
       assert.equal(upload.status, 202, upload.bytes.toString());
       assert.equal(JSON.parse(upload.bytes).status, 'pending');
       assert.equal(JSON.parse(upload.bytes).sha256, hash);
@@ -73,6 +79,10 @@ test('real coords-hud and server guest pass quarantine, owner approval, artifact
       const mod = index.mods.find(value => value.sha256 === hash); assert.ok(mod);
       assert.equal(sha256((await request(mod.url, { session: friend })).bytes), hash);
       if (position === 0) {
+        const status=await request(`/api/v1/mods/submissions/${hash}`,{token:key.token});
+        assert.equal(JSON.parse(status.bytes).status,'published');
+        const source=await request(`/api/mods/submissions/${hash}/source`,{session:owner});
+        assert.equal(JSON.parse(source.bytes).files.length,3);
         assert.equal(mod.manifest.id, 'coords_hud'); assert.ok(mod.files.length >= 2);
         assert.equal(candidate.checks.browserMemoryCap, 64 << 20);
         for (const file of mod.files) {

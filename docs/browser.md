@@ -68,6 +68,12 @@ owner approval key to write/build mods.
    working mod. A guest that traps or exceeds its time/memory budget stops without
    restarting the game or other guests.
 
+Coding agents can also [submit a built mod and its source through the API](mod-api.md)
+using a submission-only key. They don't need to use the workshop. The two mod
+rules are **don't break the game** and **no free resources**; the owner reviews
+those rules before publication. The workshop's All submissions view retains
+review history and attached source, with filters for each status.
+
 Each Discord account reserves one case-insensitive in-game name. That exact name
 continues to derive the native offline UUID, preserving progress for returning
 players. Names cannot be changed through the profile editor; skins can. The

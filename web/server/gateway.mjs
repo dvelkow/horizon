@@ -11,6 +11,7 @@ import { bridgeGame } from './bridge.mjs';
 import { Accounts, ProfileError, SKINS, SESSION_SECONDS } from './accounts.mjs';
 import { DiscordAuth, oauthCookie } from './discord.mjs';
 import { MinecraftSkins, COPIED_SKIN } from './minecraft-skins.mjs';
+import { ModApiTokens, ModApiError, MOD_RULES, apiGuide, parseSubmission, submissionView } from './mod-api.mjs';
 
 class HttpError extends Error { constructor(status, message) { super(message); this.status = status; } }
 const fail = (status, message) => { throw new HttpError(status, message); };
@@ -94,6 +95,7 @@ export async function createGateway(input, { discordFetch, minecraftFetch } = {}
   for (const key of ['privateDir', 'publicDir', 'assetsDir', 'modsRuntimeDir']) if (roots[key]) roots[key] = await fs.realpath(roots[key]);
   const config = validateConfig(roots);
   const store = new ModStore(config); await store.init();
+  const apiTokens = new ModApiTokens(config.privateDir); await apiTokens.init();
   const minecraftSkins = new MinecraftSkins(config.privateDir, minecraftFetch); await minecraftSkins.init();
   const accounts = config.discord ? new Accounts(config.privateDir, { protectedNames: [...config.protectedNames], ownerIds: config.discord.ownerIds ?? [], skinStore: minecraftSkins }) : null;
   if (accounts) await accounts.init();
@@ -105,6 +107,8 @@ export async function createGateway(input, { discordFetch, minecraftFetch } = {}
   const flowCookie = config.secure ? '__Host-modcraft_oauth' : 'modcraft_oauth';
   const logins = new RateLimit({ limit: config.loginAttempts ?? 10, windowMs: 60_000 });
   const writes = new RateLimit({ limit: 30, windowMs: 60_000 });
+  const apiRequests = new RateLimit({ limit: 120, windowMs: 60_000 });
+  const apiWrites = new RateLimit({ limit: 6, windowMs: 60_000 });
   const skinLookups = new RateLimit({ limit: 6, windowMs: 60_000 });
   const upgrades = new RateLimit({ limit: 30, windowMs: 60_000 });
   let passwordChecks = 0, validating = false;
@@ -130,6 +134,13 @@ export async function createGateway(input, { discordFetch, minecraftFetch } = {}
   const redirect = (response, location, cookies = []) => { response.writeHead(303, { Location: location, 'Cache-Control': 'no-store', ...(cookies.length ? { 'Set-Cookie': cookies } : {}) }); response.end(); };
   const admin = request => admins.get(cookieValue(request, adminCookie)) ?? fail(401, 'Owner sign-in required');
   const csrf = (request, session) => { origin(request); if (!equalToken(request.headers['x-csrf-token'], session.csrf)) fail(403, 'CSRF token rejected'); };
+  const agent = request => {
+    if (!apiRequests.take(peer(request))) fail(429, 'Too many API requests; retry shortly');
+    // Bearer credentials never fall back to browser cookies or query strings.
+    // No cross-origin browser API access; command-line agents omit Origin.
+    if (request.headers.origin && request.headers.origin !== config.origin) fail(403, 'Origin rejected');
+    return apiTokens.authenticate(request.headers.authorization) ?? fail(401, 'A valid submission API key is required');
+  };
   const closeSession = id => { for (const [ws, value] of sockets) if (value === id) ws.close(1008, 'Signed out'); };
   const notify = () => {
     const message = JSON.stringify({ type: 'mods-changed', revision: store.index.revision });
@@ -146,6 +157,62 @@ export async function createGateway(input, { discordFetch, minecraftFetch } = {}
       let path;
       try { path = decodeURIComponent(new URL(request.url, config.origin).pathname); } catch { fail(400, 'Invalid request path'); }
       if (request.method === 'GET' && path === '/healthz') return json(response, 200, { ok: true });
+      if (request.method === 'GET' && path === '/api/v1/mods/guide') return json(response, 200, apiGuide(config.origin));
+      if (request.method === 'GET' && path === '/api/mods/rules') return json(response, 200, { rules: MOD_RULES });
+      if (path === '/api/admin/mod-api-tokens') {
+        const session = admin(request);
+        if (request.method === 'GET') return json(response, 200, { keys: apiTokens.list() });
+        if (request.method === 'POST') {
+          csrf(request, session);
+          if (!writes.take(session.id)) fail(429, 'Too many key changes');
+          return json(response, 201, await apiTokens.create(await jsonBody(request)));
+        }
+        fail(405, 'Method not allowed');
+      }
+      const revokeKey = /^\/api\/admin\/mod-api-tokens\/([a-f0-9]{16})\/revoke$/.exec(path);
+      if (request.method === 'POST' && revokeKey) {
+        const session = admin(request); csrf(request, session);
+        return json(response, 200, await apiTokens.revoke(revokeKey[1]));
+      }
+      const submissionPath = /^\/api\/v1\/mods\/submissions(?:\/([a-f0-9]{64}))?$/.exec(path);
+      if (submissionPath) {
+        const key = agent(request), hash = submissionPath[1];
+        const view = candidate => ({ ...submissionView(candidate, store.index), statusUrl: `${config.origin}/api/v1/mods/submissions/${candidate.sha256}` });
+        if (request.method === 'GET') {
+          if (!hash) return json(response, 200, { submissions: (await store.history()).filter(c => c.agentId === key.id).map(view) });
+          let candidate;
+          try { candidate = await store.readCandidate(hash); } catch (error) { if (error.code !== 'ENOENT') throw error; }
+          if (!candidate || candidate.agentId !== key.id) fail(404, 'Submission not found');
+          return json(response, 200, view(candidate));
+        }
+        if (request.method !== 'POST' || hash) fail(405, 'Method not allowed');
+        if (validating || !apiWrites.take(key.id)) fail(429, 'Validation is busy or the submission rate limit was reached');
+        validating = true;
+        try {
+          const review = parseSubmission(await jsonBody(request, 24 * 1024 * 1024), config.maxUploadBytes ?? 16 * 1024 * 1024);
+          let previous;
+          try { previous = await store.readCandidate(review.source.packageSha256); } catch (error) { if (error.code !== 'ENOENT') throw error; }
+          if (previous) {
+            if (previous.agentId !== key.id || previous.sourceSha256 !== review.sourceSha256) fail(409, 'This package already has different review material; build a new version');
+            return json(response, previous.status === 'rejected' ? 422 : 200, view(previous));
+          }
+          const history = await store.history();
+          if (history.length >= (config.maxSubmissionHistory ?? 256) || (await store.pending()).length >= (config.maxCandidates ?? 32)) fail(409, 'Submission storage is full; ask the host to review or archive submissions');
+          const candidate = await store.upload(review.bytes, key.label, { ...review, agentId: key.id });
+          return json(response, candidate.status === 'rejected' ? 422 : 202, view(candidate), { Location: view(candidate).statusUrl });
+        } finally { validating = false; }
+      }
+      if (request.method === 'GET' && path === '/api/mods/submissions') {
+        admin(request); return json(response, 200, { submissions: (await store.history()).map(c => submissionView(c, store.index)) });
+      }
+      const sourcePath = /^\/api\/mods\/submissions\/([a-f0-9]{64})\/source$/.exec(path);
+      if (request.method === 'GET' && sourcePath) {
+        admin(request);
+        let source;
+        try { source = await store.readSource(sourcePath[1]); } catch (error) { if (error.code !== 'ENOENT') throw error; }
+        if (!source) fail(404, 'No source attached to this submission');
+        return json(response, 200, source);
+      }
       if (request.method === 'GET' && path === '/auth/discord') {
         if (!discord) fail(503, 'Discord sign-in is being connected. Please try again shortly');
         if (!logins.take(`${peer(request)}:discord`)) fail(429, 'Too many sign-in attempts; retry later');
@@ -263,8 +330,8 @@ export async function createGateway(input, { discordFetch, minecraftFetch } = {}
       return await staticFile(request, response, config.publicDir, path === '/' ? 'index.html' : path.slice(1));
     } catch (error) {
       if (response.headersSent || response.destroyed) { response.destroy(); return; }
-      const status = error instanceof HttpError || error instanceof ProfileError ? error.status : 500;
-      json(response, status, { error: status === 500 ? 'Gateway request failed' : error.message }, { Connection: 'close' });
+      const status = error instanceof HttpError || error instanceof ProfileError || error instanceof ModApiError ? error.status : 500;
+      json(response, status, { error: status === 500 ? 'Gateway request failed' : error.message }, { Connection: 'close', ...(status === 429 ? { 'Retry-After': '60' } : {}) });
     }
   });
   server.requestTimeout = 30_000; server.headersTimeout = 10_000; server.keepAliveTimeout = 5000; server.maxHeadersCount = 64;

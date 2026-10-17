@@ -74,6 +74,7 @@ body:has(#horizon:not([hidden])){background:#0d171e;overflow:hidden}
 .mod-version{font-size:13px;font-weight:400;margin-left:8px;color:var(--muted)}
 .badge{padding:5px 9px;border:1px solid var(--line);border-radius:3px;font-size:12px;white-space:nowrap}
 .badge.pending{background:#f7e6b9}.badge.approved{background:#d6e9d7}.badge.rejected{background:#f1d4cb}
+.badge.published{background:#d6e9d7}.mod-rules{border-top:1px solid var(--line);margin-top:30px;padding-top:20px}.mod-rules h2{font-size:23px}.mod-rules li{margin:10px 0;line-height:1.5}.mod-rules p{color:var(--muted);line-height:1.5}.review-heading{flex-wrap:wrap}.review-heading label{font-size:14px;margin:0}.review-heading select{font:inherit;padding:8px;max-width:100%}.submission-notes{white-space:pre-wrap}
 .sha{display:block;font-family:monospace;font-size:12px;overflow-wrap:anywhere;line-height:1.6;color:#53635e}
 .capabilities{display:flex;gap:7px;flex-wrap:wrap;margin:12px 0}
 .capabilities span{background:#dde8df;padding:5px 8px;font-size:12px;border-radius:3px}

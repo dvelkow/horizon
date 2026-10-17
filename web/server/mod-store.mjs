@@ -128,16 +128,24 @@ export class ModStore {
   }
   candidatePath(hash) { if (!isHash(hash)) throw new Error('Invalid candidate hash'); return join(this.root, 'candidates', hash); }
   async readCandidate(hash) { return JSON.parse(await fs.readFile(join(this.candidatePath(hash), 'candidate.json'), 'utf8')); }
-  async pending() {
+  async history() {
     const entries = await fs.readdir(join(this.root, 'candidates'));
     const candidates = [];
     for (const hash of entries.filter(isHash)) {
-      try { const candidate = await this.readCandidate(hash); if (candidate.status === 'pending') candidates.push(candidate); }
+      try { candidates.push(await this.readCandidate(hash)); }
       catch { /* Interrupted uploads have no reviewable candidate. */ }
     }
     return candidates.sort((a, b) => a.created.localeCompare(b.created));
   }
-  async upload(bytes, uploader) {
+  async pending() { return (await this.history()).filter(candidate => candidate.status === 'pending'); }
+  async readSource(hash) {
+    const candidate = await this.readCandidate(hash);
+    if (!candidate.sourceSha256) return null;
+    const source = JSON.parse(await fs.readFile(join(this.candidatePath(hash), 'source.json'), 'utf8'));
+    if (source.packageSha256 !== hash || sha256(JSON.stringify(source)) !== candidate.sourceSha256) throw new Error('Review source failed its integrity check');
+    return source;
+  }
+  async upload(bytes, uploader, review = null) {
     const hash = sha256(bytes), directory = this.candidatePath(hash);
     try { return await this.readCandidate(hash); } catch (error) { if (error.code !== 'ENOENT') throw error; }
     if ((await this.pending()).length >= (this.config.maxCandidates ?? 32)) throw new Error('Candidate storage is full; ask the owner to review pending uploads');
@@ -159,6 +167,11 @@ export class ModStore {
         liveReload: !manifest.capabilities.includes('registries') };
     } catch (error) {
       candidate = { schema: 1, sha256: hash, status: 'rejected', uploader, created: new Date().toISOString(), error: error.message };
+    }
+    if (review) {
+      candidate = { ...candidate, submittedVia: 'api', agentId: review.agentId, notes: review.source.notes,
+        sourceSha256: review.sourceSha256, sourceBytes: review.sourceBytes, sourceFiles: review.source.files.length };
+      await atomicJson(join(directory, 'source.json'), review.source);
     }
     await atomicJson(join(directory, 'candidate.json'), candidate);
     if (candidate.status === 'rejected') await this.clearCandidatePayload(hash);
@@ -182,6 +195,7 @@ export class ModStore {
         return this.index;
       }
       if (candidate.status !== 'pending' || !candidate.liveReload) throw new Error('Only validated code mods without registries can be approved for live reload');
+      if (candidate.sourceSha256) await this.readSource(hash);
       // The browser host rejects indexes larger than 32. Keep publication
       // within that contract; replacing an existing ID does not use a slot.
       const activeLimit = Math.min(this.config.maxActiveMods ?? 32, 32);

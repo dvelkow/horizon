@@ -12,6 +12,7 @@ folder, loads no runtime and plays exactly like vanilla 26.3.
 Hosted browser worlds use [the approval workshop](browser.md): friends upload
 the same `.hmod` format, the owner approves its exact hash, and connected clients
 receive the update. Approved server mods run in native Wasmtime.
+Coding agents can [submit packages and source directly through the review API](mod-api.md).
 
 | Part | Where | State |
 |---|---|---|
