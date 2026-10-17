@@ -1,6 +1,8 @@
 //! The machine as an item describes it ([`System`]): what the OS says, read the same way on
 //! every start. The game adds the GPU, its driver and the graphics backend.
 use crate::payload::System;
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 
 fn command_output(program: &str, args: &[&str]) -> Option<String> {
     let out = std::process::Command::new(program)

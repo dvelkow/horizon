@@ -1,4 +1,8 @@
 use super::*;
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
+#[allow(unused_imports)]
+use horizon_platform::PathExt;
 use horizon_world::nbt::Tag;
 use std::{
     fs,
@@ -207,7 +211,7 @@ fn edit_layout_disables_unsupported_optimization_and_missing_icon() {
             .enabled
     );
     f.click("Reset Icon");
-    assert!(!f.title.saves.join("World/icon.png").exists());
+    assert!(!f.title.saves.join("World/icon.png").platform_exists());
     assert!(
         !f.title
             .buttons(480.0, 262.0)
@@ -253,7 +257,7 @@ fn rename_preserves_unknown_metadata_and_cancel_discards_edits() {
     };
     data.insert("LevelName".into(), Tag::String("Renamed 世界".into()));
     assert_eq!(crate::save::read_dat(&path).unwrap(), expected);
-    assert!(path.with_file_name("level.dat_old").is_file());
+    assert!(path.with_file_name("level.dat_old").platform_is_file());
     assert!(
         matches!(&f.title.mode, Mode::Select { worlds, selected: Some(i) } if worlds[*i].name == "Renamed 世界")
     );
@@ -273,11 +277,11 @@ fn delete_requires_confirmation_and_both_cancel_paths_preserve_world() {
     f.select();
     f.click("Delete");
     assert!(matches!(f.title.mode, Mode::Delete { .. }));
-    assert!(f.title.saves.join("World/level.dat").is_file());
+    assert!(f.title.saves.join("World/level.dat").platform_is_file());
     f.click("Cancel");
     f.click("Delete");
     f.title.escape();
-    assert!(f.title.saves.join("World/level.dat").is_file());
+    assert!(f.title.saves.join("World/level.dat").platform_is_file());
     f.click("Delete");
     let delete = f
         .title
@@ -287,7 +291,7 @@ fn delete_requires_confirmation_and_both_cancel_paths_preserve_world() {
         .unwrap();
     assert_eq!((delete.x, delete.y, delete.w), (88.0, 146.0, 150.0));
     f.click("Delete");
-    assert!(!f.title.saves.join("World").exists());
+    assert!(!f.title.saves.join("World").platform_exists());
     assert!(matches!(&f.title.mode, Mode::Select { worlds, selected: None } if worlds.is_empty()));
     f.click("Back");
     f.click("Singleplayer");
@@ -451,7 +455,7 @@ fn failed_operations_show_error_and_leave_world_intact() {
     assert!(matches!(f.title.mode, Mode::Error { .. }));
     f.click("Back");
     assert!(matches!(f.title.mode, Mode::Edit { .. }));
-    assert!(f.title.saves.join("World").is_dir());
+    assert!(f.title.saves.join("World").platform_is_dir());
     for bad in ["../World", "..", ".", "/World"] {
         assert!(world_management::delete(&f.title.saves, bad).is_err());
     }
@@ -638,10 +642,10 @@ fn delete_refuses_an_open_world_then_removes_it_with_its_lock() {
     f.world("World", "World");
     let open = crate::save::SessionLock::acquire(&f.title.saves.join("World")).unwrap();
     assert!(world_management::delete(&f.title.saves, "World").is_err());
-    assert!(f.title.saves.join("World/level.dat").is_file());
+    assert!(f.title.saves.join("World/level.dat").platform_is_file());
     drop(open);
     world_management::delete(&f.title.saves, "World").unwrap();
-    assert!(!f.title.saves.join("World").exists());
+    assert!(!f.title.saves.join("World").platform_exists());
 }
 
 #[cfg(unix)]
@@ -656,8 +660,8 @@ fn delete_removes_links_without_following_them() {
     std::os::unix::fs::symlink(&outside, f.title.saves.join("Linked")).unwrap();
     assert!(world_management::delete(&f.title.saves, "Linked").is_err());
     world_management::delete(&f.title.saves, "World").unwrap();
-    assert!(!f.title.saves.join("World").exists());
-    assert!(outside.join("keep.txt").is_file());
+    assert!(!f.title.saves.join("World").platform_exists());
+    assert!(outside.join("keep.txt").platform_is_file());
 }
 
 #[test]

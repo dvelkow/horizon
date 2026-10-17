@@ -8,6 +8,8 @@
 use super::{Foil, ItemQuad, ItemRenderState, ItemRenderer, SpecialHost};
 use crate::hud::{HudBatch, Rect};
 use glam::{EulerRot, Mat4, Vec2, Vec3};
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 use std::{collections::HashMap, f32::consts::PI};
 
 mod depth;

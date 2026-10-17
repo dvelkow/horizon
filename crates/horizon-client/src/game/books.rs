@@ -13,6 +13,8 @@ use horizon_client::{
     ui,
 };
 use horizon_core::position::BlockPos;
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 use horizon_world::level::flags as level_flags;
 use std::time::Instant;
 use winit::{

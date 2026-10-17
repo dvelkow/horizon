@@ -6,6 +6,10 @@
 //! The scenes, the world (seed 1234, creative) and every step and figure match `tools/perf_bench.py`,
 //! so reports from the two can be compared.
 
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
+#[allow(unused_imports)]
+use horizon_platform::PathExt;
 use std::path::{Path, PathBuf};
 use std::sync::mpsc::{self, Sender};
 use std::thread;
@@ -264,10 +268,10 @@ fn run(control: &Control, setup: Setup) -> Result<PathBuf, String> {
 /// Removes the previous run's world, never one the benchmark didn't create.
 fn replace_world(game_dir: &Path) -> Result<(), String> {
     let world = game_dir.join("saves").join(WORLD);
-    if !world.exists() {
+    if !world.platform_exists() {
         return Ok(());
     }
-    if !world.join(MARKER).exists() {
+    if !world.join(MARKER).platform_exists() {
         return Err(format!(
             "{} exists and was not created by the benchmark: rename it",
             world.display()
@@ -417,10 +421,10 @@ mod tests {
             replace_world(&dir).is_err(),
             "a player's world of that name stays"
         );
-        assert!(world.exists());
+        assert!(world.platform_exists());
         std::fs::write(world.join(MARKER), "").unwrap();
         replace_world(&dir).unwrap();
-        assert!(!world.exists());
+        assert!(!world.platform_exists());
         replace_world(&dir).unwrap();
         std::fs::remove_dir_all(dir).unwrap();
     }

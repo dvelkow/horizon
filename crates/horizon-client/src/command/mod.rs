@@ -3,6 +3,8 @@
 //! relevant child and keeps the best result, completion suggestions, smart
 //! usage text and the vanilla error messages. Argument types live in
 //! [`args`]; the vanilla command tree in [`vanilla`].
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 pub mod args;
 pub mod block;
 pub mod codec;

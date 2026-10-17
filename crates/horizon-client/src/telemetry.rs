@@ -2,6 +2,8 @@
 //! player allows it, the game keeps a scrubbed crash report, or a play session's performance
 //! summary, in the outbox. It never sends anything itself: the launcher does, at its next start.
 //! Without the player's yes for that kind nothing is kept, and crash-reports/ stays local.
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 use std::path::Path;
 use std::sync::{Mutex, OnceLock};
 use std::time::Instant;

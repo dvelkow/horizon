@@ -4,6 +4,8 @@
 //! flowers) don't erode into gaps with distance; colours average in linear
 //! light (`ARGB.meanLinear`).
 
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 /// `MipmapStrategy`, from the texture's `.mcmeta` `texture` section.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum Strategy {

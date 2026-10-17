@@ -4,6 +4,8 @@
 use super::{Arg, Context, Game, R, Target, err};
 use horizon_client::{command::CommandError, text::Text};
 use horizon_core::random::RandomSource;
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 use serde_json::Value;
 
 /// The loot context parameters of `LootContextSources`.

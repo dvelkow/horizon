@@ -10,6 +10,8 @@ use super::{
     },
 };
 use horizon_core::random::RandomSource;
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 
 // Trader state: `point` the wander target, `home` the place it is tied to
 // with `ints[4]` the radius, `ints[5]` the despawn delay, `flag2` whether

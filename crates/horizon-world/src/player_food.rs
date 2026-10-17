@@ -1,5 +1,7 @@
 //! Player-specific hunger guards and virtual/direct state access distinctions.
 use crate::food::FoodData;
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 pub trait PlayerFoodWorld {
     type Error;
     /// Reads the abilities field directly, not the virtual getAbilities method.

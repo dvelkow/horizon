@@ -14,6 +14,10 @@ use super::{
     spawner::{self, SpawnData, SpawnerLevel, SpawnerSpawn},
 };
 use horizon_core::{position::BlockPos, random::RandomSource};
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
+#[allow(unused_imports)]
+use horizon_platform::PathExt;
 use horizon_world::nbt::{Compound, JavaString, Tag};
 use std::{collections::HashMap, path::Path, sync::OnceLock};
 
@@ -147,7 +151,7 @@ pub fn load_registry(root: &Path) {
             while let Some(dir) = stack.pop() {
                 for entry in std::fs::read_dir(&dir).into_iter().flatten().flatten() {
                     let path = entry.path();
-                    if path.is_dir() {
+                    if path.platform_is_dir() {
                         stack.push(path);
                         continue;
                     }

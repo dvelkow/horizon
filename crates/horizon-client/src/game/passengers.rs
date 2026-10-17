@@ -5,6 +5,8 @@
 use super::Game;
 use horizon_client::mobs::{Species, riders};
 use horizon_core::{geometry::Vec3, random::RandomSource};
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 use std::collections::HashMap;
 
 /// `Zombie.finalizeSpawn`: a baby zombie takes a chicken one time in twenty,

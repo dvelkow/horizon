@@ -3,6 +3,8 @@
 //! UPnP IGD (SSDP discovery, then SOAP `AddPortMapping`). The mapping is
 //! renewed while sharing and deleted when it stops; a crashed game's mapping
 //! expires with its lease.
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 use std::{
     io::{self, Read, Write},
     net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr, TcpStream, ToSocketAddrs, UdpSocket},

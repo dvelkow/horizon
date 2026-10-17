@@ -8,6 +8,8 @@
 //! local port the guest's client connects to), end-to-end encrypted with a
 //! key only the holders of the code can derive. The design, the protocol and
 //! what the relay sees are in docs/play-with-friends.md.
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 pub mod code;
 pub mod crypto;
 pub mod direct;

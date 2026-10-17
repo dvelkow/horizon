@@ -2,6 +2,8 @@
 //! types; this module does not create entities or execute their behavior.
 use crate::{compression::invalid, nbt::Tag};
 use horizon_core::position::{BlockPos, ChunkPos};
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 use std::{
     collections::{HashMap, HashSet},
     io,

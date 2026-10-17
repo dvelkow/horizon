@@ -1,5 +1,7 @@
 //! Default fastutil object map with live indexed entries and native traversal.
 use crate::object_open_set::{CursorError, ObjectKey};
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 use std::{
     cell::{Cell, RefCell},
     rc::Rc,

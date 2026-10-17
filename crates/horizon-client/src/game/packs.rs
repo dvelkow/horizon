@@ -1,13 +1,15 @@
 //! Resource pack selection bound to the game: the pack screen lists, and a
 //! full resource reload after a change, while playing.
 use super::Game;
+#[cfg(not(target_arch = "wasm32"))]
+use horizon_client::{hud::HudAtlas, lang};
 use horizon_client::{
-    hud::HudAtlas,
-    lang,
     pack_screen::{Compat, PackInfo, Source as PackSource},
     packs::{self, Pack, Position},
     text::{Style, Text},
 };
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 use std::path::{Path, PathBuf};
 
 /// Where overlay roots are built (beside options.txt).
@@ -22,6 +24,14 @@ pub fn packs_dir() -> PathBuf {
         .join("resourcepacks")
 }
 /// `Util.getPlatform().openPath`: the system file manager on the folder.
+#[cfg(target_arch = "wasm32")]
+pub fn open_folder(dir: &Path) {
+    log::info!(
+        "Horizon: the browser cannot open a local folder: {}",
+        dir.display()
+    );
+}
+#[cfg(not(target_arch = "wasm32"))]
 pub fn open_folder(dir: &Path) {
     let program = if cfg!(target_os = "windows") {
         "explorer"
@@ -118,6 +128,7 @@ impl Game<'_> {
             self.ui.options.resource_error = Some(e.to_string());
         }
     }
+    #[cfg(not(target_arch = "wasm32"))]
     fn reload_resources(&mut self, root: &Path) -> horizon_client::Result<()> {
         let assets = std::sync::Arc::new(self.pack.assets.reload(root)?);
         let mut atlas = HudAtlas::build(root)?;
@@ -180,5 +191,9 @@ impl Game<'_> {
         }
         self.ui.chat.rescale(&self.atlas);
         Ok(())
+    }
+    #[cfg(target_arch = "wasm32")]
+    fn reload_resources(&mut self, _root: &Path) -> horizon_client::Result<()> {
+        Err("Restart the browser client to apply resource-pack textures.".into())
     }
 }

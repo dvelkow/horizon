@@ -2,6 +2,8 @@
 //! consent again and deletes what the player no longer allows, so with everything off it
 //! returns without opening a connection. Failures back off (a minute, doubling, at most a day)
 //! and at most [`MAX_BATCHES_A_DAY`] batches leave a day.
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 

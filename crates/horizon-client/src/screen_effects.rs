@@ -5,6 +5,8 @@
 //! outline, nether portal swirl). Positions are clip-space quads; textures
 //! come from the shared 2D atlas and may repeat.
 use crate::{hud::Rect, hud_layout::GuiDraw};
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 use std::collections::HashMap;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

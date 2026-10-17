@@ -10,6 +10,8 @@ use crate::{
     },
 };
 use horizon_core::geometry::Direction;
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 use std::{collections::BTreeSet, io, sync::Arc};
 
 const HORIZONTAL: [Direction; 4] = [

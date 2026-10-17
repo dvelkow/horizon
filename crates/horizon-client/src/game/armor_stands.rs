@@ -13,6 +13,8 @@ use horizon_core::{
     geometry::{Aabb, Vec3},
     random::RandomSource,
 };
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 use std::{collections::HashMap, sync::Arc};
 
 /// Armor stand models and the humanoid layers of every equipment asset.

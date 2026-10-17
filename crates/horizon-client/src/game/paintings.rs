@@ -7,6 +7,8 @@ use horizon_core::{
     geometry::{Aabb, Vec3},
     random::RandomSource,
 };
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 use std::sync::Arc;
 
 /// A `painting_variant` and whether `#placeable` lists it (in tag order).

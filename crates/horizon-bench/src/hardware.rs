@@ -1,6 +1,8 @@
 //! The machine a report was measured on. CPU, RAM and OS are detected here; the GPU and the display
 //! come from the program that rendered (the game knows its adapter, the launcher its window).
 
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 use std::process::Command;
 
 use serde::{Deserialize, Serialize};

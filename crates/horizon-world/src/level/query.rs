@@ -9,6 +9,8 @@ use super::{
 };
 use crate::{fluid::FluidKind, registry::BlockStateId};
 use horizon_core::{geometry::Direction, position::BlockPos};
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 
 pub(crate) const fn clockwise(direction: Direction) -> Direction {
     match direction {

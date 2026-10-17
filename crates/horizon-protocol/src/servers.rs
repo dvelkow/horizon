@@ -1,5 +1,7 @@
 //! The multiplayer server list, stored like vanilla's ServerList in an
 //! uncompressed `servers.dat`: `{servers: [{name, ip, icon?, acceptTextures?}]}`.
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 use horizon_world::nbt::{self, JavaString, NamedTag, Tag};
 use std::path::Path;
 

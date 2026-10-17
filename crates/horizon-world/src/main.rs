@@ -1,4 +1,6 @@
 use horizon_core::position::BlockPos;
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 use horizon_world::{
     chunk::{BlockState, ChunkData},
     compression::Compression,

@@ -7,6 +7,8 @@ use super::{
 };
 use crate::registry::BlockStateId;
 use horizon_core::{geometry::Direction, position::BlockPos};
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 use std::collections::HashMap;
 
 /// `SideChainPart`.

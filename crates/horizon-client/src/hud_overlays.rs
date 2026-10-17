@@ -13,6 +13,8 @@ use crate::{
     },
     text::{Style, Text},
 };
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 use std::{borrow::Cow, cmp::Ordering};
 
 /// `graphics.text`: dropped when fully transparent.

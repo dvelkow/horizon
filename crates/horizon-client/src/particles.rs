@@ -17,6 +17,8 @@ use horizon_core::{
     geometry::{Aabb, Axis, Vec3, trig},
     random::{LegacyRandom, RandomSource},
 };
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 use horizon_world::block_collision::BlockCollisionRegistry;
 use std::{collections::HashMap, path::Path};
 

@@ -3,6 +3,8 @@
 //! translation of rebound physical keys back to the default keys the game
 //! logic listens for.
 use crate::text::Text;
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 use std::collections::BTreeMap;
 use winit::{event::MouseButton, keyboard::KeyCode};
 

@@ -17,6 +17,10 @@ use horizon_client::{
     tab_list::TabPlayer,
     text::Text,
 };
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
+#[allow(unused_imports)]
+use horizon_platform::PathExt;
 use horizon_world::nbt::Tag;
 use std::collections::HashSet;
 
@@ -87,7 +91,7 @@ impl Game<'_> {
         }
         let path = self.scoreboard_path();
         let board = &self.score.board;
-        if board == &Scoreboard::default() && !path.exists() {
+        if board == &Scoreboard::default() && !path.platform_exists() {
             return;
         }
         let _ = save::write_dat(

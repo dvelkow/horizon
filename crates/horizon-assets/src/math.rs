@@ -3,6 +3,8 @@
 //! the matrix properties (identity, translation, affine...), and `Math.fma` is
 //! `a * b + c` since Minecraft leaves `joml.useMathFma` off.
 
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 /// `Matrix4fc.PROPERTY_*` bits.
 const PERSPECTIVE: u8 = 1;
 const AFFINE: u8 = 2;

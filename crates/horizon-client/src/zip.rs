@@ -1,5 +1,7 @@
 //! Minimal read-only ZIP archive support (stored and deflated entries), used
 //! for resource packs and the unifont glyph archive.
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 use std::{collections::BTreeMap, fs, io, path::Path};
 
 /// One archive held in memory with its central directory indexed by name.

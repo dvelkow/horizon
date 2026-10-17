@@ -9,6 +9,10 @@
 //! need an entity, tool or damage source fail when the context has none, as
 //! they do for containers.
 use horizon_core::random::{LegacyRandom, RandomSource};
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
+#[allow(unused_imports)]
+use horizon_platform::PathExt;
 use serde_json::Value;
 use std::{
     collections::{BTreeMap, HashMap},
@@ -264,7 +268,7 @@ fn load_dir(dir: &Path, prefix: &str, out: &mut HashMap<String, Value>) -> io::R
         let Some(stem) = path.file_stem().and_then(|s| s.to_str()) else {
             continue;
         };
-        if path.is_dir() {
+        if path.platform_is_dir() {
             load_dir(&path, &format!("{prefix}{stem}/"), out)?;
         } else if path.extension().is_some_and(|e| e == "json") {
             let value = serde_json::from_slice(&fs::read(&path)?)?;

@@ -4,6 +4,8 @@ use horizon_core::{
     geometry::{Aabb, Vec3, VoxelShape},
     position::BlockPos,
 };
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 use std::sync::OnceLock;
 
 #[derive(Clone, Copy, Debug)]

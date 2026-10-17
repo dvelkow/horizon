@@ -1,5 +1,7 @@
 //! Region codecs, including lz4-java's block framing (not the LZ4 frame format).
 use flate2::{Compression as Level, Decompress, FlushDecompress, Status};
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 use std::io::{self, Read, Write};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

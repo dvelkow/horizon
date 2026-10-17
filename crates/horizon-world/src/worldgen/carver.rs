@@ -1,4 +1,6 @@
 //! Seeded carver paths using pinned scalar providers and shared mask geometry.
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 mod canyon;
 mod generation;
 use super::{

@@ -1,6 +1,8 @@
 //! Horizon native client: resources, world streaming, rendering and the
 //! bindings between the validated simulation pieces and the game loop.
 #![forbid(unsafe_code)]
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 pub mod advancements;
 pub mod ambience;
 pub mod animate_tick;
@@ -185,3 +187,5 @@ pub mod world_spawn;
 pub mod worldborder;
 pub mod zip;
 pub type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
+#[cfg(target_arch = "wasm32")]
+pub mod browser;

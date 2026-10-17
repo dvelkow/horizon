@@ -15,6 +15,8 @@ use crate::worldgen::{
     value_provider::IntProvider,
 };
 use horizon_core::{geometry::Direction, random::RandomSource};
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 use std::sync::Arc;
 
 #[derive(Clone, Debug)]

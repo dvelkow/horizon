@@ -5,6 +5,10 @@
 //! bindings, deadzones and the look curve, button edges from successive pad
 //! states, and `horizon-controller.txt`, kept next to `options.txt` so that
 //! file stays exactly vanilla's. The game reads the pads with gilrs.
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
+#[allow(unused_imports)]
+use horizon_platform::PathExt;
 use std::{collections::BTreeMap, fs, path::Path};
 
 pub const FILE: &str = "horizon-controller.txt";
@@ -439,7 +443,7 @@ impl PadSettings {
     /// never touch a controller get no new file.
     pub fn save(&self, dir: &Path) {
         let path = dir.join(FILE);
-        if *self != Self::default() || path.exists() {
+        if *self != Self::default() || path.platform_exists() {
             let _ = fs::write(path, self.serialize());
         }
     }

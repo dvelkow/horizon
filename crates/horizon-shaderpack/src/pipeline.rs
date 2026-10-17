@@ -14,6 +14,8 @@ use crate::{
     properties::{LEGACY_TARGETS, ShaderProperties},
     translate::{Link, Translated},
 };
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 use std::collections::{BTreeMap, BTreeSet};
 
 /// Colour targets Iris supports (`IrisLimits.MAX_COLOR_BUFFERS`).

@@ -2,6 +2,8 @@
 //! primitive codecs, framing, compression, encryption, and typed packets for
 //! every connection state, shared by the Horizon client and (later) server.
 #![forbid(unsafe_code)]
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 pub mod buf;
 pub mod chunk;
 pub mod connection;

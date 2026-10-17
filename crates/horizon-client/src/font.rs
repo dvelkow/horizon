@@ -8,6 +8,8 @@ use crate::{
     text::{Style, Text},
     zip::Zip,
 };
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 use std::{
     cell::RefCell,
     collections::HashMap,

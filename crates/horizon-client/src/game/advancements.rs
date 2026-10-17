@@ -9,6 +9,8 @@ use horizon_client::{
     text::{self, Style, Text},
     toasts::Slide,
 };
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 use serde_json::Value;
 use std::{
     collections::{BTreeMap, BTreeSet, VecDeque},

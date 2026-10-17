@@ -5,6 +5,8 @@
 //! the graph inlined from its file.
 
 use crate::source::PackFiles;
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 use std::collections::{BTreeMap, BTreeSet};
 
 /// One file of the graph: its lines and the include on each `#include` line.

@@ -10,6 +10,8 @@ use super::{
     keyframes::{Animation, AnimationState},
 };
 use horizon_core::geometry::trig::Mth;
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 use std::{collections::HashMap, f64::consts::PI};
 
 pub type Animations = HashMap<String, Animation>;

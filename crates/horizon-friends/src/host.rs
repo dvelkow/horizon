@@ -15,6 +15,8 @@ use crate::{
     resolve_relay, session,
     wire::{self, FromRelay, ToRelay},
 };
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 use std::{
     collections::HashMap,
     io::{self, BufReader},

@@ -1,3 +1,5 @@
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 use serde_json::value::RawValue;
 use std::{collections::BTreeMap, fmt};
 

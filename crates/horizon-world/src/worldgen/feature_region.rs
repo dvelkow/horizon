@@ -21,6 +21,8 @@ use horizon_core::{
         WorldGenTickContainers,
     },
 };
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 use std::{
     collections::{BTreeMap, BTreeSet},
     sync::Arc,

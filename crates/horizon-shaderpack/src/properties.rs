@@ -7,6 +7,8 @@
 
 use crate::options::{OptionSet, OptionValues};
 use crate::preprocess::Environment;
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 use pp_rs::{pp::Preprocessor, token::TokenValue};
 use std::collections::BTreeMap;
 

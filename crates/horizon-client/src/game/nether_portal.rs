@@ -16,6 +16,8 @@ use horizon_core::{
     position::BlockPos,
     random::RandomSource,
 };
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 use horizon_world::{
     level::portal_travel::{
         BorderBounds, FoundRectangle, closest_portal, collision_free_position, exit_position,

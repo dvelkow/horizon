@@ -4,6 +4,8 @@
 //! The endpoints go into the invite code; the verdict tells the host what
 //! friends outside its network can expect, and what to do when it's nothing.
 use crate::portmap::{self, Mapping};
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 use std::{
     net::{IpAddr, Ipv4Addr, SocketAddr},
     time::Duration,
@@ -66,6 +68,7 @@ fn virtual_interface(name: &str) -> bool {
 /// This machine's addresses worth offering, best first: private IPv4 (the
 /// LAN), shared IPv4 (Tailscale's 100.64/10, CGNAT), other IPv4, one global
 /// IPv6. No link-local or unique-local; loopback on request.
+#[cfg(not(target_arch = "wasm32"))]
 pub fn interface_addresses(loopback: bool) -> Vec<IpAddr> {
     let mut found: Vec<(u8, IpAddr)> = Vec::new();
     for i in if_addrs::get_if_addrs().unwrap_or_default() {
@@ -358,4 +361,9 @@ mod tests {
         assert!(interface_addresses(false).iter().all(|a| !a.is_loopback()));
         assert!(interface_addresses(true).contains(&IpAddr::V4(Ipv4Addr::LOCALHOST)));
     }
+}
+
+#[cfg(target_arch = "wasm32")]
+pub fn interface_addresses(_loopback: bool) -> Vec<IpAddr> {
+    Vec::new()
 }

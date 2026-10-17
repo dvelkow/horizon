@@ -7,6 +7,8 @@ use super::{
 };
 use crate::nbt::{Compound, Tag};
 use horizon_core::{geometry::Direction, random::RandomSource};
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 use std::sync::Arc;
 
 const MAX_GEN_DEPTH: i32 = 8;

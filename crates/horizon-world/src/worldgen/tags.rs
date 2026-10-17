@@ -1,6 +1,8 @@
 //! Version-pinned tag codecs, resource-stack merging and dependency resolution.
 use super::{DecodeError, Object, optional, required};
 use horizon_core::random::java_string_hash;
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 use serde_json::value::RawValue;
 use std::collections::{BTreeMap, BTreeSet};
 

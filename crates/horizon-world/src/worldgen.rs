@@ -1,5 +1,7 @@
 //! Version-specific noise, density registry and terrain-router JSON decoding.
 //! Complete terrain generation remains pending.
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 pub mod anchor;
 pub mod aquifer;
 pub mod bamboo;

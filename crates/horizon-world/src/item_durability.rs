@@ -1,5 +1,7 @@
 //! Item-stack durability storage and mutation ordering. This is the durability
 //! projection of a stack, not a replacement for its complete component map.
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct DurabilityStack {
     pub count: i32,

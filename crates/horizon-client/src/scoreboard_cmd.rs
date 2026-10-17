@@ -12,6 +12,8 @@ use crate::{
     },
     text::{self, Text},
 };
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 
 /// A score holder a command resolved: the scoreboard name and the name
 /// shown in feedback.

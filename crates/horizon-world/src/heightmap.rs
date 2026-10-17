@@ -3,6 +3,8 @@
 //! Block behavior supplies air/fluid facts and resolved block-tag membership.
 //! Heightmaps do not infer those facts from collision shapes or block names.
 use horizon_core::storage::{PackedStorage, StorageError};
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[repr(u8)]

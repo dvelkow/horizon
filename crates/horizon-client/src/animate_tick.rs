@@ -13,6 +13,8 @@ use horizon_core::{
     geometry::Axis,
     random::{LegacyRandom, RandomSource},
 };
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 use horizon_world::{
     block_collision::BlockCollisionRegistry,
     registry::{BlockRegistry, BlockStateId},

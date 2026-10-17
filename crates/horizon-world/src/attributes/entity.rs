@@ -2,6 +2,8 @@
 //! mutation/serialization order is deliberately outside this per-attribute API.
 use super::{Definition, Instance, Observer};
 use crate::{DATA_VERSION, compression::invalid};
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 use serde_json::Value;
 use std::{collections::BTreeMap, convert::Infallible, io, sync::Arc};
 

@@ -7,6 +7,8 @@ use horizon_client::{
     hud::{HudBatch, rgba},
     signs::wood_type,
 };
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 use std::time::Instant;
 use winit::{
     event::{ElementState, KeyEvent},

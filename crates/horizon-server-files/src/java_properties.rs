@@ -3,6 +3,8 @@
 //! JDK writes since Java 18, and `java.util.Date.toString` for the timestamp
 //! comment. Values are kept in a map keyed like Java's Hashtable; iteration
 //! for storing sorts by `String.compareTo` (UTF-16 code units).
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 use std::collections::HashMap;
 
 /// A malformed `\uxxxx` escape: Properties.load throws IllegalArgumentException.

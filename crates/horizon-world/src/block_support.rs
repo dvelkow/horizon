@@ -1,6 +1,8 @@
 //! Native support tests over an already-selected block support shape. Selecting
 //! that shape from block/world/entity behavior is the caller's responsibility.
 use horizon_core::geometry::{Aabb, Direction, ShapeError, ShapeOp, Vec3, VoxelShape};
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 use std::sync::OnceLock;
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum SupportType {

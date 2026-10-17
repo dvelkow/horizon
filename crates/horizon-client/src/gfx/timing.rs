@@ -1,5 +1,7 @@
 //! GPU frame time from timestamp queries, read back a few frames late so the
 //! CPU never waits for it. Frames whose readback slot is still busy go untimed.
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 use std::sync::{
     Arc,
     atomic::{AtomicU8, Ordering},

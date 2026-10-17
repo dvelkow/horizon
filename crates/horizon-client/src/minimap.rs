@@ -12,6 +12,8 @@ use crate::{
     fast_hash::FxHashMap,
     world::World,
 };
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 use std::time::{Duration, Instant};
 
 /// The image's side in texels.

@@ -1,6 +1,8 @@
 //! Vanilla keyframe animations (`AnimationDefinition`, `AnimationChannel`,
 //! `KeyframeAnimation`) exported from the client's animation definitions,
 //! applied to a pose map exactly like `KeyframeAnimation.Entry.apply`.
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 use serde_json::Value;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

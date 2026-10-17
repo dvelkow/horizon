@@ -9,6 +9,8 @@ use horizon_client::{
     items::ItemStack,
 };
 use horizon_core::random::RandomSource;
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 use horizon_world::blocking_rules::{BlockingRules, DamageReduction, ItemDamageFunction};
 
 /// `Inventory.SLOT_OFFHAND`: the `using` slot of an off-hand item.

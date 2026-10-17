@@ -9,6 +9,8 @@ use horizon_client::{
     items::ItemStack,
     screen_layout::{self, LoomView, ScreenDraw},
 };
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 use std::sync::Arc;
 
 /// Per-menu loom state: `selectablePatterns`, the selected index and the

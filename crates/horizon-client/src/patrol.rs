@@ -8,6 +8,8 @@ use crate::mobs::{
     spawn_rules::{self, Reason, SpawnLevel},
 };
 use horizon_core::random::RandomSource;
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 
 /// What the patrol spawner reads from the level.
 pub trait PatrolLevel: SpawnLevel {

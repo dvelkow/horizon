@@ -6,6 +6,8 @@ use crate::{
     containers::Providers,
     items::{ItemStack, Items},
 };
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 use serde_json::Value;
 use std::{collections::HashSet, fs, path::Path, sync::Arc};
 

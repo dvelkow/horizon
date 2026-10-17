@@ -1,5 +1,7 @@
 //! Validated resource identifiers, with Java hashing and path-first ordering.
 use crate::java_hash_map::JavaKey;
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 use std::{cmp::Ordering, fmt, sync::Arc};
 #[derive(Debug, PartialEq, Eq)]
 struct Data {

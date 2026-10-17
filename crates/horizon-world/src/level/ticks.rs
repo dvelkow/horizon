@@ -8,6 +8,8 @@ use horizon_core::{
         ChunkTicks, LevelTicks, ScheduleResult, ScheduledTick, TickError, TickPriority, TickTypeId,
     },
 };
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 
 /// Owned by the caller next to its chunk storage. Chunks must be registered
 /// with [`Ticks::add_chunk`] before ticks can be scheduled in them, mirroring

@@ -2,6 +2,8 @@
 //! `HORIZON_SPIKES=MS` prints the spans of every frame whose CPU time
 //! exceeds MS milliseconds. Costs one clock read per span when enabled and
 //! a relaxed load otherwise.
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 use std::{
     cell::RefCell,
     sync::atomic::{AtomicBool, Ordering},

@@ -5,6 +5,8 @@
 //! fly and amphibious node evaluators (`path`, `nav`), move/look/jump/body
 //! controls (`control`), `LivingEntity` physics (`living`) and per-species
 //! behaviour, models, animations and sounds.
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 pub mod ai;
 pub mod allay;
 pub mod anim;

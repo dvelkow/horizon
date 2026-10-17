@@ -10,6 +10,8 @@
 //! vanilla 26.3's exact texture is rebuilt: a resource pack's edition.png
 //! stays as its author drew it.
 
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 use std::collections::{HashMap, VecDeque};
 use std::ops::Range;
 

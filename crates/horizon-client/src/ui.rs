@@ -5,6 +5,10 @@ use crate::{
     hud::{HudAtlas, HudBatch, Rect, rgba},
     text::Text,
 };
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
+#[allow(unused_imports)]
+use horizon_platform::PathExt;
 use std::{collections::HashMap, path::Path, sync::RwLock, time::Instant};
 
 /// Nine-slice borders (left, top, right, bottom) from `.png.mcmeta` files.
@@ -21,7 +25,7 @@ pub fn load_metadata(root: &Path) {
         };
         for e in entries.flatten() {
             let p = e.path();
-            if p.is_dir() {
+            if p.platform_is_dir() {
                 stack.push(p);
                 continue;
             }

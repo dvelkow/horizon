@@ -7,6 +7,8 @@ use horizon_client::{
     control::Request,
     widgets::{self, Kind, Node},
 };
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 use serde_json::{Value, json};
 use std::{
     sync::mpsc::Sender,

@@ -8,6 +8,8 @@ use crate::{
     advancements::{Progress, Tree},
     recipe_book::{RecipeIndex, Settings},
 };
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 use horizon_protocol::buf::Writer;
 use serde_json::Value;
 use std::{

@@ -7,6 +7,8 @@ use horizon_client::{
     mobs::{Species, Who, piglin::ADMIRE},
 };
 use horizon_core::random::RandomSource;
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 
 impl Game<'_> {
     fn piglin_loved(&self, item: &str) -> bool {

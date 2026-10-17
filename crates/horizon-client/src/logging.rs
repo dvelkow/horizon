@@ -8,6 +8,8 @@
 //! Messages go through the `log` facade. Horizon's own still print their plain text on stderr,
 //! as they did before the log existed; other crates' errors only reach the file (their
 //! warnings are mostly the Vulkan loader's startup chatter).
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 use std::collections::VecDeque;
 use std::fs::{self, File, OpenOptions};
 use std::io::{self, Read, Seek, SeekFrom, Write};
@@ -196,7 +198,7 @@ pub fn open_latest(dir: &Path) -> io::Result<Option<Latest>> {
         .truncate(false)
         .open(dir.join("latest.log"))?;
     let modified = file.metadata()?.modified()?;
-    let date = DateTime::<Local>::from(modified).date_naive();
+    let date = DateTime::<Local>::from(horizon_platform::system_time(modified)).date_naive();
     roll(&mut file, dir, date)?;
     Ok(Some(Latest { file, _lock: lock }))
 }

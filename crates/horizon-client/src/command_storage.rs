@@ -1,6 +1,8 @@
 //! `CommandStorage`: named compounds for `/data ... storage <id>`, kept per
 //! namespace in `data/<namespace>/command_storage.dat`.
 use crate::save;
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 use horizon_world::nbt::{Compound, Tag};
 use std::{
     collections::BTreeMap,

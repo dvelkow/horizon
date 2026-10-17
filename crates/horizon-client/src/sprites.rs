@@ -1,6 +1,10 @@
 //! Shared nearest-sampled sprite array for block and item textures.
 use crate::Result;
 use horizon_assets::animation::{AnimationClip, AnimationMetadata};
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
+#[allow(unused_imports)]
+use horizon_platform::PathExt;
 use std::{
     collections::BTreeMap,
     fs::{self, File},
@@ -418,7 +422,7 @@ mod tests {
         let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../.local/horizon-client/26.3");
         if !root
             .join("assets/minecraft/textures/block/fire_0.png")
-            .exists()
+            .platform_exists()
         {
             return;
         }

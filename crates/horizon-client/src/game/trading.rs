@@ -16,6 +16,8 @@ use horizon_client::{
     items::ItemStack,
     merchant::{self, MerchantOffer, TradeContext},
 };
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 
 /// The merchant screen is 100 px wider than the 176-px menus it shares an origin with.
 const SHIFT: f32 = -50.0;

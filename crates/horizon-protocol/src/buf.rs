@@ -2,6 +2,8 @@
 //! VarLong, ByteBufCodecs) and the `Codec` building blocks packets are
 //! composed from, mirroring `StreamCodec.composite`.
 use crate::{Error, Result};
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 use horizon_world::nbt::{self, Tag};
 use std::marker::PhantomData;
 

@@ -9,6 +9,8 @@ use crate::{
     registry::{BlockRegistry, BlockStateId},
 };
 use horizon_core::{carving::CarvingMask, position::BlockPos, random::RandomSource};
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 use std::collections::BTreeSet;
 
 /// Per-state predicates resolved once from the world's block registry and

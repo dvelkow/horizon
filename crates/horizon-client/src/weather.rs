@@ -6,6 +6,8 @@
 //! Horizon samples the sprite from its atlas, so [`tile`] splits a quad at
 //! every whole texture repeat into pieces that stay inside the sprite.
 use horizon_core::random::{LegacyRandom, RandomSource};
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 
 /// `WeatherEffectRenderer.ColumnInstance`.
 #[derive(Clone, Copy, Debug, PartialEq)]

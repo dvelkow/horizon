@@ -8,6 +8,8 @@ use horizon_client::{
     hud_layout,
     hud_overlays::{SubtitleFrame, SubtitleOverlay, now_ms},
 };
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 use std::cell::RefCell;
 
 #[derive(Default)]

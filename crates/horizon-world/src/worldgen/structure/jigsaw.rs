@@ -17,6 +17,8 @@ use horizon_core::{
     position::BlockPos,
     random::{LegacyRandom, RandomSource, position_seed},
 };
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 use serde_json::Value;
 use std::{
     cell::RefCell,

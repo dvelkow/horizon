@@ -7,6 +7,8 @@ use horizon_client::{
     mesher::Vertex,
     mobs::{Mob, Species, render},
 };
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 
 /// The six faces of the unit cube with their shade: top, bottom, the two
 /// z faces, the two x faces.

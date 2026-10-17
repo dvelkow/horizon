@@ -10,6 +10,8 @@ use horizon_core::{
     position::BlockPos,
     random::RandomSource,
 };
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 use horizon_world::{
     block_entity_push::BlockPushWorld,
     block_landing::{

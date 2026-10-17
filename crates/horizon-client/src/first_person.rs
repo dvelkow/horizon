@@ -8,6 +8,8 @@
 //!
 //! What those read and do in the world is behind [`HandWorld`].
 
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 /// The ranged item state read by the first-person hand renderer.
 #[derive(Clone, Copy, Debug)]
 pub enum ItemPose {

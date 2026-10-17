@@ -7,6 +7,8 @@ use horizon_core::{
     position::ChunkPos,
     random::{WorldgenRandom, XoroshiroRandom},
 };
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 use std::collections::{BTreeMap, BTreeSet};
 
 pub use super::biome::BiomeId as DecorationBiome;

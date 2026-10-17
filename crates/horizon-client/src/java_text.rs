@@ -2,6 +2,8 @@
 //! `Double.toString`/`Float.toString`, Gson's HTML-safe string escaping and a
 //! reader for Gson's lenient JSON (`JsonParser.parseString`).
 
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 /// Digits and decimal exponent of the shortest round-trip form.
 fn shortest(text: &str) -> (String, i32) {
     // `{:e}` yields "d.ddde-5" or "de5".

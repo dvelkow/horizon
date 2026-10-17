@@ -5,6 +5,8 @@ use horizon_client::{
     effects::EffectInstance,
     text::{self, Style, Text},
 };
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 use std::{collections::HashMap, sync::OnceLock};
 
 /// `CommandResponseTracker` over targets: elements with a non-zero result.

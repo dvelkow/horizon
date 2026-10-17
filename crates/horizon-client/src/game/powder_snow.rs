@@ -10,6 +10,8 @@ use horizon_client::{
     particles::{ParticleOptions, ParticleType},
 };
 use horizon_core::{geometry::Vec3, position::BlockPos, random::RandomSource};
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 
 impl Game<'_> {
     /// `ClientPacketListener.handleParticleEvent` for the one ALTERNATIVE

@@ -7,6 +7,8 @@ use crate::{
     fastutil_order::{HashSetOrder, OpenOrder},
     text::{self, Style, Text},
 };
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 use horizon_world::nbt::Tag;
 use serde_json::Value;
 use std::collections::BTreeMap;

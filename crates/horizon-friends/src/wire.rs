@@ -1,5 +1,7 @@
 //! The relay protocol: one JSON object per line until a connection is
 //! bridged, then the raw session stream (see docs/play-with-friends.md).
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 use serde::{Deserialize, Serialize};
 use std::io::{self, BufRead, Read, Write};
 

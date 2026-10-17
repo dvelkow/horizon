@@ -5,6 +5,8 @@ use crate::{
     buf::{Reader, varint_size, write_varint},
 };
 use flate2::{Compression, read::ZlibDecoder, write::ZlibEncoder};
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 use std::io::{Read, Write};
 
 /// Frames are at most three VarInt bytes long (21 bits).

@@ -5,6 +5,8 @@ use super::{
     menu::{self, Menu, Rules, Slots, View},
 };
 use crate::{containers::BlockEntity, items::ItemStack, world::World};
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 use horizon_protocol::{
     item::Hashed,
     packets::play::{self, Clientbound as C},

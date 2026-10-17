@@ -3,6 +3,8 @@ use super::{PlacementContext, PlacementError, PlacementModifier, PlacementQueryE
 use crate::worldgen::anchor::WorldGenerationContext;
 use crate::{heightmap::HeightmapType, worldgen::feature_sort::FeatureIdentity};
 use horizon_core::random::{InvalidBound, RandomSource};
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 use std::cell::Cell;
 
 struct Queries<'a, C> {

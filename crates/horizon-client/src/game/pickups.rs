@@ -7,6 +7,8 @@ use horizon_client::{
     entities::{ExperienceOrb, ItemEntity},
     projectiles::Projectile,
 };
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 
 /// `ItemPickupParticle.LIFE_TIME`.
 const LIFE_TIME: u32 = 3;

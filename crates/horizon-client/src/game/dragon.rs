@@ -18,6 +18,8 @@ use horizon_core::{
     geometry::{Aabb, Vec3},
     random::{LegacyRandom, RandomSource},
 };
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 use horizon_world::nbt::Tag;
 
 /// Mob ids from here on are dragon parts (`SPECIAL + part`) and crystals

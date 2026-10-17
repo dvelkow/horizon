@@ -9,6 +9,8 @@ use super::items::java_hash_order;
 use super::schema::{Key, Ty, key};
 use super::{Cx, FixFn, id_is, reread};
 use crate::nbt::{Compound, Tag};
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 
 pub(super) fn register(out: &mut Vec<(Key, FixFn)>) {
     // ProjectileStoredWeaponFix only writes and reads arrows with the new schema.

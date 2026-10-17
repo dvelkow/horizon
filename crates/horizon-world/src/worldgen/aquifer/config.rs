@@ -4,6 +4,8 @@ use horizon_core::density::{
     DensitySampler,
     graph::{CompileError, DensityCompiler, FunctionId},
 };
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 use std::sync::Arc;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

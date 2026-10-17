@@ -1,6 +1,8 @@
 //! World-list operations. Metadata edits preserve every other NBT field;
 //! backups use vanilla's ZIP layout and never include the session lock.
 use crate::save::{read_dat, write_dat};
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 use horizon_world::nbt::Tag;
 use std::{
     fs, io,
@@ -55,8 +57,15 @@ pub(super) fn delete(saves: &Path, folder: &str) -> crate::Result<()> {
             Ok(()) => break,
             Err(e) if attempt >= 5 => return Err(e.into()),
             Err(e) => {
-                log::warn!("Failed to delete {}: {e}", world.display());
-                std::thread::sleep(std::time::Duration::from_millis(500));
+                // VFS operations finish synchronously, so a failed deletion
+                // cannot recover while the Window blocks its own event loop.
+                #[cfg(target_arch = "wasm32")]
+                return Err(e.into());
+                #[cfg(not(target_arch = "wasm32"))]
+                {
+                    log::warn!("Failed to delete {}: {e}", world.display());
+                    std::thread::sleep(std::time::Duration::from_millis(500));
+                }
             }
         }
     }

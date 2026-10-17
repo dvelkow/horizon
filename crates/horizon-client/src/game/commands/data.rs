@@ -10,6 +10,8 @@ use horizon_client::{
     snbt,
     text::Text,
 };
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 use horizon_world::nbt::{Compound, JavaString, Tag, parse_snbt};
 
 /// A `DataAccessor`.

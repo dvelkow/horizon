@@ -9,6 +9,10 @@
 //! path ends in `.json`, the game listens on a random localhost TCP port and
 //! writes `{"transport":"tcp","port":N,"token":"..."}` to the path, readable
 //! only by its user; a client's first line must then be `auth TOKEN`.
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
+#[allow(unused_imports)]
+use horizon_platform::PathExt;
 use std::{
     io::{self, BufRead, BufReader, Read, Write},
     net::{Ipv4Addr, TcpListener, TcpStream},
@@ -169,7 +173,7 @@ pub fn default_path() -> PathBuf {
 impl Server {
     pub fn start(path: &Path) -> io::Result<Self> {
         // An endpoint left by a crashed game refuses connections; replace it.
-        if path.exists() && connect(path).is_err() {
+        if path.platform_exists() && connect(path).is_err() {
             std::fs::remove_file(path)?;
         }
         let (sender, requests) = mpsc::channel();
@@ -339,7 +343,7 @@ mod tests {
         BufReader::new(client).read_line(&mut reply).unwrap();
         assert_eq!(reply.trim(), r#"{"ok":true}"#);
         drop(server);
-        assert!(!path.exists());
+        assert!(!path.platform_exists());
     }
 
     #[test]

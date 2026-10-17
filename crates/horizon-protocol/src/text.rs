@@ -1,6 +1,8 @@
 //! Chat components as sent on the network (ComponentSerialization in NBT form)
 //! flattened to display strings, with `translate` keys resolved through a
 //! language table (en_us.json) and Java `String.format` style arguments.
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 use horizon_world::nbt::{JavaString, Tag};
 use std::collections::HashMap;
 

@@ -4,6 +4,8 @@
 //! elements, faces and display transforms are retained as the native decoder
 //! does; render preparation must diagnose these before baking.
 use crate::json::*;
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 use serde_json::value::RawValue;
 use std::collections::BTreeMap;
 

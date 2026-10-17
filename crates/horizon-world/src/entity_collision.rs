@@ -1,6 +1,8 @@
 //! EntityGetter collision shape selection over an ordered entity snapshot.
 use crate::entity_obstruction::EntityIdentity;
 use horizon_core::geometry::{Aabb, ShapeError, Vec3, VoxelShape};
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 
 #[derive(Clone, Copy, Debug)]
 pub struct CollisionCandidate {

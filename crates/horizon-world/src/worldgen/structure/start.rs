@@ -23,6 +23,8 @@ use horizon_core::{
     position::{BlockPos, ChunkPos},
     random::{LegacyRandom, PositionalRandom, RandomSource, WorldgenRandom},
 };
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 use serde_json::{Value, value::RawValue};
 use std::{
     collections::{BTreeMap, BTreeSet},

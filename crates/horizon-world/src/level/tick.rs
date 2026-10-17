@@ -13,6 +13,8 @@ use horizon_core::{
     random::RandomSource,
     ticks::TickTypeId,
 };
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 
 impl<L: LevelAccess + ?Sized> Sim<'_, L> {
     fn rand_int(&mut self, bound: i32) -> i32 {

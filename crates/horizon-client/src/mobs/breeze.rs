@@ -7,6 +7,8 @@ use super::{
     keyframes::Animation,
 };
 use horizon_core::{geometry::Vec3, jmath, random::RandomSource};
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 use std::collections::HashMap;
 
 // `variant3` is the pose, `variant` the pose the animations last saw,

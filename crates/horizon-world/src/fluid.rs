@@ -5,6 +5,8 @@ use crate::{
     compression::invalid,
     registry::{BlockRegistry, BlockStateId},
 };
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 use std::io;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

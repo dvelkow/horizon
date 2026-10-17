@@ -9,6 +9,8 @@ use crate::{
     items::ItemStack,
     recipe_book::{Book, BookType, Display, Entry},
 };
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 
 /// A styled run of text: its characters, colour (`-1` for the call's own) and italics.
 #[derive(Clone, Debug, PartialEq)]

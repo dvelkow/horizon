@@ -11,6 +11,8 @@ use horizon_client::{
     lan::{guest::Guest, menu::Slots},
     menu::{Env, Input, Kind, Menu},
 };
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 use horizon_protocol::packets::play::{self, Clientbound as C};
 
 /// The guest's menus the game runs: kept between clicks, so a drag (quick

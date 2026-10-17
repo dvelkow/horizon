@@ -93,6 +93,8 @@ use horizon_core::{
     position::{BlockPos, ChunkPos},
     random::LegacyRandom,
 };
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 use std::{collections::HashMap, io, path::Path, sync::Arc, sync::Mutex};
 
 pub mod classes;

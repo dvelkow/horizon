@@ -2,6 +2,8 @@
 //! sensitivity curve, cinematic smoothing, inversion), `SmoothDouble`,
 //! `ScrollWheelHandler` and `Entity.turn`.
 
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 /// `SmoothDouble`.
 #[derive(Clone, Debug, Default)]
 pub struct SmoothDouble {

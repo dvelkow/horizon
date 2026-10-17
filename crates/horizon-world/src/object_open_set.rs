@@ -1,5 +1,7 @@
 //! Default fastutil ObjectOpenHashSet storage and live iterator semantics.
 //! Key hashing/equality must be pure; null is represented by None.
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 pub trait ObjectKey: Eq {
     fn object_hash(&self) -> i32;
 }

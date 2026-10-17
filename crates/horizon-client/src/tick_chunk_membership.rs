@@ -1,5 +1,7 @@
 //! Tick scheduler membership, invalidated by resident key changes or resets.
 use crate::chunk_map::ChunkMap;
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 use std::collections::HashSet;
 
 type Key = (i32, i32);

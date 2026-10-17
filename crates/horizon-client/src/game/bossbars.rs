@@ -11,6 +11,10 @@ use horizon_client::{
     scoreboard_cmd::format_list,
     text::Text,
 };
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
+#[allow(unused_imports)]
+use horizon_platform::PathExt;
 use horizon_world::nbt::Tag;
 
 #[derive(Default)]
@@ -44,7 +48,7 @@ impl Game<'_> {
         if !self.bosses.loaded || self.remote.is_some() {
             return;
         }
-        if self.bosses.bars.bars.is_empty() && !self.bossbar_path().exists() {
+        if self.bosses.bars.bars.is_empty() && !self.bossbar_path().platform_exists() {
             return;
         }
         let _ = save::write_dat(

@@ -1,6 +1,8 @@
 //! Model-batch equivalence tests and an opt-in benchmark of the actual loaders.
 use super::{armor_stands::ArmorStandAssets, boats::BoatModels, minecarts::CartModels};
 use horizon_client::mobs::{EntityModelDocument, Part, load_model};
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 use serde_json::{Value, json};
 use std::{collections::BTreeMap, fs, hint::black_box, path::Path, time::Instant};
 

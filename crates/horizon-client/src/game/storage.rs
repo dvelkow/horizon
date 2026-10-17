@@ -3,6 +3,8 @@
 //! player's `PlayerEnderChestContainer`, saved as `EnderItems`).
 use super::Game;
 use horizon_client::{containers::BlockEntity, items::ItemStack};
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 
 pub(super) fn is_shulker_box(name: &str) -> bool {
     name.ends_with("shulker_box")

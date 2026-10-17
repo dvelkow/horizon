@@ -1,4 +1,8 @@
 //! `horizon-mod.toml`, a mod's manifest, and the `.hmod` file around it.
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
+#[allow(unused_imports)]
+use horizon_platform::PathExt;
 use serde::Deserialize;
 use std::{fmt, io::Read, path::Path};
 
@@ -169,10 +173,10 @@ impl Package {
     /// A `.hmod` (a zip holding `horizon-mod.toml`, `mod.wasm` and, for
     /// content, `assets/` and `data/`) or a folder holding the same.
     pub fn read(path: &Path) -> Result<Self, String> {
-        let (toml, wasm) = if path.is_dir() {
+        let (toml, wasm) = if path.platform_is_dir() {
             let toml = std::fs::read_to_string(path.join(MANIFEST));
             let wasm = path.join(WASM);
-            let wasm = match wasm.exists() {
+            let wasm = match wasm.platform_exists() {
                 true => Some(std::fs::read(wasm).map_err(|e| format!("{WASM}: {e}"))?),
                 false => None,
             };

@@ -7,6 +7,8 @@ use super::{
 };
 use crate::{heightmap::HeightmapType, registry::BlockStateId};
 use horizon_core::random::{InvalidBound, RandomSource};
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 #[derive(Clone, Debug)]
 pub struct BonusChestFeature {
     air: [BlockStateId; 3],

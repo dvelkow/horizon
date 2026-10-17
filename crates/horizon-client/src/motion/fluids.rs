@@ -2,6 +2,8 @@
 //! (water, waterlogged blocks, bubble columns and lava, with their currents), the
 //! water-entry splash and the fall resets that hinge on touching water.
 use super::*;
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 use horizon_world::{
     entity_fluid::{
         CurrentTarget, EntityFluidInteraction, FluidInteractionWorld, FluidMembership,

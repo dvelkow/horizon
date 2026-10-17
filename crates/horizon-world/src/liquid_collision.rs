@@ -5,6 +5,8 @@ use crate::{
     fluid::FluidState,
 };
 use horizon_core::{geometry::VoxelShape, position::BlockPos};
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 use std::io;
 
 pub trait LiquidCollisionWorld {

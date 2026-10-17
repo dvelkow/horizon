@@ -10,6 +10,8 @@
 //! (a router mapping), `0x06`/`0x07` the same for IPv6, `0x10` a relay:
 //! address length, address, then the short code's 40 bits.
 use crate::code::{ALPHABET, Code, HALF};
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 use sha2::{Digest, Sha256};
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
 

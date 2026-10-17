@@ -5,6 +5,8 @@
 //! The search runs over dense arrays around the camera rather than hash sets,
 //! so it stays cheap enough to redo whenever a section is meshed.
 use super::SectionKey;
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 use std::collections::{HashMap, VecDeque};
 
 const STEPS: [(i32, i32, i32); 6] = [

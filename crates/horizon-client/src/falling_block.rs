@@ -4,6 +4,8 @@ use crate::{
     save::{float, number, put},
 };
 use horizon_core::geometry::{Aabb, Vec3};
+#[cfg(all(target_arch = "wasm32", test))]
+use horizon_platform as std;
 use horizon_world::{chunk::BlockState, nbt::Tag};
 
 #[derive(Clone, Copy, Debug, PartialEq)]

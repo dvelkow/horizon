@@ -8,6 +8,10 @@ use horizon_core::{
     position::BlockPos,
     random::RandomSource,
 };
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
+#[allow(unused_imports)]
+use horizon_platform::PathExt;
 use horizon_world::level::flags as level_flags;
 
 #[derive(Clone, Debug)]
@@ -463,7 +467,7 @@ mod tests {
     fn primed_tnt_follows_water_currents_after_moving() {
         let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
             .join("../../.local/horizon-client/26.3");
-        if !root.join("movement-properties.nbt").exists() {
+        if !root.join("movement-properties.nbt").platform_exists() {
             return;
         }
         let assets = horizon_client::assets::Assets::load(&root).unwrap();

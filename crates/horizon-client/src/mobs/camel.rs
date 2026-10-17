@@ -10,6 +10,8 @@ use super::{
 };
 use horizon_core::geometry::trig::Mth;
 use horizon_core::random::RandomSource;
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 use std::collections::HashMap;
 
 // Camel state: `egg_time` the last pose change tick (negative while

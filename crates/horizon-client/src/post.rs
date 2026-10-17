@@ -3,6 +3,8 @@
 //! colour graded before the HUD is drawn over it. Needs a swapchain that can
 //! be copied from; without one the frame is left as it is.
 
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 /// How the frame under a Horizon-style menu is treated.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct PostGrade {

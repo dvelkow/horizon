@@ -3,6 +3,8 @@
 //! part poses before the model is drawn.
 use super::{Mob, Part, keyframes::AnimationState, living::wrap};
 use horizon_core::geometry::trig::Mth;
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 use std::collections::HashMap;
 use std::f32::consts::PI;
 

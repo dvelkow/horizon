@@ -3,6 +3,8 @@
 use super::{Arg, Context, Game, R, err};
 use horizon_client::{save, text::Text};
 use horizon_core::random::{LegacyRandom, RandomSource};
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 use horizon_world::{
     compression::Compression,
     nbt::{self, Limits, Tag},

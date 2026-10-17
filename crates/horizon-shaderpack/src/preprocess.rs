@@ -4,6 +4,8 @@
 //! source's line numbers, so an error later on still names `file:line`.
 
 use crate::include::Inlined;
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 use pp_rs::{
     pp::Preprocessor,
     token::{Punct, TokenValue},

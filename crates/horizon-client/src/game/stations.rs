@@ -13,6 +13,8 @@ use horizon_client::{
     stations::{self, AnvilResult, EnchantOffers},
 };
 use horizon_core::random::{LegacyRandom, RandomSource};
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 use std::sync::Arc;
 
 /// Slot ids of the open station: inputs from 600, the result at 650.

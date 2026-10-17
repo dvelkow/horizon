@@ -1,6 +1,8 @@
 //! `PalettedPermutations` atlas sources: sprites such as
 //! `trims/items/boots_trim_quartz` are the base texture with its colours
 //! swapped through a palette pair (`PaletteMapping`), not files of their own.
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 use serde_json::Value;
 use std::collections::BTreeMap;
 

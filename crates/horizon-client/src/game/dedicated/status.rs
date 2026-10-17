@@ -3,6 +3,8 @@
 //! and the loaded chunks; `console <line>` runs a console command and answers with the lines it logged.
 use super::{ServerState, capture_log};
 use crate::game::Game;
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 use serde_json::{Value, json};
 use std::{
     sync::atomic::Ordering,

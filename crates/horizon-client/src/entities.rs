@@ -8,6 +8,10 @@ use crate::{
     world::World,
 };
 use horizon_core::geometry::{Aabb, Vec3};
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
+#[allow(unused_imports)]
+use horizon_platform::PathExt;
 use horizon_world::block_collision::BlockCollisionRegistry;
 
 #[derive(Clone, Debug)]
@@ -592,7 +596,7 @@ mod fire_environment_tests {
     fn ordinary_items_burn_but_native_netherite_resists_lava() {
         let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
             .join("../../.local/horizon-client/26.3");
-        if !root.join("items.json").exists() {
+        if !root.join("items.json").platform_exists() {
             return;
         }
         let assets = crate::assets::Assets::load(&root).unwrap();

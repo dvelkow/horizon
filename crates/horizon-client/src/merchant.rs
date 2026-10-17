@@ -8,6 +8,10 @@ use crate::{
     items::{ItemStack, Items},
 };
 use horizon_core::random::{RandomSource, XoroshiroRandom, mix_stafford13, seed_from_hash};
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
+#[allow(unused_imports)]
+use horizon_platform::PathExt;
 use serde_json::Value;
 use std::{collections::HashMap, fs, path::Path, sync::Arc};
 
@@ -453,7 +457,7 @@ fn walk(dir: &Path, base: &Path, out: &mut HashMap<String, Value>) {
     };
     for e in entries.flatten() {
         let p = e.path();
-        if p.is_dir() {
+        if p.platform_is_dir() {
             walk(&p, base, out);
         } else if p.extension().is_some_and(|x| x == "json")
             && let Ok(rel) = p.strip_prefix(base)

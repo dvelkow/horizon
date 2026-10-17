@@ -6,6 +6,8 @@ use crate::{
     java_text::{self, Json},
     key_names,
 };
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 use std::sync::LazyLock;
 
 /// A stored option value.

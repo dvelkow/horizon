@@ -4,6 +4,8 @@
 use super::{Dimension, LevelAccess, LevelEvent, Sim, update::below};
 use crate::registry::BlockStateId;
 use horizon_core::{position::BlockPos, random::RandomSource};
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 use std::sync::Arc;
 
 /// `BlockScanUtils.findBlocks` order: sections by x, z, y; blocks by y, z, x.

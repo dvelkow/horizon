@@ -7,6 +7,8 @@ use super::{
     },
 };
 use horizon_core::random::RandomSource;
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 use std::sync::Arc;
 
 pub fn register(m: &mut Mob) {

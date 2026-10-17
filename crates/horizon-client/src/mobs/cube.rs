@@ -11,6 +11,8 @@ use horizon_core::{
     geometry::{Vec3, trig},
     random::RandomSource,
 };
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 
 // AnimState slots.
 const SQUISH: usize = 0;

@@ -13,6 +13,8 @@ use horizon_core::{
     geometry::{Aabb, Vec3},
     random::RandomSource,
 };
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 
 // Happy ghast state: `head` the harness, `scratch[0]` 1 once set up as a
 // baby and 2 as an adult, `ai.home` the restriction, `counter`

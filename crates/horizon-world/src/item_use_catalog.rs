@@ -2,6 +2,8 @@
 //! by duration/durability queries. Unrepresented components remain outside this
 //! catalog; importing defaults does not implement their gameplay or codecs.
 use crate::{DATA_VERSION, compression::invalid, item_durability::DurabilityStack};
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 use serde_json::Value;
 use std::{collections::BTreeMap, io};
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

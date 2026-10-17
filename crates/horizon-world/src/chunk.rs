@@ -12,6 +12,8 @@ use horizon_core::{
     storage::PackedStorage,
     ticks::{ChunkTicks, SavedTick, TickTypeId},
 };
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 use std::{collections::BTreeMap, io};
 
 fn key(value: &str) -> JavaString {

@@ -6,6 +6,8 @@ use horizon_core::{
     geometry::{Aabb, Vec3, VoxelShape},
     position::{BlockPos, ChunkPos},
 };
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 use horizon_world::{
     block_collision::{BlockCollisionRegistry, DynamicCollisionWorld, ShulkerCollisionState},
     block_collision_scan::{BlockCollisionWorld, CollisionBlock},

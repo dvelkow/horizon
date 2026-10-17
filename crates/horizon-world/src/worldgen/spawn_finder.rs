@@ -7,6 +7,8 @@
 use super::climate::{Parameter, quantize};
 use horizon_core::density::{DensitySampler, SampleError, SamplerContext};
 use horizon_core::jmath;
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 use std::sync::Arc;
 
 const MAX_RADIUS: f32 = 2048.0;

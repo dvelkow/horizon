@@ -6,6 +6,8 @@ use crate::{
     health::{Attributes, Environment, HealthEvent, HealthResources, HealthRules, State, Updates},
     motion::{MotionEvent, PlayerMotion},
 };
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 use horizon_world::{
     food::{Difficulty, FoodData, FoodWorld},
     player_health::{PlayerAttributeHealth, PlayerFloatIds},

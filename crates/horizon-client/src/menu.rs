@@ -14,6 +14,10 @@ use crate::{
     crafting::Recipes,
     items::{ItemStack, Items},
 };
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
+#[allow(unused_imports)]
+use horizon_platform::PathExt;
 use std::sync::Arc;
 
 pub mod place;
@@ -1956,7 +1960,7 @@ pub(crate) mod tests {
     pub(crate) fn with_menu(kind: Kind, test: impl FnOnce(&Env, &mut Menu)) {
         let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
             .join("../../.local/horizon-client/26.3");
-        if !root.join("items.json").exists() {
+        if !root.join("items.json").platform_exists() {
             return;
         }
         let items = Items::catalog(&root).unwrap();

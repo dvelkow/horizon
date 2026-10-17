@@ -2,6 +2,8 @@
 //! interruption) and the shared goals of `net.minecraft.world.entity.ai.goal`.
 use super::{Mob, MobEvent, MobWorld, Seen, Species, Who, world::TargetInfo};
 use horizon_core::{geometry::Vec3, jmath, random::RandomSource};
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 use std::sync::Arc;
 
 pub const MOVE: u8 = 1;

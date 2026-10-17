@@ -2,6 +2,8 @@
 use super::{DecodeError, block_feature::FeatureBlockBindings, feature::FeatureWorld};
 use crate::registry::BlockStateId;
 use horizon_core::random::{InvalidBound, RandomSource};
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 use std::{collections::BTreeSet, sync::Arc};
 const HORIZONTAL: [[i32; 3]; 4] = [[0, 0, -1], [1, 0, 0], [0, 0, 1], [-1, 0, 0]];
 const NEIGHBORS: [[i32; 3]; 6] = [

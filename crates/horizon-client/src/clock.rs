@@ -2,6 +2,8 @@
 //! milliseconds turn into game ticks, partial ticks and real-time deltas, and
 //! the `/tick` freeze, step and sprint state.
 
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 /// `DeltaTracker.Timer`: float arithmetic on integer milliseconds, exactly as
 /// the client does it.
 #[derive(Clone, Debug)]

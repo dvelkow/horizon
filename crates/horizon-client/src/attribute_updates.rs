@@ -6,6 +6,8 @@ use crate::{
     health::Updates,
     motion::{MotionEvent, PlayerMotion},
 };
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 use horizon_world::{
     attribute_map::ValueKind,
     attribute_updates::{self, UpdateWorld, UpdatedAttribute},

@@ -1,5 +1,7 @@
 //! Cuboid geometry in block units, including blockstate rotation and UV locking.
 use crate::{json::*, model::*, resolve::ResolvedCuboidModel};
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 mod transform;
 pub use transform::BlockModelTransform;
 

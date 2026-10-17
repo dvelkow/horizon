@@ -11,6 +11,8 @@ use horizon_client::{
 };
 use horizon_core::position::BlockPos;
 use horizon_core::random::RandomSource;
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 use horizon_world::{
     level::{
         LevelEvent,

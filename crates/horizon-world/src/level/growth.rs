@@ -4,6 +4,8 @@
 use super::{Behaviours, LevelAccess, LevelEvent, Sim, feature_world::LevelFeatureWorld, flags};
 use crate::{registry::BlockStateId, worldgen::live::LiveFeatures};
 use horizon_core::{position::BlockPos, random::RandomSource};
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 use std::sync::{Arc, OnceLock};
 
 /// Runtime extensions of [`Behaviours`] that depend on the worldgen bundle.

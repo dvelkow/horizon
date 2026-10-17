@@ -3,6 +3,8 @@
 //! debug renderers the F3 keys switch on: `ChunkBorderRenderer` (F3+G) and
 //! `EntityHitboxDebugRenderer` (F3+B).
 
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 /// A line: world-space ends, ARGB colour, width in pixels.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Line {

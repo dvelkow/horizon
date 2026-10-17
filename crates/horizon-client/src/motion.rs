@@ -8,6 +8,10 @@ use horizon_core::{
     position::BlockPos,
     random::RandomSource,
 };
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
+#[allow(unused_imports)]
+use horizon_platform::PathExt;
 use horizon_world::{
     attribute_map::ValueKind,
     attributes::{Modifier, Operation, entity::Catalog, live::LiveAttributes},
@@ -2004,7 +2008,7 @@ mod tests {
             .unwrap_or_else(|| {
                 Path::new(env!("CARGO_MANIFEST_DIR")).join("../../.local/horizon-client/26.3")
             });
-        if !root.join("movement-properties.nbt").exists() {
+        if !root.join("movement-properties.nbt").platform_exists() {
             eprintln!("skipped sword sweep regression: prepared resources unavailable");
             return;
         }
@@ -2038,7 +2042,7 @@ mod tests {
             .unwrap_or_else(|| {
                 Path::new(env!("CARGO_MANIFEST_DIR")).join("../../.local/horizon-client/26.3")
             });
-        if !root.join("movement-properties.nbt").exists() {
+        if !root.join("movement-properties.nbt").platform_exists() {
             return;
         }
         let assets = Assets::load(&root).unwrap();
@@ -2108,7 +2112,7 @@ mod tests {
     #[test]
     fn resident_spectator_flight_ignores_solid_and_climbable_blocks() {
         let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../.local/horizon-client/26.3");
-        if !root.join("movement-properties.nbt").exists() {
+        if !root.join("movement-properties.nbt").platform_exists() {
             return;
         }
         let assets = Assets::load(&root).unwrap();
@@ -2167,7 +2171,7 @@ mod tests {
     #[test]
     fn player_fire_damage_queues_hurt_sound_only_for_fresh_hits() {
         let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../.local/horizon-client/26.3");
-        if !root.join("movement-properties.nbt").exists() {
+        if !root.join("movement-properties.nbt").platform_exists() {
             return;
         }
         let assets = Assets::load(&root).unwrap();
@@ -2289,7 +2293,7 @@ mod tests {
     #[test]
     fn resident_water_landing_cancels_a_preset_fall() {
         let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../.local/horizon-client/26.3");
-        if !root.join("movement-properties.nbt").exists() {
+        if !root.join("movement-properties.nbt").platform_exists() {
             return;
         }
         let assets = Assets::load(&root).unwrap();
@@ -2330,7 +2334,7 @@ mod tests {
     #[test]
     fn resident_water_and_lava_are_not_treated_as_air() {
         let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../.local/horizon-client/26.3");
-        if !root.join("movement-properties.nbt").exists() {
+        if !root.join("movement-properties.nbt").platform_exists() {
             return;
         }
         let assets = Assets::load(&root).unwrap();
@@ -2552,7 +2556,7 @@ mod tests {
     #[test]
     fn resident_swimming_uses_previous_eyes_and_requires_water_at_the_feet() {
         let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../.local/horizon-client/26.3");
-        if !root.join("movement-properties.nbt").exists() {
+        if !root.join("movement-properties.nbt").platform_exists() {
             return;
         }
         let assets = Assets::load(&root).unwrap();
@@ -2624,7 +2628,7 @@ mod tests {
     #[test]
     fn resident_fire_precedes_first_tick_lava_and_water_extinguishing() {
         let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../.local/horizon-client/26.3");
-        if !root.join("movement-properties.nbt").exists() {
+        if !root.join("movement-properties.nbt").platform_exists() {
             return;
         }
         let assets = Assets::load(&root).unwrap();
@@ -2675,7 +2679,7 @@ mod tests {
     #[test]
     fn resident_bubble_columns_and_nautilus_preserve_their_air_rules() {
         let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../.local/horizon-client/26.3");
-        if !root.join("movement-properties.nbt").exists() {
+        if !root.join("movement-properties.nbt").platform_exists() {
             return;
         }
         let assets = Assets::load(&root).unwrap();
@@ -2744,7 +2748,7 @@ mod tests {
     #[test]
     fn resident_mixed_fluids_use_lava_height_for_ground_jumps() {
         let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../.local/horizon-client/26.3");
-        if !root.join("movement-properties.nbt").exists() {
+        if !root.join("movement-properties.nbt").platform_exists() {
             return;
         }
         let assets = Assets::load(&root).unwrap();
@@ -2792,7 +2796,7 @@ mod tests {
     #[test]
     fn footsteps_follow_the_walked_distance_not_the_tick() {
         let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../.local/horizon-client/26.3");
-        if !root.join("movement-properties.nbt").exists() {
+        if !root.join("movement-properties.nbt").platform_exists() {
             return;
         }
         let assets = Assets::load(&root).unwrap();

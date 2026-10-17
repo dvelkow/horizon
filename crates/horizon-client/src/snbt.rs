@@ -2,6 +2,8 @@
 //! `TextComponentTagVisitor` (the coloured form commands print), plus Java's
 //! number formatting.
 use crate::text::{self, Style, Text};
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 use horizon_world::nbt::Tag;
 
 /// `Double.toString`.

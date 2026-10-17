@@ -5,6 +5,8 @@
 use super::{Frustum, SectionKey};
 use crate::{fast_hash::FxHashMap, streaming::in_view_distance};
 use glam::{DVec3, Vec3};
+#[cfg(all(target_arch = "wasm32", test))]
+use horizon_platform as std;
 
 /// One chunk column's resident sections.
 struct Column {

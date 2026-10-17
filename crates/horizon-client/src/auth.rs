@@ -3,15 +3,28 @@
 //! online-mode servers need: authlib's MinecraftServicesSessionService.joinServer
 //! through the services discovery document. The access token stays in this
 //! process's memory: it is never logged, printed or written anywhere.
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
+#[allow(unused_imports)]
+use horizon_platform::PathExt;
 use std::{
     path::Path,
-    sync::{Arc, Mutex, OnceLock},
+    sync::{Arc, OnceLock},
+};
+#[cfg(not(target_arch = "wasm32"))]
+use std::{
+    sync::Mutex,
     time::{Duration, SystemTime},
 };
+
+#[cfg(target_arch = "wasm32")]
+#[path = "auth_web.rs"]
+pub mod browser;
 
 /// MinecraftServicesEnvironment.PROD.
 pub const DEFAULT_DISCOVERY: &str = "https://discovery.minecraftservices.com/minecraft/client";
 /// A session file older than this is refused: it can't be replayed later.
+#[cfg(not(target_arch = "wasm32"))]
 const MAX_SESSION_FILE_AGE: Duration = Duration::from_secs(120);
 
 /// A signed-in account (vanilla's User with type msa).
@@ -76,6 +89,7 @@ impl AuthSession {
     }
     /// Read the session file the launcher wrote and delete it at once. It
     /// must be fresh and, on Unix, readable by its owner only.
+    #[cfg(not(target_arch = "wasm32"))]
     pub fn load(path: &Path) -> Result<Self, String> {
         let meta = std::fs::metadata(path).map_err(|e| format!("{}: {e}", path.display()))?;
         let refuse = |why: &str| {
@@ -100,6 +114,11 @@ impl AuthSession {
         let text = std::fs::read_to_string(path);
         let _ = std::fs::remove_file(path);
         Self::parse(&text.map_err(|e| format!("{}: {e}", path.display()))?)
+    }
+
+    #[cfg(target_arch = "wasm32")]
+    pub fn load(_path: &Path) -> Result<Self, String> {
+        Err("Launcher session files cannot be opened in the browser".into())
     }
 }
 
@@ -171,6 +190,7 @@ pub fn discovery_url() -> String {
         .unwrap_or_else(|| DEFAULT_DISCOVERY.to_owned())
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 fn agent() -> ureq::Agent {
     ureq::AgentBuilder::new()
         .timeout(Duration::from_secs(15))
@@ -179,6 +199,7 @@ fn agent() -> ureq::Agent {
 }
 
 /// The discovery document, fetched once per game (a failure is retried next time).
+#[cfg(not(target_arch = "wasm32"))]
 fn discovery() -> Result<Arc<serde_json::Value>, JoinError> {
     static CACHE: Mutex<Option<Arc<serde_json::Value>>> = Mutex::new(None);
     if let Some(d) = CACHE.lock().unwrap().clone() {
@@ -215,6 +236,7 @@ pub fn join_request(session: &AuthSession, server_hash: &str) -> String {
 
 /// MinecraftServicesSessionService.joinServer: tell the session service this
 /// account is joining the server whose hash is `server_hash`.
+#[cfg(not(target_arch = "wasm32"))]
 pub fn join_server(session: &AuthSession, server_hash: &str) -> Result<(), JoinError> {
     let doc = discovery()?;
     let url = endpoint(&doc, "session", "join").ok_or(JoinError::Unavailable)?;
@@ -230,6 +252,14 @@ pub fn join_server(session: &AuthSession, server_hash: &str) -> Result<(), JoinE
         )),
         Err(ureq::Error::Transport(_)) => Err(JoinError::Unavailable),
     }
+}
+
+/// Browser connections must await `browser::join_server`; blocking HTTP is unavailable.
+#[cfg(target_arch = "wasm32")]
+pub fn join_server(_session: &AuthSession, _server_hash: &str) -> Result<(), JoinError> {
+    Err(JoinError::Other(
+        "Online authentication requires the asynchronous browser connection".into(),
+    ))
 }
 
 /// What the session service says about a player joining this server
@@ -259,6 +289,7 @@ fn url_encode(text: &str) -> String {
 /// whether `name` joined with `server_hash` (and from `ip`, when the server
 /// prevents proxy connections). `Ok(None)`: it didn't, or the service said
 /// no; `Err(Unavailable)`: no answer.
+#[cfg(not(target_arch = "wasm32"))]
 pub fn has_joined(
     name: &str,
     server_hash: &str,
@@ -288,6 +319,17 @@ pub fn has_joined(
         Err(ureq::Error::Transport(_)) => return Err(JoinError::Unavailable),
     };
     Ok(parse_joined(&body))
+}
+
+#[cfg(target_arch = "wasm32")]
+pub fn has_joined(
+    _name: &str,
+    _server_hash: &str,
+    _ip: Option<std::net::IpAddr>,
+) -> Result<Option<JoinedProfile>, JoinError> {
+    Err(JoinError::Other(
+        "Server account verification runs on the native server".into(),
+    ))
 }
 
 /// HasJoinedMinecraftServerResponse: `id` and `properties`; no id is no profile.
@@ -353,7 +395,7 @@ mod tests {
         let path = write(&dir, text, 0o600);
         let s = AuthSession::load(&path).unwrap();
         assert_eq!((s.name.as_str(), s.uuid), ("Notch", UUID));
-        assert!(!path.exists(), "deleted after reading");
+        assert!(!path.platform_exists(), "deleted after reading");
         assert!(!format!("{s:?}").contains("mock-token"));
         #[cfg(unix)]
         {
@@ -363,7 +405,7 @@ mod tests {
                     .unwrap_err()
                     .contains("other users")
             );
-            assert!(!path.exists());
+            assert!(!path.platform_exists());
         }
         let _ = std::fs::remove_dir_all(&dir);
     }

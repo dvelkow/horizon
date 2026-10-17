@@ -10,6 +10,8 @@ use super::{
     goals::{Cx, Goal, JUMP, LOOK, MOVE, goal_clone},
 };
 use horizon_core::{geometry::Vec3, random::RandomSource};
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 use std::collections::{HashMap, HashSet};
 use std::sync::OnceLock;
 

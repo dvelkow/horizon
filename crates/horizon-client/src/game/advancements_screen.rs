@@ -10,6 +10,8 @@ use horizon_client::{
     text::{Style, Text},
     ui,
 };
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 use std::{sync::Arc, time::Instant};
 
 const INSIDE_W: i32 = 234;

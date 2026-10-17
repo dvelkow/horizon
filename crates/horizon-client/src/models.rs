@@ -1,4 +1,6 @@
 //! A blockstate-driven inspection gallery, separate from gameplay simulation.
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 pub mod catalog;
 mod cube;
 use crate::{Result, sprites::Sprites};

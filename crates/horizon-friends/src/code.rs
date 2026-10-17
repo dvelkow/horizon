@@ -1,6 +1,8 @@
 //! Invite codes: eight Crockford base32 symbols shown as `K7QM-3XPD`. The
 //! first four are the nameplate the relay finds the host by; the last four
 //! are the secret the key exchange uses, which only the players see.
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 use std::fmt;
 
 /// Crockford base32: digits and letters without I, L, O and U.

@@ -2,6 +2,8 @@
 //! says `eula=true`; a file that is missing or unreadable is replaced with
 //! the default one and counts as not agreed.
 use super::java_properties::{Properties, date_string, now_millis};
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 use std::path::Path;
 
 /// CommonLinks.EULA.

@@ -17,6 +17,8 @@ use horizon_core::{
     geometry::{Aabb, ShapeOp, Vec3, VoxelShape},
     position::BlockPos,
 };
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 use horizon_world::{
     collision_context::{CollisionContext, CollisionEntity, CollisionItem},
     entity_obstruction::EntityIdentity,

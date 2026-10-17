@@ -4,6 +4,8 @@ use horizon_core::{
     geometry::{Aabb, Vec3},
     position::BlockPos,
 };
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 use std::fmt;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

@@ -9,6 +9,8 @@
 //! differential test world roll them the same way.
 use crate::items::ItemStack;
 use horizon_core::random::RandomSource;
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 use horizon_world::nbt::{Compound, Tag};
 
 /// A player's UUID as its four ints (`UUIDUtil.CODEC`).

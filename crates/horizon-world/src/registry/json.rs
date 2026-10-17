@@ -1,6 +1,8 @@
 //! Java 26.3 compact/full block-state JSON codecs over a pinned registry.
 use super::{BlockRegistry, BlockStateId};
 use crate::compression::invalid;
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 use serde_json::Value;
 use std::{
     collections::{BTreeMap, BTreeSet},

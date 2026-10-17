@@ -19,6 +19,8 @@ use horizon_core::{
     position::BlockPos,
     random::RandomSource,
 };
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 use horizon_world::{collision_context::CollisionContext, registry::BlockStateId};
 
 /// `ServerPlayer.RespawnConfig`: a respawn point other than the world spawn

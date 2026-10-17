@@ -1,9 +1,13 @@
-//! Horizon: native Rust client for Minecraft Java Edition 26.3 gameplay.
+//! Horizon: Rust client for Minecraft Java Edition 26.3 gameplay.
 #![forbid(unsafe_code)]
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 mod game;
 
+#[cfg(not(target_arch = "wasm32"))]
 use horizon_client::{crash, logging};
 
+#[cfg(not(target_arch = "wasm32"))]
 fn main() {
     horizon_client::telemetry::mark_start();
     let args: Vec<String> = std::env::args().skip(1).collect();
@@ -34,4 +38,32 @@ fn main() {
         std::process::exit(1);
     }
     logging::flush();
+}
+
+#[cfg(target_arch = "wasm32")]
+fn main() {
+    // Workers instantiate the same module to run their assigned Rust closure.
+    // Only the window owns resources, audio, rendering and the event loop.
+    if std::thread::is_web_worker_thread() {
+        return;
+    }
+    std::thread::Builder::new()
+        .worker_script_url("/rust-worker.js".into())
+        .set_default();
+    console_error_panic_hook::set_once();
+    let _ = console_log::init_with_level(log::Level::Info);
+    horizon_client::telemetry::mark_start();
+    wasm_bindgen_futures::spawn_local(async {
+        if let Err(error) = horizon_client::browser::ready().await {
+            log::error!("Horizon: browser preparation failed: {error:?}");
+            horizon_client::browser::startup_error(
+                &error.as_string().unwrap_or_else(|| format!("{error:?}")),
+            );
+            return;
+        }
+        if let Err(error) = game::run() {
+            log::error!("Horizon: {error}");
+            horizon_client::browser::startup_error(&error.to_string());
+        }
+    });
 }

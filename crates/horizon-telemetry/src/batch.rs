@@ -1,5 +1,7 @@
 //! What goes over the wire: an install's items as one JSON object, zstd-compressed
 //! (`Content-Encoding: zstd`). The server decodes with [`decode`], which bounds what it inflates.
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 use std::io::Read;
 
 use serde::{Deserialize, Serialize};

@@ -5,6 +5,8 @@ use crate::{
     Result,
     motion::{MotionEvent, PlayerMotion},
 };
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 use horizon_world::{
     attributes::live::LiveAttributes,
     block_landing::LandingDamage,

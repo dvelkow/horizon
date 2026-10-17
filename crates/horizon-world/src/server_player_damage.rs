@@ -12,6 +12,8 @@ use crate::{
     player_health::{PlayerAttributeHealth, PlayerFloatIds, PlayerHealthError},
     synced_floats::{DataError, Observer, SyncedFloats},
 };
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 use std::{fmt, io};
 type EnvError<E> = <E as ArmorWorld>::Error;
 #[derive(Debug)]

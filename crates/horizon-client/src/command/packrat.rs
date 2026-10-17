@@ -3,6 +3,8 @@
 //! cuts, and the "longest only" error collector whose entries become both
 //! the parse error and the completion suggestions.
 use super::{CmdResult, CommandError, Reader, SuggestionsBuilder, args};
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 use std::collections::HashMap;
 use std::rc::Rc;
 

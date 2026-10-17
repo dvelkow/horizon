@@ -1,5 +1,7 @@
 //! `ToastManager`'s slide, shared by the game's toasts and the title
 //! screens' system toasts.
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 use std::time::Instant;
 
 /// `ToastManager.ToastInstance`: slides a toast in and out over 600 ms,

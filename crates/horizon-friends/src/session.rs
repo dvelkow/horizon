@@ -7,6 +7,8 @@ use crate::{
     crypto::{self, Frame, Key, Role, SecureReader, SecureWriter},
     direct,
 };
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 use serde::{Deserialize, Serialize};
 use std::{
     io,

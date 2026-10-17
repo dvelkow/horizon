@@ -1,5 +1,7 @@
 //! Bundle weight arithmetic and lazy caching. The checked integer operations
 //! retain the pinned Fraction behavior, including intermediate overflow errors.
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 use std::{cell::OnceCell, rc::Rc};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

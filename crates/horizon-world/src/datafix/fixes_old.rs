@@ -9,6 +9,8 @@ use super::fixes_b::feature_flag_remove;
 use super::schema::{Key, Ty, key};
 use super::{Cx, FixFn, id_is, renamer, reread_as};
 use crate::nbt::{Compound, Tag};
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 
 pub(super) fn register(out: &mut Vec<(Key, FixFn)>) {
     out.push((key(3077, 0), chunk_delete_ignored_light));

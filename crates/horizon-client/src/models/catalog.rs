@@ -14,6 +14,8 @@ use horizon_core::{
     position::BlockPos,
     random::{LegacyRandom, position_seed},
 };
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 use horizon_world::{
     chunk::BlockState,
     registry::{BlockRegistry, BlockStateId},

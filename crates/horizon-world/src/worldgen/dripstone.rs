@@ -14,6 +14,8 @@ use super::{
 };
 use crate::{heightmap::HeightmapType, registry::BlockStateId};
 use horizon_core::{geometry::trig, random::RandomSource};
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 use std::{collections::BTreeSet, sync::Arc};
 
 fn query<E>(error: PlacementQueryError) -> FeatureExecutionError<E> {

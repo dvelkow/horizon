@@ -1,6 +1,8 @@
 //! Query interface for placement against a generated world.
 use crate::worldgen::feature_sort::FeatureIdentity;
 use crate::{heightmap::HeightmapType, worldgen::anchor::WorldGenerationContext};
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum PlacementQueryError {
     Unavailable,

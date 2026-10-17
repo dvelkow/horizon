@@ -9,6 +9,10 @@ use crate::{
     items::{ItemStack, Items},
     particles::{FireworkExplosion, FireworkShape},
 };
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
+#[allow(unused_imports)]
+use horizon_platform::PathExt;
 use horizon_world::nbt::Tag;
 use serde_json::Value;
 use std::{
@@ -1198,7 +1202,7 @@ impl Recipes {
             .collect();
         for namespace in crate::mod_content::namespaces(root) {
             let dir = root.join(format!("data/{namespace}/recipe"));
-            if dir.is_dir() {
+            if dir.platform_is_dir() {
                 files.extend(
                     json_files(&dir)?
                         .into_iter()

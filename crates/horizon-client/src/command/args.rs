@@ -1,6 +1,8 @@
 //! Argument types (Brigadier's and Minecraft's `ArgumentType`s): parsing with
 //! the vanilla error messages and completion suggestions.
 use super::{CmdResult, CommandError, Context, Reader, SuggestionsBuilder};
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 use std::collections::BTreeMap;
 
 /// Registry contents and source state used to validate and complete arguments.

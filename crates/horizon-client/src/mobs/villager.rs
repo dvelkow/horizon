@@ -8,6 +8,8 @@ use super::{
 use crate::items::ItemStack;
 use horizon_core::geometry::trig::Mth;
 use horizon_core::random::RandomSource;
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 use std::f32::consts::PI;
 
 // Villager state: `variant` type, `variant2` profession (index into

@@ -25,6 +25,8 @@ use horizon_client::{
     osk::{self, Keyboard},
     widgets::{self, Kind, Target},
 };
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 use std::time::Instant;
 use winit::{
     application::ApplicationHandler,

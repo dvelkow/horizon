@@ -32,6 +32,8 @@ use glsl_lang::{
         show_type_specifier,
     },
 };
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 
 /// Locations, bindings and uniforms shared by the programs of one pass: a

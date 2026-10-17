@@ -3,6 +3,8 @@
 //! Metal a kernel call each), which made the animated sprites' few hundred
 //! texture writes a spike on every tick that changes a frame. The belt keeps a
 //! few mapped buffers and records the copies into the frame's encoder instead.
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 use std::num::NonZeroU64;
 
 /// Large enough for a tick of animated sprites at 16x16 with every mip level.

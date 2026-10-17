@@ -11,6 +11,8 @@ use horizon_client::{
     projectiles::{Projectile, ProjectileKind},
 };
 use horizon_core::{geometry::Vec3, random::RandomSource};
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 
 const CROSSBOW: &str = "minecraft:crossbow";
 const FIREWORK_ROCKET: &str = "minecraft:firework_rocket";

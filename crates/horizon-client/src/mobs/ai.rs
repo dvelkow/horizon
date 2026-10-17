@@ -16,6 +16,8 @@ use horizon_core::{
     geometry::Vec3,
     random::{LegacyRandom, RandomSource},
 };
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 
 #[derive(Clone, Debug, Default)]
 pub struct Ai {

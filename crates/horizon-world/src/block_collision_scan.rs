@@ -5,6 +5,8 @@ use horizon_core::{
     geometry::{Aabb, ShapeError, ShapeOp, Vec3, VoxelShape},
     position::{BlockPos, ChunkPos},
 };
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 
 #[derive(Clone, Copy, Debug)]
 pub struct CollisionBlock {

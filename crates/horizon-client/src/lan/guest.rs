@@ -3,6 +3,8 @@
 //! operates on when it acts for them.
 use super::{Joined, PlayerSender, entity::Tracker};
 use crate::{items::ItemStack, motion::PlayerMotion};
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 use horizon_protocol::{
     item::Stack,
     packets::{configuration::ClientInformation, play},

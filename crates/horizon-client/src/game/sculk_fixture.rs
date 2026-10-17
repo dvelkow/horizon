@@ -20,6 +20,8 @@ use horizon_core::{
     position::BlockPos,
     random::LegacyRandom,
 };
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 use horizon_world::{chunk::BlockState, level::Ticks, registry::BlockStateId};
 use std::{
     collections::{BTreeMap, HashMap, HashSet},

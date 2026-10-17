@@ -5,6 +5,8 @@ use crate::{
     component_patch::Prototype,
     item_stack_refs::{ItemStacks, StackRef},
 };
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 #[derive(Debug)]
 pub enum ContainerError<E> {
     Index,

@@ -1,5 +1,7 @@
 //! Exact pre-optimization reference, correctness fixtures, and opt-in benchmark.
 use super::*;
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 
 fn reference(pad: &Padded, info: &[Info]) -> u64 {
     let mut seen = vec![false; 4096];

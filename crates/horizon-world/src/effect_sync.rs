@@ -1,5 +1,7 @@
 //! Living effect particle, invisibility and glowing synchronization.
 use crate::{active_effects::ActiveEffects, effect_particles::Particle, java_hash_map::JavaKey};
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 use std::sync::Arc;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

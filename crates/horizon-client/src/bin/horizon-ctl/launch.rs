@@ -3,6 +3,10 @@
 //! versions under `<launcher home>/versions/<tag>`, each with its prepared
 //! resources in `.local/horizon-client/<minecraft version>` and run from the
 //! game home, where saves and options.txt live.
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
+#[allow(unused_imports)]
+use horizon_platform::PathExt;
 use std::{
     path::{Path, PathBuf},
     process::{Command, Stdio},
@@ -41,7 +45,9 @@ pub fn installed(versions: &Path) -> Vec<String> {
         .into_iter()
         .flatten()
         .flatten()
-        .filter(|e| e.path().join(".installed").exists() && e.path().join(CLIENT).exists())
+        .filter(|e| {
+            e.path().join(".installed").platform_exists() && e.path().join(CLIENT).platform_exists()
+        })
         .filter_map(|e| e.file_name().into_string().ok())
         .collect();
     tags.sort_by_key(|t| std::cmp::Reverse(version_parts(t)));
@@ -58,7 +64,7 @@ pub fn prepared_resources(dir: &Path) -> Option<PathBuf> {
     let resources = dir.join(".local/horizon-client").join(version);
     resources
         .join("horizon-resources.json")
-        .exists()
+        .platform_exists()
         .then_some(resources)
 }
 
@@ -92,7 +98,7 @@ pub fn find(
         }
     };
     if let Some(game) = game {
-        if !game.is_file() {
+        if !game.platform_is_file() {
             return Err(format!("{} is not a file", game.display()));
         }
         let dir = game.parent().unwrap_or(Path::new("."));
@@ -103,7 +109,7 @@ pub fn find(
     let versions = launcher.join("versions");
     if version.is_none()
         && let Some(dir) = beside
-        && dir.join(CLIENT).is_file()
+        && dir.join(CLIENT).platform_is_file()
     {
         return Ok(prepared(dir, "beside horizon-ctl", None));
     }

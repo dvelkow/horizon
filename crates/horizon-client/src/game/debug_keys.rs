@@ -14,6 +14,8 @@ use horizon_client::{
     text::Text,
 };
 use horizon_core::geometry::Axis;
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 use winit::keyboard::KeyCode;
 
 /// `ChatFormatting.YELLOW` and `RED`.

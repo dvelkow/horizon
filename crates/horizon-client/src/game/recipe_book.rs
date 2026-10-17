@@ -18,6 +18,8 @@ use horizon_client::{
     text::{Style, Text},
     ui::EditBox,
 };
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 use std::{
     collections::BTreeSet,
     hash::{Hash, Hasher},

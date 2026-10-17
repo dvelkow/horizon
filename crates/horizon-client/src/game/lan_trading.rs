@@ -8,6 +8,8 @@ use horizon_client::{
     menu::{Env, Input, Kind, Menu},
     merchant,
 };
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 use horizon_protocol::packets::play::{self, Clientbound as C};
 
 /// A guest's open trading screen.

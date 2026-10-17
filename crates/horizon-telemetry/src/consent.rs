@@ -1,5 +1,7 @@
 //! The player's answer, kept in `telemetry/consent.json` in the game folder: one switch per
 //! kind of data, all off until they turn one on, with the consent version and when they answered.
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};

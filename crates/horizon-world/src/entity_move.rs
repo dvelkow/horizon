@@ -1,6 +1,8 @@
 //! Entity.move ordering around collision, support, landing and movement effects.
 use crate::{movement_emission::MovementEmission, registry::BlockStateId};
 use horizon_core::{geometry::Vec3, position::BlockPos};
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 use std::collections::VecDeque;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

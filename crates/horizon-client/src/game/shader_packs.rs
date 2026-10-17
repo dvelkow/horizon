@@ -6,6 +6,8 @@
 use super::Game;
 use horizon_client::shader_pack::{self, ShaderPack, Stamp};
 use horizon_client::text::Text;
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 use std::{
     path::PathBuf,
     time::{Duration, Instant},

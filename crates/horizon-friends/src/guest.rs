@@ -10,6 +10,8 @@ use crate::{
     session::{self, Secure},
     wire::{self, ErrorCode, FromRelay, ToRelay},
 };
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 use std::{
     fmt, io,
     net::{Ipv4Addr, SocketAddr, TcpListener, TcpStream},

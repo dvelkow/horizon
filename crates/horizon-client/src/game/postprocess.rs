@@ -6,6 +6,8 @@
 use super::Game;
 use horizon_client::{Result, blocks::Fluid};
 use horizon_core::position::BlockPos;
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 use std::sync::Arc;
 
 /// Block.UPDATE_INVISIBLE | UPDATE_KNOWN_SHAPE | UPDATE_SKIP_BLOCK_ENTITY_SIDEEFFECTS.

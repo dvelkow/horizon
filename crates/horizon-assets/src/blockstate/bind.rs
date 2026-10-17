@@ -2,6 +2,8 @@
 use super::{BlockStateDefinition, Condition, Term};
 use crate::json::{Result, error};
 use horizon_core::text::parse_java_integer;
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 use std::collections::{BTreeMap, BTreeSet};
 
 pub type Properties = BTreeMap<String, String>;

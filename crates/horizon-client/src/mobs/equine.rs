@@ -11,6 +11,8 @@ use super::{
 };
 use horizon_core::geometry::trig::Mth;
 use horizon_core::random::RandomSource;
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 use std::f32::consts::PI;
 
 pub const COLORS: [&str; 7] = [

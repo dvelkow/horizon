@@ -9,6 +9,10 @@ use crate::{
     sprites::SpriteAnimation,
 };
 use glam::{DVec3, Mat4, Vec3, Vec4};
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
+#[allow(unused_imports)]
+use horizon_platform::PathExt;
 use std::{collections::HashMap, path::PathBuf, sync::Arc, time::Instant};
 use wgpu::util::DeviceExt;
 use winit::window::Window;
@@ -361,6 +365,8 @@ pub struct Renderer {
     pub screenshot: Option<PathBuf>,
     /// Outcome of the last screenshot: frame size, or the error.
     pub screenshot_result: Option<std::result::Result<[u32; 2], String>>,
+    #[cfg(target_arch = "wasm32")]
+    screenshot_pending: Option<std::sync::mpsc::Receiver<std::result::Result<[u32; 2], String>>>,
     /// Brightness option (lightmap gamma), 0..1.
     pub gamma: f32,
     /// Optional full-light lightmap (Horizon Extras).
@@ -385,7 +391,28 @@ fn sprite_split() -> u32 {
         .unwrap_or(SPRITE_SPLIT)
 }
 /// Sprite arrays terrain.wgsl binds (`sprites`, `sprites_1`...).
+#[cfg(not(target_arch = "wasm32"))]
 const SPRITE_ARRAYS: u32 = 4;
+#[cfg(target_arch = "wasm32")]
+const SPRITE_ARRAYS: u32 = 12;
+
+fn terrain_shader(arrays: u32) -> std::borrow::Cow<'static, str> {
+    let source = include_str!("terrain.wgsl");
+    if arrays <= 4 {
+        return source.into();
+    }
+    let mut declarations = String::new();
+    let mut cases = String::new();
+    for i in 4..arrays {
+        declarations.push_str(&format!(
+            "@group(0) @binding({}) var sprites_{i}: texture_2d_array<f32>;\n",
+            i + 4
+        ));
+        cases.push_str(&format!("case {i}u: {{ return textureSampleGrad(sprites_{i}, sprite_sampler, uv, l, dx, dy); }}\n"));
+    }
+    let source = source.replace("default: { return textureSampleGrad(sprites_3, sprite_sampler, uv, l, dx, dy); }", &format!("case 3u: {{ return textureSampleGrad(sprites_3, sprite_sampler, uv, l, dx, dy); }} {cases} default: {{ return vec4<f32>(1.0, 0.0, 1.0, 1.0); }}"));
+    format!("{declarations}\n{source}").into()
+}
 /// The views of terrain.wgsl's sprite arrays, the unused ones a 1-layer
 /// stand-in.
 fn sprite_views(
@@ -420,28 +447,32 @@ fn terrain_group(
         binding,
         resource: wgpu::BindingResource::TextureView(view),
     };
+    let mut entries = vec![
+        wgpu::BindGroupEntry {
+            binding: 0,
+            resource: globals.as_entire_binding(),
+        },
+        view(1, &sprites[0]),
+        wgpu::BindGroupEntry {
+            binding: 2,
+            resource: wgpu::BindingResource::Sampler(sprite_sampler),
+        },
+        view(3, lightmap),
+        wgpu::BindGroupEntry {
+            binding: 4,
+            resource: wgpu::BindingResource::Sampler(lightmap_sampler),
+        },
+        view(5, &sprites[1]),
+        view(6, &sprites[2]),
+        view(7, &sprites[3]),
+    ];
+    for i in (0..SPRITE_ARRAYS).skip(4) {
+        entries.push(view(i + 4, &sprites[i as usize]));
+    }
     device.create_bind_group(&wgpu::BindGroupDescriptor {
         label: Some(label),
         layout,
-        entries: &[
-            wgpu::BindGroupEntry {
-                binding: 0,
-                resource: globals.as_entire_binding(),
-            },
-            view(1, &sprites[0]),
-            wgpu::BindGroupEntry {
-                binding: 2,
-                resource: wgpu::BindingResource::Sampler(sprite_sampler),
-            },
-            view(3, lightmap),
-            wgpu::BindGroupEntry {
-                binding: 4,
-                resource: wgpu::BindingResource::Sampler(lightmap_sampler),
-            },
-            view(5, &sprites[1]),
-            view(6, &sprites[2]),
-            view(7, &sprites[3]),
-        ],
+        entries: &entries,
     })
 }
 fn mip_chain(
@@ -511,7 +542,9 @@ const NO_GPU_DRIVER: &str = "No Vulkan graphics driver found: Horizon needs a GP
      and start the game again";
 #[cfg(target_os = "macos")]
 const NO_GPU_DRIVER: &str = "No Metal graphics device found";
-#[cfg(not(any(target_os = "windows", target_os = "macos")))]
+#[cfg(target_arch = "wasm32")]
+const NO_GPU_DRIVER: &str = "WebGPU is unavailable: open Horizon in a current Chrome or Edge with hardware acceleration enabled";
+#[cfg(not(any(target_os = "windows", target_os = "macos", target_arch = "wasm32")))]
 const NO_GPU_DRIVER: &str = "No Vulkan graphics driver found: Horizon needs the Vulkan loader \
      (libvulkan.so.1) and a Vulkan driver for your GPU (Mesa's, or NVIDIA's)";
 impl Renderer {
@@ -593,7 +626,7 @@ impl Renderer {
             ),
         );
         let limits = adapter.limits();
-        let split = sprite_split();
+        let split = sprite_split().min(limits.max_texture_array_layers);
         if layers > split * SPRITE_ARRAYS {
             return Err(format!(
                 "{layers} block textures; Horizon draws at most {}",
@@ -674,7 +707,7 @@ impl Renderer {
         let gpu_timer = timing::GpuTimer::new(&device, &queue);
         let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("Horizon terrain"),
-            source: wgpu::ShaderSource::Wgsl(include_str!("terrain.wgsl").into()),
+            source: wgpu::ShaderSource::Wgsl(terrain_shader(SPRITE_ARRAYS)),
         });
         let entry = |binding, visibility, ty| wgpu::BindGroupLayoutEntry {
             binding,
@@ -696,50 +729,54 @@ impl Renderer {
             ("SPRITE_ARRAYS", f64::from(sprite_arrays)),
             ("SPRITE_SPLIT", f64::from(split)),
         ];
+        let mut binding_entries = vec![
+            entry(
+                0,
+                vf,
+                wgpu::BindingType::Buffer {
+                    ty: wgpu::BufferBindingType::Uniform,
+                    has_dynamic_offset: false,
+                    min_binding_size: None,
+                },
+            ),
+            entry(
+                1,
+                vf,
+                wgpu::BindingType::Texture {
+                    sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                    view_dimension: wgpu::TextureViewDimension::D2Array,
+                    multisampled: false,
+                },
+            ),
+            entry(
+                1 + 1,
+                vf,
+                wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+            ),
+            entry(
+                3,
+                vf,
+                wgpu::BindingType::Texture {
+                    sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                    view_dimension: wgpu::TextureViewDimension::D2,
+                    multisampled: false,
+                },
+            ),
+            entry(
+                4,
+                vf,
+                wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+            ),
+            entry(5, vf, sprite_array),
+            entry(6, vf, sprite_array),
+            entry(7, vf, sprite_array),
+        ];
+        for i in (0..SPRITE_ARRAYS).skip(4) {
+            binding_entries.push(entry(i + 4, vf, sprite_array));
+        }
         let bindings = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: Some("Horizon terrain bindings"),
-            entries: &[
-                entry(
-                    0,
-                    vf,
-                    wgpu::BindingType::Buffer {
-                        ty: wgpu::BufferBindingType::Uniform,
-                        has_dynamic_offset: false,
-                        min_binding_size: None,
-                    },
-                ),
-                entry(
-                    1,
-                    vf,
-                    wgpu::BindingType::Texture {
-                        sample_type: wgpu::TextureSampleType::Float { filterable: true },
-                        view_dimension: wgpu::TextureViewDimension::D2Array,
-                        multisampled: false,
-                    },
-                ),
-                entry(
-                    1 + 1,
-                    vf,
-                    wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
-                ),
-                entry(
-                    3,
-                    vf,
-                    wgpu::BindingType::Texture {
-                        sample_type: wgpu::TextureSampleType::Float { filterable: true },
-                        view_dimension: wgpu::TextureViewDimension::D2,
-                        multisampled: false,
-                    },
-                ),
-                entry(
-                    4,
-                    vf,
-                    wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
-                ),
-                entry(5, vf, sprite_array),
-                entry(6, vf, sprite_array),
-                entry(7, vf, sprite_array),
-            ],
+            entries: &binding_entries,
         });
         let layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("Horizon terrain layout"),
@@ -1759,6 +1796,8 @@ impl Renderer {
             started: Instant::now(),
             screenshot: None,
             screenshot_result: None,
+            #[cfg(target_arch = "wasm32")]
+            screenshot_pending: None,
             gamma: 0.5,
             fullbright: false,
             animated_textures: true,
@@ -2013,21 +2052,34 @@ impl Renderer {
     /// Run `pack`'s stages over the world from now on (`None`: no pack, the
     /// vanilla frame). On error the previous pack stays.
     pub fn set_shader_pack(&mut self, pack: Option<&crate::shader_pack::ShaderPack>) -> Result<()> {
-        let format = self.config.format.remove_srgb_suffix();
-        self.pack = match pack {
-            Some(pack) => Some(match &pack.java {
-                Some(java) => Pack::Java(java_stages::JavaStages::new(
-                    &self.device,
-                    &self.queue,
-                    format,
-                    &pack.id,
-                    java,
-                )?),
-                None => Pack::Horizon(pack_stages::PackStages::new(&self.device, format, pack)?),
-            }),
-            None => None,
-        };
-        Ok(())
+        #[cfg(target_arch = "wasm32")]
+        {
+            if pack.is_some() {
+                return Err("Shader packs are not available in the browser yet".into());
+            }
+            self.pack = None;
+            Ok(())
+        }
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            let format = self.config.format.remove_srgb_suffix();
+            self.pack = match pack {
+                Some(pack) => Some(match &pack.java {
+                    Some(java) => Pack::Java(java_stages::JavaStages::new(
+                        &self.device,
+                        &self.queue,
+                        format,
+                        &pack.id,
+                        java,
+                    )?),
+                    None => {
+                        Pack::Horizon(pack_stages::PackStages::new(&self.device, format, pack)?)
+                    }
+                }),
+                None => None,
+            };
+            Ok(())
+        }
     }
     /// The folder name of the pack `set_shader_pack` gave.
     pub fn shader_pack_id(&self) -> Option<&str> {
@@ -2181,6 +2233,8 @@ impl Renderer {
         );
     }
     pub fn render(&mut self, frame: &Frame) -> Result<bool> {
+        #[cfg(target_arch = "wasm32")]
+        self.collect_screenshot();
         if self.suspended {
             return Ok(false);
         }
@@ -2984,10 +3038,15 @@ impl Renderer {
         if let Some(timer) = &mut self.gpu_timer {
             timer.end(&mut encoder);
         }
-        let readback = self
-            .screenshot
-            .take()
-            .map(|path| (path, self.copy_frame(&mut encoder, &target_texture)));
+        let readback = self.screenshot.take().and_then(|path| {
+            if self.config.usage.contains(wgpu::TextureUsages::COPY_SRC) {
+                Some((path, self.copy_frame(&mut encoder, &target_texture)))
+            } else {
+                self.screenshot_result =
+                    Some(Err("this surface does not support frame readback".into()));
+                None
+            }
+        });
         self.uploads.finish(&encoder);
         let submission = self.queue.submit([encoder.finish()]);
         if let Some(timer) = &mut self.gpu_timer {
@@ -2995,10 +3054,15 @@ impl Renderer {
             timer.collect(&self.device, &mut self.gpu_times);
         }
         if let Some((path, buffer)) = readback {
-            self.screenshot_result = Some(
-                self.write_screenshot(&path, &buffer)
-                    .map_err(|e| e.to_string()),
-            );
+            #[cfg(target_arch = "wasm32")]
+            self.start_screenshot(path, buffer);
+            #[cfg(not(target_arch = "wasm32"))]
+            {
+                self.screenshot_result = Some(
+                    self.write_screenshot(&path, &buffer)
+                        .map_err(|e| e.to_string()),
+                );
+            }
         }
         let present = Instant::now();
         if let Some(surface_frame) = surface_frame {
@@ -3063,6 +3127,7 @@ impl Renderer {
         );
         buffer
     }
+    #[cfg(not(target_arch = "wasm32"))]
     fn write_screenshot(&self, path: &std::path::Path, buffer: &wgpu::Buffer) -> Result<[u32; 2]> {
         if !self.config.usage.contains(wgpu::TextureUsages::COPY_SRC) {
             return Err("this surface does not support frame readback".into());
@@ -3078,15 +3143,59 @@ impl Renderer {
             .recv()
             .map_err(|e| e.to_string())?
             .map_err(|e| e.to_string())?;
-        let (width, height, row) = (
+        Self::write_mapped_screenshot(
+            path,
+            buffer,
             self.config.width,
             self.config.height,
             self.padded_row() as usize,
+            self.config.format,
+        )
+    }
+    #[cfg(target_arch = "wasm32")]
+    fn start_screenshot(&mut self, path: PathBuf, buffer: wgpu::Buffer) {
+        let (sender, receiver) = std::sync::mpsc::channel();
+        self.screenshot_pending = Some(receiver);
+        let (width, height, row, format) = (
+            self.config.width,
+            self.config.height,
+            self.padded_row() as usize,
+            self.config.format,
         );
-        let bgra = matches!(
-            self.config.format.remove_srgb_suffix(),
-            wgpu::TextureFormat::Bgra8Unorm
-        );
+        let mapped = buffer.clone();
+        // WebGPU completes mapAsync on a later browser turn. Neither polling
+        // the GPU nor waiting for a Rust channel is valid on the Window.
+        buffer.map_async(wgpu::MapMode::Read, .., move |result| {
+            let result = result.map_err(|e| e.to_string()).and_then(|()| {
+                Self::write_mapped_screenshot(&path, &mapped, width, height, row, format)
+                    .map_err(|e| e.to_string())
+            });
+            let _ = sender.send(result);
+        });
+    }
+    #[cfg(target_arch = "wasm32")]
+    fn collect_screenshot(&mut self) {
+        use std::sync::mpsc::TryRecvError;
+        let Some(pending) = &self.screenshot_pending else {
+            return;
+        };
+        let result = match pending.try_recv() {
+            Ok(result) => result,
+            Err(TryRecvError::Empty) => return,
+            Err(TryRecvError::Disconnected) => Err("screenshot readback was interrupted".into()),
+        };
+        self.screenshot_pending = None;
+        self.screenshot_result = Some(result);
+    }
+    fn write_mapped_screenshot(
+        path: &std::path::Path,
+        buffer: &wgpu::Buffer,
+        width: u32,
+        height: u32,
+        row: usize,
+        format: wgpu::TextureFormat,
+    ) -> Result<[u32; 2]> {
+        let bgra = matches!(format.remove_srgb_suffix(), wgpu::TextureFormat::Bgra8Unorm);
         let mut pixels = Vec::with_capacity((width * height * 4) as usize);
         {
             let data = buffer.get_mapped_range(..).map_err(|e| e.to_string())?;
@@ -3502,7 +3611,7 @@ mod sprite_upload_tests {
             .join("../../.local/horizon-client/26.3");
         if !root
             .join("assets/minecraft/textures/block/rail.png")
-            .exists()
+            .platform_exists()
         {
             return;
         }
@@ -3725,5 +3834,20 @@ mod sprite_upload_tests {
         // Frame 0 is blue 0, frame 1 blue 99: a quarter, a half, then frame 1.
         assert_eq!(blues, [25, 50, 99]);
         assert_eq!(uncached_blues, blues);
+    }
+}
+
+#[cfg(test)]
+mod browser_shader_tests {
+    #[test]
+    fn twelve_sprite_banks_are_valid_wgsl() {
+        let source = super::terrain_shader(12);
+        let module = naga::front::wgsl::parse_str(&source).expect("browser terrain shader parses");
+        naga::valid::Validator::new(
+            naga::valid::ValidationFlags::all(),
+            naga::valid::Capabilities::all(),
+        )
+        .validate(&module)
+        .expect("browser terrain shader validates");
     }
 }

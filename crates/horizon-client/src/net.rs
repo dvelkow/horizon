@@ -5,6 +5,8 @@
 //! Online-mode servers need the Microsoft account the launcher signed in
 //! (crate::auth): the login joins the server through the session service and
 //! encrypts the connection (ClientHandshakePacketListenerImpl.handleHello).
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 use crate::auth::AuthSession;
 use horizon_protocol::{
     PROTOCOL_VERSION,

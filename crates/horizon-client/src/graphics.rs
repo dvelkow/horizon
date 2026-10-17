@@ -2,6 +2,8 @@
 //! `horizon-graphics.txt` next to `options.txt` so that file stays exactly
 //! vanilla's. Every default reproduces vanilla's rendering; only choices the
 //! player makes here depart from it.
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 use std::{fs, path::Path};
 
 pub const FILE: &str = "horizon-graphics.txt";

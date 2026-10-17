@@ -10,6 +10,8 @@ use crate::{
     registry::{BlockRegistry, BlockStateId},
 };
 use horizon_core::geometry::{Aabb, Axis, Direction, Vec3, VoxelShape};
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 use std::{collections::HashMap, io, sync::Arc};
 
 #[derive(Clone, Copy, Debug)]

@@ -2,6 +2,8 @@
 //! stack references preserve aliases across inventories and external callers.
 //! Pickup, ticking, menus and persistence are implemented separately.
 use crate::item_stack_refs::{ItemStacks, StackRef};
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 use std::{cell::RefCell, rc::Rc};
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[repr(usize)]

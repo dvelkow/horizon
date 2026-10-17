@@ -1,4 +1,6 @@
 //! Pinned blockstate resource definitions, before registry binding and baking.
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 pub mod bind;
 pub mod choice;
 use crate::json::*;

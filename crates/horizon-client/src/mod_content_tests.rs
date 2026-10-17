@@ -1,5 +1,9 @@
 use super::*;
 use crate::{assets::Assets, blocks::BlockFacts, items::Items};
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
+#[allow(unused_imports)]
+use horizon_platform::PathExt;
 
 #[test]
 fn renames_ids_keys_and_states() {
@@ -55,7 +59,7 @@ fn prepared() -> Option<PathBuf> {
         manifest.join("../../../../.local/horizon-client/26.3"),
     ]
     .into_iter()
-    .find(|root| root.join("gameplay-facts.json").exists())
+    .find(|root| root.join("gameplay-facts.json").platform_exists())
 }
 
 /// A content mod folder: a full block, a door and an item-less glass from
@@ -235,7 +239,7 @@ fn content_root_loads_with_every_table() {
     crate::light::LightTables::load(&root, new, &facts).unwrap();
     crate::motion::MotionResources::load(&root, &assets).unwrap();
     horizon_world::worldgen::generator::GeneratorData::load(&root.join("worldgen"), new).unwrap();
-    assert!(root.join("assets/ruby/lang/en_us.json").is_file());
+    assert!(root.join("assets/ruby/lang/en_us.json").platform_is_file());
     // Blocks without a blockstate of their own take their template's.
     assert_eq!(
         fs::read(root.join("assets/ruby/blockstates/ruby_door.json")).unwrap(),

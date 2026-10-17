@@ -5,6 +5,8 @@ use horizon_core::{
     position::BlockPos,
     ticks::{SavedTick, TickPriority, TickTypeId},
 };
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 use std::io;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

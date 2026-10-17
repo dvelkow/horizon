@@ -2,6 +2,7 @@
 //! and 4 drive the left and right voice-coil actuators (1 and 2 are its speaker and headset).
 //! Vibrations are synthesized as waveforms on those two channels; the first two stay silent.
 //! Over Bluetooth there is no audio device, and the motors' emulation is used instead.
+#[cfg(not(target_arch = "wasm32"))]
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use std::collections::VecDeque;
 use std::f32::consts::TAU;
@@ -18,11 +19,13 @@ const RAMP: f32 = 0.004;
 /// The pad's audio output, playing the queued samples (left, right actuator).
 pub struct Haptics {
     queue: Arc<Mutex<VecDeque<[f32; 2]>>>,
+    #[cfg(not(target_arch = "wasm32"))]
     _stream: cpal::Stream,
 }
 
 impl Haptics {
     /// The DualSense's audio device, if one is there with its four channels (USB).
+    #[cfg(not(target_arch = "wasm32"))]
     pub fn open() -> Option<Haptics> {
         let host = cpal::default_host();
         let device = host.output_devices().ok()?.find(is_dualsense)?;
@@ -56,6 +59,13 @@ impl Haptics {
         })
     }
 
+    /// Browser audio devices cannot be selected as raw DualSense actuators.
+    #[cfg(target_arch = "wasm32")]
+    pub fn open() -> Option<Haptics> {
+        log::info!("Horizon: DualSense HD haptics are unavailable in the browser");
+        None
+    }
+
     /// Play a vibration (heavy and light levels, 0..1, each for a while), replacing the one
     /// playing.
     pub fn play(&self, steps: &[(f32, f32, Duration)]) {
@@ -71,6 +81,7 @@ impl Haptics {
     }
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 fn is_dualsense(device: &cpal::Device) -> bool {
     device.name().is_ok_and(|n| is_dualsense_name(&n))
         && device.supported_output_configs().is_ok_and(|mut configs| {
@@ -87,6 +98,7 @@ fn is_dualsense(device: &cpal::Device) -> bool {
 /// (Wireless Controller)" (DS5Windows' and dse-haptics' setup notes), a name the DualShock 4's
 /// two-channel headset output shares, which the four channels rule out; ALSA names the card
 /// "Controller".
+#[cfg(any(not(target_arch = "wasm32"), test))]
 fn is_dualsense_name(name: &str) -> bool {
     name.contains("DualSense")
         || name.contains("Wireless Controller")

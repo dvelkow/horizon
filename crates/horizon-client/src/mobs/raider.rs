@@ -7,6 +7,8 @@ use super::{
     goals::{Cx, Goal, LOOK, MOVE, goal_clone},
 };
 use horizon_core::{geometry::Vec3, random::RandomSource};
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 use horizon_world::nbt::Tag;
 
 /// The ominous banner is a white banner with the raid patterns; raiders wear

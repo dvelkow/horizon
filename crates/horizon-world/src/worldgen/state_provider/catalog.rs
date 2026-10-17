@@ -1,5 +1,7 @@
 //! Immutable resource snapshots for named state-provider holders.
 use super::{BlockStateProvider, DecodeError, StateProviderBindings, identifier};
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 use serde_json::value::RawValue;
 use std::collections::BTreeMap;
 

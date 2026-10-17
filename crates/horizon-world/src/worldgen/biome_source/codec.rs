@@ -5,6 +5,8 @@ use crate::worldgen::{
     density::identifier,
     int_range, optional, required,
 };
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 use std::collections::{BTreeMap, BTreeSet};
 
 #[derive(Clone, Debug, PartialEq, Eq)]

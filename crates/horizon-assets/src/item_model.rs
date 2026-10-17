@@ -10,6 +10,8 @@ use crate::{
     json::{DecodeError, error as err},
     math::{Mat4, normalize_quaternion, quaternion_from_axis_angle},
 };
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 use serde_json::{Map, Value};
 use std::{
     collections::BTreeMap,

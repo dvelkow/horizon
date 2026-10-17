@@ -1,6 +1,8 @@
 //! The pinned operation buckets use open-addressed maps. Preserve their slot
 //! iteration order because reassociating floating-point modifiers changes values.
 use super::Modifier;
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 #[derive(Clone, Debug)]
 pub(super) struct OperationMap {
     slots: Vec<Option<Modifier>>,

@@ -13,6 +13,8 @@ use horizon_core::{
     geometry::Direction,
     random::{InvalidBound, RandomSource},
 };
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 use serde_json::value::RawValue;
 
 #[derive(Clone, Debug)]

@@ -11,6 +11,8 @@ use super::{
 use crate::projectiles::{Projectile, ProjectileKind};
 use horizon_core::geometry::trig::Mth;
 use horizon_core::{geometry::Vec3, random::RandomSource};
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 use std::f32::consts::PI;
 
 /// The species raiders do not fight (`Raider`'s allies).

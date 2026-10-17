@@ -9,6 +9,8 @@ use super::{
 };
 use crate::mesher::Vertex;
 use horizon_core::geometry::trig::Mth;
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 use std::f32::consts::PI;
 
 /// A texture lookup into the shared atlas (name without namespace -> uv rect).

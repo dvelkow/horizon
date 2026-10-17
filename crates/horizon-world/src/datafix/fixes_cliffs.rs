@@ -9,6 +9,8 @@ use super::fixes_b::advancements_rename;
 use super::schema::{Key, Ty, key};
 use super::{Cx, FixFn, renamer};
 use crate::nbt::{Compound, JavaString, Tag};
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 
 pub(super) fn register(out: &mut Vec<(Key, FixFn)>) {
     out.push((key(2679, 0), cauldron_rename));

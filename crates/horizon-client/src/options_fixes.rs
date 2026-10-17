@@ -1,5 +1,7 @@
 //! The `OPTIONS` data fixers of 26.3 (`DataFixTypes.OPTIONS`), applied to the
 //! raw key/value strings of an `options.txt` older than the current version.
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 use std::collections::HashMap;
 
 /// A fixer threw an exception; vanilla abandons loading the file.

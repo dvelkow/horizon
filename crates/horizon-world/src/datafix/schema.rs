@@ -7,6 +7,8 @@
 //! fix with key K reads its input with the schema just below K.
 use super::dynamic::{as_str, namespaced};
 use crate::nbt::Tag;
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 
 #[path = "schema_flat.rs"]
 pub(super) mod flat;

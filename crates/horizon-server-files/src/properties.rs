@@ -7,6 +7,8 @@ use super::{
     json::{self, Json},
 };
 use horizon_core::random::java_string_hash;
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 use horizon_protocol::crypto::md5;
 
 /// MinecraftServer.ServerResourcePackInfo.

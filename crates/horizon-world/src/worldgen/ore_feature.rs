@@ -12,6 +12,8 @@ use super::{
 use crate::heightmap::HeightmapType;
 use crate::registry::BlockStateId;
 use horizon_core::{geometry::Direction, random::RandomSource};
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 
 #[derive(Clone, Debug)]
 pub struct ScatteredOreFeature {

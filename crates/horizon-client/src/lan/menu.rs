@@ -5,6 +5,8 @@
 //! menu are returned for the game to drop.
 use super::guest::Guest;
 use crate::{items::ItemStack, world::World};
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 
 /// What the menus need to know about items.
 pub trait Rules {

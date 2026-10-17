@@ -3,6 +3,10 @@
 //! repository root) and are skipped when those are absent.
 use super::*;
 use crate::chunk::BlockState;
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
+#[allow(unused_imports)]
+use horizon_platform::PathExt;
 use std::{
     collections::{BTreeMap, HashMap},
     path::PathBuf,
@@ -24,7 +28,7 @@ fn fixture() -> Option<&'static Fixture> {
                     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
                         .join("../../.local/horizon-client/26.3")
                 });
-            if !root.join("block-behaviours.json").exists() {
+            if !root.join("block-behaviours.json").platform_exists() {
                 eprintln!("skipping level tests: no resources at {}", root.display());
                 return None;
             }

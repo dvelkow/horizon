@@ -1,5 +1,7 @@
 //! Native float-table view direction and horizontal blocking angle arithmetic.
 use horizon_core::geometry::{Vec3, trig};
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 pub fn view_vector(pitch: f32, yaw: f32) -> Vec3 {
     let pitch = pitch * trig::DEG_TO_RAD;
     let yaw = -yaw * trig::DEG_TO_RAD;

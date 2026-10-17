@@ -7,6 +7,8 @@ use crate::{
     crafting::{Ingredient, Placement, Recipe, Recipes},
     items::{ItemStack, Items},
 };
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 use horizon_world::nbt::Tag;
 use std::collections::{BTreeSet, HashMap};
 

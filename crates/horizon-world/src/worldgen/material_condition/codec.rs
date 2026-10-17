@@ -3,6 +3,8 @@ use super::MaterialCondition;
 use crate::worldgen::{
     DecodeError, Object, anchor::VerticalAnchor, double, int_range, integer, optional, required,
 };
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 use serde_json::{Value, value::RawValue};
 use std::{
     collections::{BTreeMap, BTreeSet},

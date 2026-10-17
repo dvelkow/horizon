@@ -11,6 +11,8 @@ use horizon_client::{
     items::ItemStack,
     mesher::Vertex,
 };
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 use horizon_world::nbt::Tag;
 use std::collections::HashMap;
 

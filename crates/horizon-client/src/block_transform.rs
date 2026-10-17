@@ -4,6 +4,10 @@
 //! `tools/test_block_transformer_parity.py` compares every block state with
 //! vanilla.
 use crate::{Result, items::Items};
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
+#[allow(unused_imports)]
+use horizon_platform::PathExt;
 use horizon_world::{chunk::BlockState, registry::BlockRegistry};
 use serde_json::Value;
 use std::{collections::HashMap, fs, path::Path};
@@ -183,7 +187,7 @@ impl Transformers {
     pub fn load(root: &Path, registry: &BlockRegistry) -> Result<Self> {
         let mut transformers = HashMap::new();
         let dir = root.join("data/minecraft/block_transformer");
-        if dir.exists() {
+        if dir.platform_exists() {
             for entry in fs::read_dir(&dir)?.flatten() {
                 let path = entry.path();
                 let Some(stem) = path.file_stem().and_then(|s| s.to_str()) else {

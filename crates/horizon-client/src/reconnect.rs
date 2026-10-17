@@ -2,6 +2,8 @@
 //! connection may be retried, and when. Only lost connections and the
 //! server's own shutdown or restart are retried, never kicks, bans or
 //! refusals; attempts back off and stop after a few.
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 use std::time::{Duration, Instant};
 
 /// Seconds before each attempt; there are no more after the last.

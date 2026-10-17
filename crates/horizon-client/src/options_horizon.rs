@@ -18,6 +18,8 @@ use crate::{
     settings::{SOUND_SOURCES, Settings},
     ui_theme::{self as t, CONTROL, Kind as Button, MenuStyle, ROW_LABEL, SIDEBAR, Ui, color, id},
 };
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 
 /// One row of a section.
 #[derive(Clone, Copy, Debug)]

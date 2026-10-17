@@ -23,6 +23,8 @@
 //! rows (`HRow`), so new settings only need rows.
 use crate::hud::{HudAtlas, HudBatch, Rect};
 use ab_glyph::{Font as _, FontRef, PxScale, ScaleFont as _};
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 use std::{
     cell::RefCell,
     collections::HashMap,

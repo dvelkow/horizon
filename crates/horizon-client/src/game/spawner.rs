@@ -14,6 +14,8 @@ use horizon_client::{
     particles::{ParticleOptions, ParticleType},
 };
 use horizon_core::{geometry::Vec3, random::RandomSource};
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 use horizon_world::nbt::Tag;
 use std::collections::{HashMap, HashSet};
 

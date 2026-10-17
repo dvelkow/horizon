@@ -13,6 +13,8 @@ use crate::{
     server_player_damage::{ServerDamageEnvironment, ServerDamageError, ServerPlayerDamage},
     synced_floats::{DataError, SyncedFloats},
 };
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 use std::io;
 type Error<E> = <E as ArmorWorld>::Error;
 pub trait CombatEnvironment<A: HealthAttributes = EntityAttributes>:

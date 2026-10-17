@@ -10,6 +10,8 @@ use crate::{
     world::World,
 };
 use horizon_core::biome::BiomeZoom;
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 use horizon_world::block_render::FaceVisibility;
 use horizon_world::worldgen::decoration_order::DecorationOrder;
 use std::{

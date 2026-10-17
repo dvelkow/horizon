@@ -1,4 +1,6 @@
 //! Java Edition NBT with lossless UTF-16 strings and 26.3 mixed-list wrappers.
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 use std::collections::BTreeMap;
 
 /// Java strings can contain unpaired surrogates, which Rust UTF-8 strings cannot.

@@ -1,5 +1,7 @@
 //! Immutable climate search tree with an explicit per-worker previous result.
 use super::{TargetPoint, quantize};
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 use std::cmp::Ordering;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

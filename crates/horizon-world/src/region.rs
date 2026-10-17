@@ -5,6 +5,8 @@ use crate::{
     nbt::{self, Limits, NamedTag},
 };
 use horizon_core::position::ChunkPos;
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 use std::{
     fs::{self, File, OpenOptions},
     io::{self, Read, Seek, SeekFrom, Write},

@@ -1,6 +1,8 @@
 //! Simple rolling terrain used only until the vanilla overworld generator is
 //! bound (`--test-terrain`). Not vanilla generation.
 use crate::{chunk::Chunk, streaming::ChunkGenerator};
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 use horizon_world::registry::BlockRegistry;
 
 pub struct TestTerrain {

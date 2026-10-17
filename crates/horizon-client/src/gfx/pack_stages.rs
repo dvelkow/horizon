@@ -4,6 +4,8 @@
 //! goes to the screen through `world_post` (copy or FXAA) under the hand and
 //! HUD. Only exists while a pack is selected.
 use crate::shader_pack::{ShaderPack, VERTEX_ENTRY};
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 
 /// The `Frame` uniform of the prelude (`shader_pack_prelude.wgsl`).
 #[repr(C)]

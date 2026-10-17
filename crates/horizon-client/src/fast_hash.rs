@@ -1,6 +1,8 @@
 //! A fast, non-cryptographic hasher (the Fx hash used by rustc) for hot maps
 //! keyed by small integers, such as chunk coordinates. Iteration order of
 //! such maps carries no meaning: the default hasher's is random anyway.
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 use std::hash::{BuildHasherDefault, Hasher};
 
 const SEED: u64 = 0xf135_7aea_2e62_a9c5;

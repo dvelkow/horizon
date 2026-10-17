@@ -4,6 +4,8 @@
 //! one item merge first; then the stacks go in rank order (creative tab
 //! order, then name), full stacks before the partial one, empty slots last.
 use crate::items::ItemStack;
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 
 /// A stack's place in the order: its index in the creative tabs (items
 /// outside them after), then its name.

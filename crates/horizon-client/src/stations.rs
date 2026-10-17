@@ -9,6 +9,10 @@ use crate::{
     items::{ItemStack, Items},
 };
 use horizon_core::random::{LegacyRandom, RandomSource};
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
+#[allow(unused_imports)]
+use horizon_platform::PathExt;
 use serde_json::Value;
 use std::{fs, path::Path, sync::Arc};
 
@@ -878,7 +882,7 @@ mod tests {
     #[test]
     fn prepared_vanilla_data() {
         let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../.local/horizon-client/26.3");
-        if !root.join("items.json").exists() {
+        if !root.join("items.json").platform_exists() {
             return;
         }
         let items = Items::tags_only(&root).unwrap();

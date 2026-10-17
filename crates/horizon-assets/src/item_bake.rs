@@ -9,6 +9,8 @@ use crate::{
     model::{Direction, DisplayTransform, GuiLight, ItemTransform, Material},
     resolve::ModelLibrary,
 };
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 use std::{collections::BTreeSet, f32::consts::PI};
 
 pub const MISSING_SPRITE: &str = "minecraft:missingno";

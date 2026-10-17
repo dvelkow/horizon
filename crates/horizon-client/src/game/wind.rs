@@ -13,6 +13,8 @@ use horizon_core::{
     position::BlockPos,
     random::RandomSource,
 };
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 use horizon_world::level::PlayerContext;
 use std::collections::BTreeSet;
 

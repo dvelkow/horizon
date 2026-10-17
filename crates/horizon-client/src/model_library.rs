@@ -1,6 +1,10 @@
 //! Parsed resource models for one startup or resource-pack reload.
 use crate::Result;
 use horizon_assets::{model::CuboidModel, resolve::ModelLibrary};
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
+#[allow(unused_imports)]
+use horizon_platform::PathExt;
 use std::{collections::BTreeMap, fs, path::Path, sync::Arc};
 
 #[derive(Default)]
@@ -24,7 +28,7 @@ impl ParsedModels {
                 };
                 for e in entries.flatten() {
                     let path = e.path();
-                    if path.is_dir() {
+                    if path.platform_is_dir() {
                         stack.push(path);
                     } else if path.extension().is_some_and(|x| x == "json")
                         && let Ok(rel) = path.strip_prefix(&base)
