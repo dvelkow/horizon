@@ -273,3 +273,128 @@ capabilities = ["registries"]
     // Content has no hooks: the game's per-tick mod work stays skipped.
     assert!(!mods.is_running());
 }
+
+#[test]
+fn server_mods_tick_and_each_side_selects_its_own_code() {
+    let dir = mods_dir().join("server-side");
+    std::fs::create_dir_all(&dir).unwrap();
+    let guest = Package::read(&mods_dir().join("horizon_mods_test_guest.hmod")).unwrap();
+    let manifest = format!("{GUEST_MANIFEST}\nside = \"server\"\n");
+    let path = dir.join("test_guest.hmod");
+    std::fs::write(
+        &path,
+        Package::write(&manifest, guest.wasm.as_ref().unwrap()).unwrap(),
+    )
+    .unwrap();
+    assert_eq!(
+        Mods::load(std::slice::from_ref(&path), |_| true, |_| false).entries()[0].status,
+        Status::Off
+    );
+    assert_eq!(
+        Mods::load_server(
+            &[mods_dir().join("horizon_mods_test_guest.hmod")],
+            |_| true,
+            |_| false
+        )
+        .entries()[0]
+            .status,
+        Status::Off
+    );
+    let mut server = Mods::load_server(&[path], |_| true, |_| false);
+    server.set_snapshot(Snapshot {
+        player: None,
+        clock: Some(Clock {
+            game_time: 40,
+            day_time: 6000,
+        }),
+    });
+    server.tick(40);
+    assert!(server.command("hello server"));
+    assert_eq!(
+        server.drain(),
+        [Output::Chat {
+            name: "Test Guest".into(),
+            text: "hello server after 1 ticks".into()
+        }]
+    );
+
+    let package = Package::read(&mods_dir().join("coords_hud.hmod")).unwrap();
+    let mut manifest = toml::to_string(&package.manifest).unwrap();
+    manifest = manifest.replace("side = \"client\"", "side = \"both\"");
+    let both = dir.join("coords_hud.hmod");
+    std::fs::write(
+        &both,
+        Package::write(&manifest, package.wasm.as_ref().unwrap()).unwrap(),
+    )
+    .unwrap();
+    let mut server = Mods::load_server(std::slice::from_ref(&both), |_| true, |_| false);
+    assert!(server.is_running());
+    // Even a caller accidentally providing a local player cannot give the
+    // server guest a fictional player or a HUD surface.
+    server.set_snapshot(player());
+    server.tick(1);
+    assert_eq!(server.panels().count(), 0);
+    let mut client = Mods::load(&[both], |_| true, |_| false);
+    client.set_snapshot(player());
+    client.tick(1);
+    assert_eq!(client.panels().count(), 1);
+}
+
+#[test]
+fn approved_server_updates_keep_last_good_and_reconcile_additions_and_removals() {
+    let dir = mods_dir().join("approved-server");
+    std::fs::create_dir_all(&dir).unwrap();
+    let guest = Package::read(&mods_dir().join("horizon_mods_test_guest.hmod")).unwrap();
+    let manifest = format!("{GUEST_MANIFEST}\nside = \"server\"\n");
+    let bytes = Package::write(&manifest, guest.wasm.as_ref().unwrap()).unwrap();
+    let path = dir.join("test_guest.hmod");
+    std::fs::write(&path, &bytes).unwrap();
+    let mut server = Mods::load_server(&[], |_| true, |_| false);
+    assert!(server.sync_server_directory(&dir, |_| false).unwrap());
+    server.tick(1);
+    assert!(!server.sync_server_directory(&dir, |_| false).unwrap());
+    std::fs::write(&path, b"incomplete update").unwrap();
+    assert!(!server.sync_server_directory(&dir, |_| false).unwrap());
+    assert_eq!(server.entries()[0].status, Status::Running);
+    assert!(server.command("hello retained"));
+    assert_eq!(
+        server.drain(),
+        [Output::Chat {
+            name: "Test Guest".into(),
+            text: "hello retained after 1 ticks".into()
+        }]
+    );
+    assert!(
+        server
+            .sync_server_directory(&dir.join("missing"), |_| false)
+            .is_err()
+    );
+    assert!(server.is_running());
+
+    // Same command names must survive replacement of their former owner.
+    std::fs::write(&path, &bytes).unwrap();
+    assert!(server.sync_server_directory(&dir, |_| false).unwrap());
+    assert!(server.command("hello replaced"));
+    assert_eq!(
+        server.drain(),
+        [Output::Chat {
+            name: "Test Guest".into(),
+            text: "hello replaced after 0 ticks".into()
+        }]
+    );
+    let later = std::time::SystemTime::now() + std::time::Duration::from_secs(5);
+    std::fs::File::options()
+        .write(true)
+        .open(&path)
+        .unwrap()
+        .set_modified(later)
+        .unwrap();
+    assert!(
+        !server.sync_server_directory(&dir, |_| false).unwrap(),
+        "identical bytes do not restart a mod"
+    );
+    std::fs::remove_file(path).unwrap();
+    assert!(server.sync_server_directory(&dir, |_| false).unwrap());
+    assert!(!server.is_running());
+    assert!(!server.command("hello removed"));
+}

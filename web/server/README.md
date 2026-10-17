@@ -1,4 +1,4 @@
-# Phase 2 authenticated game gateway
+# Authenticated game gateway and readonly mod catalog
 
 Node 22 and the pinned `ws` dependency serve an explicit public build directory and a separate prepared-assets directory. `npm ci && npm test` checks friend sessions, asset access, fixed-upstream transport, identity checks, deadlines, WebSocket origins, and private-path exclusion.
 
@@ -8,4 +8,4 @@ Start with `node cli.mjs /private/path/gateway.json`. The configuration must be 
 
 Run the native dedicated engine on loopback using `horizon-server --dir /private/world run` and the supplied server configuration. Keep game, configuration and cloud provisioning credentials outside the static roots. COOP/COEP and CSP headers are supplied centrally. See [small-host memory results](deploy/memory-results.md) for the measured effect of the dedicated-resource reductions.
 
-Browser mod execution and portal upload/approval routes are not implemented in this phase.
+Phase 3 adds a verified, operator-installed readonly mod catalog and `/mods-runtime/` Workers; see [browser components](../../docs/browser-mods.md). Upload and owner approval routes are not implemented yet.

@@ -3,7 +3,7 @@
 use horizon_platform as std;
 #[allow(unused_imports)]
 use horizon_platform::PathExt;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use std::{fmt, io::Read, path::Path};
 
 /// The manifest's file name, beside `mod.wasm`.
@@ -20,7 +20,7 @@ pub const APIS: [&str; 2] = [API, "0.2"];
 /// The biggest `mod.wasm` a mod may ship.
 const MAX_WASM: u64 = 32 << 20;
 
-#[derive(Clone, Debug, Deserialize, PartialEq)]
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub struct Manifest {
     /// `[a-z0-9_]`, 1 to 64 characters: the mod's folder, log and settings key.
@@ -39,7 +39,7 @@ pub struct Manifest {
     pub capabilities: Vec<Capability>,
 }
 
-#[derive(Clone, Copy, Debug, Default, Deserialize, PartialEq)]
+#[derive(Clone, Copy, Debug, Default, Deserialize, Serialize, PartialEq)]
 #[serde(rename_all = "lowercase")]
 pub enum Side {
     /// Runs in the player's game only (HUD, keys, chat commands).
@@ -53,7 +53,7 @@ pub enum Side {
 
 /// What a mod may do beyond writing its log. Each is a WIT interface the
 /// component imports; the player sees them before turning the mod on.
-#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq, PartialOrd, Ord)]
 #[serde(rename_all = "kebab-case")]
 pub enum Capability {
     GameRead,

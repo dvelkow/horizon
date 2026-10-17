@@ -8,7 +8,7 @@ const stat = await fs.stat(path);
 if (stat.mode & 0o077) throw new Error('Gateway configuration must be readable only by its owner (mode 0600)');
 const config = JSON.parse(await fs.readFile(resolve(path), 'utf8'));
 const realConfigPath = await fs.realpath(path);
-for (const directory of [config.publicDir, config.assetsDir].filter(Boolean)) {
+for (const directory of [config.publicDir, config.assetsDir, config.modsRuntimeDir].filter(Boolean)) {
   const root = await fs.realpath(directory);
   if (realConfigPath.startsWith(`${root}${sep}`)) throw new Error('Gateway configuration cannot live inside a served directory');
 }

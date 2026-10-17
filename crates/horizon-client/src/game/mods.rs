@@ -28,6 +28,12 @@ pub(super) struct ModsState {
     checked: Option<Instant>,
     /// The chat's command tree while a running mod owns commands.
     tree: Option<Dispatcher>,
+    #[cfg(not(target_arch = "wasm32"))]
+    server: bool,
+    #[cfg(not(target_arch = "wasm32"))]
+    approved_dir: Option<PathBuf>,
+    #[cfg(not(target_arch = "wasm32"))]
+    approval_error: Option<String>,
 }
 impl ModsState {
     /// The chat's command tree: vanilla's, plus the running mods' commands.
@@ -47,6 +53,29 @@ fn vanilla_command(name: &str) -> bool {
         .children
         .iter()
         .any(|&c| d.nodes[c].name() == name)
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn server_command(name: &str) -> bool {
+    vanilla_command(name)
+        || matches!(
+            name,
+            "stop"
+                | "save-all"
+                | "save-off"
+                | "save-on"
+                | "list"
+                | "op"
+                | "deop"
+                | "ban"
+                | "ban-ip"
+                | "banlist"
+                | "pardon"
+                | "pardon-ip"
+                | "kick"
+                | "whitelist"
+                | "say"
+        )
 }
 
 /// `root` with the content mods that are on layered over it
@@ -106,6 +135,11 @@ pub(super) fn content_root(
 impl Game<'_> {
     /// Reads `horizon-mods/` and the dev mods, and starts the ones turned on.
     pub(super) fn start_mods(&mut self) {
+        #[cfg(not(target_arch = "wasm32"))]
+        if self.options.dedicated.is_some() {
+            self.start_server_mods();
+            return;
+        }
         let dir = Self::options_path().with_file_name(mod_list::DIR);
         let dev = &self.mods.dev;
         let mut paths = horizon_mods::find(&dir);
@@ -125,6 +159,78 @@ impl Game<'_> {
         self.sync_mod_commands();
         self.show_mod_output();
     }
+    #[cfg(not(target_arch = "wasm32"))]
+    fn start_server_mods(&mut self) {
+        self.mods.server = true;
+        self.mods.approved_dir = std::env::var_os("HORIZON_APPROVED_MODS")
+            .filter(|path| !path.is_empty())
+            .map(PathBuf::from);
+        self.mods.checked = None;
+        if self.mods.approved_dir.is_some() {
+            self.mods.mods = Mods::load_server(&[], |_| true, server_command);
+            self.poll_server_mods();
+        } else {
+            let dir = Self::options_path().with_file_name(mod_list::DIR);
+            let mut paths = horizon_mods::find(&dir);
+            paths.retain(|path| !self.mods.dev.contains(path));
+            paths.extend(self.mods.dev.iter().cloned());
+            let dev_ids: Vec<_> = self
+                .mods
+                .dev
+                .iter()
+                .filter_map(|path| horizon_mods::Package::read(path).ok())
+                .map(|package| package.manifest.id)
+                .collect();
+            let enabled = &self.settings.mods.enabled;
+            self.mods.mods = Mods::load_server(
+                &paths,
+                |id| enabled.contains(id) || dev_ids.iter().any(|dev| dev == id),
+                server_command,
+            );
+            self.sync_mod_commands();
+            self.show_mod_output();
+        }
+    }
+
+    /// Poll even while an empty dedicated world is paused: a newly approved
+    /// mod must be available before the next player joins.
+    #[cfg(not(target_arch = "wasm32"))]
+    pub(super) fn poll_server_mods(&mut self) {
+        if !self.mods.server
+            || self
+                .mods
+                .checked
+                .is_some_and(|at| at.elapsed() < RELOAD_CHECK)
+        {
+            return;
+        }
+        self.mods.checked = Some(Instant::now());
+        let changed = if let Some(dir) = &self.mods.approved_dir {
+            match self.mods.mods.sync_server_directory(dir, server_command) {
+                Ok(changed) => {
+                    self.mods.approval_error = None;
+                    changed
+                }
+                Err(error) => {
+                    if self.mods.approval_error.as_ref() != Some(&error) {
+                        super::dedicated::log("WARN", &format!("Approved mod mirror: {error}"));
+                    }
+                    self.mods.approval_error = Some(error);
+                    false
+                }
+            }
+        } else if !self.mods.dev.is_empty() {
+            self.mods.mods.reload_changed(server_command)
+        } else {
+            false
+        };
+        if changed {
+            self.sync_mod_commands();
+            super::dedicated::log("INFO", "Approved server mods updated");
+        }
+        self.show_mod_output();
+    }
+
     /// The Mods page's rows, from what loaded.
     fn list_mods(&mut self) {
         let dev = &self.mods.dev;
@@ -199,6 +305,16 @@ impl Game<'_> {
     }
     /// What mods read this tick.
     fn mod_snapshot(&self) -> Snapshot {
+        #[cfg(not(target_arch = "wasm32"))]
+        if self.mods.server {
+            return Snapshot {
+                player: None,
+                clock: Some(Clock {
+                    game_time: self.world.game_time.max(0) as u64,
+                    day_time: self.world.day_time.max(0) as u64,
+                }),
+            };
+        }
         let player = self.player.as_ref().map(|p| Player {
             x: p.position.x,
             y: p.position.y,
@@ -227,7 +343,7 @@ impl Game<'_> {
     }
     /// Once per frame: the frame hook, and dev mods' rebuilds.
     pub(super) fn mods_frame(&mut self, elapsed: Duration) {
-        if !self.mods.dev.is_empty()
+        if (cfg!(target_arch = "wasm32") || !self.mods.dev.is_empty())
             && self
                 .mods
                 .checked
@@ -262,11 +378,32 @@ impl Game<'_> {
     }
     /// A chat line the player received.
     pub(super) fn mods_chat(&mut self, line: &str) {
+        let snapshot = self.mod_snapshot();
+        self.mods.mods.set_snapshot(snapshot);
         self.mods.mods.chat(line);
         self.show_mod_output();
     }
     /// Chat lines, command feedback and stopped mods, into the chat.
     fn show_mod_output(&mut self) {
+        #[cfg(not(target_arch = "wasm32"))]
+        if self.mods.server {
+            for output in self.mods.mods.drain() {
+                let (message, error) = match output {
+                    Output::Chat { name, text } => (format!("[{name}] {text}"), false),
+                    Output::Feedback { text, error } => (text, error),
+                    Output::Stopped { name, reason } => {
+                        self.sync_mod_commands();
+                        (format!("Mod {name} stopped: {reason}"), true)
+                    }
+                };
+                super::dedicated::log(if error { "WARN" } else { "INFO" }, &message);
+                if let Some(host) = &self.lan {
+                    host.hub
+                        .system_message(horizon_protocol::text::literal(&message));
+                }
+            }
+            return;
+        }
         for output in self.mods.mods.drain() {
             let line = match output {
                 Output::Chat { name, text } => {
