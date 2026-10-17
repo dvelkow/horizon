@@ -834,6 +834,7 @@ impl Game<'_> {
                         {
                             self.container_openers_changed(pos, false);
                         }
+                        self.lan_stations_left(&mut host, &mut guest);
                         self.lan_crafting_left(&mut host, &mut guest);
                         self.save_guest(&host, &guest);
                         host.models.remove(&guest.conn);

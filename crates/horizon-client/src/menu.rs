@@ -5,7 +5,9 @@
 //! stand, the crafter (its client menu and the block entity's server menu with
 //! `setSlotState`), the loom (`clickMenuButton`, `slotsChanged`) and the
 //! merchant (`MerchantMenu` over a `merchant::Session`: payment slots, the
-//! result slot's trade, `tryMoveItems`).
+//! result slot's trade, `tryMoveItems`) and the workstations (`menu::station`:
+//! enchanting table, anvil, grindstone, smithing table, stonecutter and
+//! cartography table).
 //! `tools/test_menu_click_parity.py` compares every click with vanilla's menu
 //! classes.
 use crate::{
@@ -21,6 +23,9 @@ use horizon_platform::PathExt;
 use std::sync::Arc;
 
 pub mod place;
+pub mod station;
+
+pub use station::{Effect, Stations};
 
 /// What a menu needs to know about items and recipes.
 pub struct Env<'a> {
@@ -30,6 +35,8 @@ pub struct Env<'a> {
     pub banners: &'a Banners,
     /// What a merchant menu needs for offers made while it is open (level-ups).
     pub trade: Option<&'a crate::merchant::TradeEnv<'a>>,
+    /// What the workstation menus need of the world (`ContainerLevelAccess`).
+    pub stations: Option<&'a Stations<'a>>,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -80,9 +87,34 @@ pub enum Kind {
     /// `CreativeModeInventoryScreen.ItemPickerMenu`: an item tab's 45
     /// display slots, then the hotbar.
     ItemPicker,
+    /// `EnchantmentMenu`: the item and the lapis, then the inventory.
+    Enchantment,
+    /// `AnvilMenu`: input, addition, result, then the inventory.
+    Anvil,
+    /// `GrindstoneMenu`: two inputs, the result, then the inventory.
+    Grindstone,
+    /// `SmithingMenu`: template, base, addition, result, then the inventory.
+    Smithing,
+    /// `StonecutterMenu`: the input, the result, then the inventory.
+    Stonecutter,
+    /// `CartographyTableMenu`: the map, paper, map or glass pane, the result.
+    Cartography,
 }
 
 impl Kind {
+    /// The workstations of `menu::station`.
+    pub fn is_station(self) -> bool {
+        matches!(
+            self,
+            Self::Enchantment
+                | Self::Anvil
+                | Self::Grindstone
+                | Self::Smithing
+                | Self::Stonecutter
+                | Self::Cartography
+        )
+    }
+
     pub fn parse(name: &str) -> Option<Self> {
         if let Some(rows) = name.strip_prefix("chest") {
             return rows.parse().ok().map(Self::Chest);
@@ -102,6 +134,12 @@ impl Kind {
             "loom" => Self::Loom,
             "merchant" => Self::Merchant,
             "item_picker" => Self::ItemPicker,
+            "enchantment" => Self::Enchantment,
+            "anvil" => Self::Anvil,
+            "grindstone" => Self::Grindstone,
+            "smithing" => Self::Smithing,
+            "stonecutter" => Self::Stonecutter,
+            "cartography_table" => Self::Cartography,
             _ => return None,
         })
     }
@@ -140,6 +178,19 @@ enum Role {
     /// `CustomCreativeSlot`: a creative tab's display slot, which the
     /// screen clicks itself; drags and PICKUP_ALL pass it by.
     CreativeDisplay,
+    /// `EnchantmentMenu`'s item slot (one item) and lapis slot.
+    EnchantItem,
+    Lapis,
+    /// `GrindstoneMenu`'s inputs: damageable or enchanted items.
+    Grind,
+    /// `SmithingMenu`'s template, base and addition slots (`RecipePropertySet`).
+    Smithing(usize),
+    /// `CartographyTableMenu`'s map slot and its paper, map or glass pane slot.
+    MapIn,
+    MapExtra,
+    /// A workstation's result slot: nothing is placed in it; taking runs the
+    /// menu's `onTake`.
+    StationResult,
 }
 
 #[derive(Clone, Copy)]
@@ -183,6 +234,8 @@ pub struct Menu {
     pub crafted: Vec<String>,
     /// The merchant a merchant menu trades with.
     pub merchant: Option<Box<crate::merchant::Session>>,
+    /// A workstation's state besides its slots and data (`menu::station`).
+    pub station: station::StationState,
 }
 
 fn same_item(a: &ItemStack, b: &ItemStack) -> bool {
@@ -339,6 +392,31 @@ impl Menu {
                 });
                 player(&mut slots);
             }
+            Kind::Enchantment
+            | Kind::Anvil
+            | Kind::Grindstone
+            | Kind::Smithing
+            | Kind::Stonecutter
+            | Kind::Cartography => {
+                let roles = station::roles(kind);
+                containers[MAIN] = vec![None; roles.len()];
+                for (index, role) in roles.into_iter().enumerate() {
+                    slots.push(Slot {
+                        container: MAIN,
+                        index,
+                        role,
+                    });
+                }
+                if kind != Kind::Enchantment {
+                    slots.push(Slot {
+                        container: RESULT,
+                        index: 0,
+                        role: Role::StationResult,
+                    });
+                }
+                player(&mut slots);
+                data = station::data_count(kind);
+            }
             Kind::Brewing => {
                 containers[MAIN] = vec![None; 5];
                 for (index, role) in [
@@ -385,13 +463,18 @@ impl Menu {
         }
         containers[GRID] = vec![None; grid_size * grid_size];
         containers[RESULT] = vec![None; 1];
+        let mut data = vec![0; data];
+        if kind == Kind::Enchantment {
+            // EnchantmentMenu.enchantClue and levelClue start at -1.
+            data[4..].fill(-1);
+        }
         Self {
             kind,
             slots,
             containers,
             grid_size,
             carried: None,
-            data: vec![0; data],
+            data,
             creative: false,
             selected: 0,
             drops: Vec::new(),
@@ -403,6 +486,7 @@ impl Menu {
             sounds: Vec::new(),
             crafted: Vec::new(),
             merchant: None,
+            station: Default::default(),
         }
     }
 
@@ -410,8 +494,14 @@ impl Menu {
         self.kind
     }
 
-    /// `clickMenuButton`: the loom's pattern buttons. False when refused.
+    /// `clickMenuButton`: the loom's pattern buttons, the enchantment offers
+    /// and the stonecutter's recipes. False when refused.
     pub fn button(&mut self, env: &Env, id: i32) -> bool {
+        match self.kind {
+            Kind::Enchantment => return self.enchant_button(env, id),
+            Kind::Stonecutter => return self.stonecutter_button(env, id),
+            _ => {}
+        }
         if self.kind != Kind::Loom || id < 0 || id as usize >= self.loom_patterns.len() {
             return false;
         }
@@ -518,12 +608,18 @@ impl Menu {
             self.merchant_update(env);
             return;
         }
+        // CartographyTableMenu's result container is a listening one too.
+        if self.kind == Kind::Cartography && self.slots[s].container == RESULT {
+            self.station_changed(env);
+            return;
+        }
         if self.slots[s].container != MAIN {
             return;
         }
         match self.kind {
             Kind::Loom => self.loom_changed(env),
             Kind::CrafterBlock => self.crafter_result(env),
+            kind if kind.is_station() => self.station_changed(env),
             _ => {}
         }
     }
@@ -634,7 +730,15 @@ impl Menu {
             Role::LoomBanner => Self::is_banner(stack),
             Role::LoomDye => env.banners.loom_dye(env.items, stack).is_some(),
             Role::LoomPattern => env.banners.is_pattern_item(env.items, stack),
-            Role::LoomResult | Role::MerchantResult => false,
+            Role::LoomResult | Role::MerchantResult | Role::StationResult => false,
+            Role::EnchantItem => true,
+            Role::Lapis => &*stack.item == "minecraft:lapis_lazuli",
+            Role::Grind => crate::stations::grindstone_accepts(env.items, stack),
+            Role::Smithing(i) => env
+                .stations
+                .is_some_and(|st| st.data.recipes.smithing_accepts(i, stack)),
+            Role::MapIn => stack.data().and_then(|d| d.map_id).is_some(),
+            Role::MapExtra => station::is_map_extra(stack),
         }
     }
 
@@ -663,6 +767,7 @@ impl Menu {
                 }
                 None => true,
             },
+            Role::StationResult => self.station_may_pickup(),
             _ => true,
         }
     }
@@ -670,7 +775,7 @@ impl Menu {
     /// `Slot.getMaxStackSize(stack)`.
     fn slot_max(&self, env: &Env, s: usize, stack: &ItemStack) -> u32 {
         let own = match self.slots[s].role {
-            Role::Armor(_) | Role::Potion => 1,
+            Role::Armor(_) | Role::Potion | Role::EnchantItem => 1,
             Role::Fuel if Self::is_bucket(stack) => return 1,
             _ => CONTAINER_MAX,
         };
@@ -722,7 +827,10 @@ impl Menu {
         }
         // SimpleContainer.removeItem calls setChanged when it took something;
         // MerchantContainer.removeItem updates the result after a payment slot.
-        if out.is_some() && matches!(self.kind, Kind::Loom | Kind::Merchant) {
+        if out.is_some()
+            && (matches!(self.kind, Kind::Loom | Kind::Merchant)
+                || (self.kind.is_station() && slot.container == MAIN))
+        {
             self.slot_changed(env, s);
         }
         out
@@ -744,6 +852,10 @@ impl Menu {
     fn on_take(&mut self, env: &Env, s: usize) {
         if self.slots[s].role == Role::MerchantResult {
             self.merchant_take(env);
+            return;
+        }
+        if self.slots[s].role == Role::StationResult {
+            self.station_take(env);
             return;
         }
         if self.slots[s].role == Role::LoomResult {
@@ -1223,6 +1335,17 @@ impl Menu {
                     return None;
                 }
             }
+            Kind::Enchantment
+            | Kind::Anvil
+            | Kind::Grindstone
+            | Kind::Smithing
+            | Kind::Stonecutter
+            | Kind::Cartography => {
+                after_take = true;
+                if !self.station_quick_move(env, index, &mut stack) {
+                    return None;
+                }
+            }
             Kind::Furnace(recipe) => {
                 after_take = true;
                 if index == 2 {
@@ -1327,7 +1450,9 @@ impl Menu {
         if after_take || matches!(self.kind, Kind::Inventory | Kind::Crafting) {
             self.on_take(env, index);
         }
-        if index == 0 && matches!(self.kind, Kind::Inventory | Kind::Crafting) {
+        if index == 0 && matches!(self.kind, Kind::Inventory | Kind::Crafting)
+            || index == 1 && self.kind == Kind::Stonecutter
+        {
             self.drop_stack(&stack);
         }
         Some(clicked)
@@ -1657,11 +1782,13 @@ impl Menu {
 
     /// The PICKUP_ALL branch (double click).
     /// `canTakeItemForPickAll`: never the result slots (the loom's is a
-    /// plain slot), MerchantMenu's or an item tab's display slots.
+    /// plain slot, and the anvil and grindstone keep the default),
+    /// MerchantMenu's or an item tab's display slots.
     fn can_take_for_pick_all(&self, t: usize) -> bool {
         self.kind != Kind::Merchant
             && self.slots[t].role != Role::CreativeDisplay
-            && (self.slots[t].container != RESULT || self.kind == Kind::Loom)
+            && (self.slots[t].container != RESULT
+                || matches!(self.kind, Kind::Loom | Kind::Anvil | Kind::Grindstone))
     }
 
     /// `AbstractContainerScreen.mouseReleased` on a Shift double click:
@@ -1973,6 +2100,7 @@ pub(crate) mod tests {
             brewing: &brewing,
             banners: &banners,
             trade: None,
+            stations: None,
         };
         let mut menu = Menu::new(kind);
         menu.creative = true;

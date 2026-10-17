@@ -108,6 +108,8 @@ pub struct Guest {
     pub xp_level: i32,
     pub xp_progress: f32,
     pub xp_total: i32,
+    /// `Player.enchantmentSeed` (`XpSeed`); 0 until the first enchanting table.
+    pub xp_seed: i32,
     /// Active status effects (`LivingEntity.activeEffects`).
     pub effects: crate::effects::PlayerEffects,
     /// What the client was told of each effect: id, amplifier, flags, and
@@ -215,6 +217,7 @@ impl Guest {
             xp_level: 0,
             xp_progress: 0.0,
             xp_total: 0,
+            xp_seed: 0,
             effects: Default::default(),
             sent_effects: Vec::new(),
             menu_sent: vec![None; 46],

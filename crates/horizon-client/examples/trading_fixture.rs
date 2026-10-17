@@ -379,6 +379,7 @@ fn main() -> horizon_client::Result<()> {
                     brewing: &brewing,
                     banners: &banners,
                     trade: Some(&env_trade),
+                    stations: None,
                 };
                 trade(&mut out, name, &kv, &mut world, &env, origin)?;
             }

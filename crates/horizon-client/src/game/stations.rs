@@ -38,7 +38,7 @@ pub(super) enum Kind {
     Loom,
 }
 impl Kind {
-    fn from_block(name: &str) -> Option<Self> {
+    pub(super) fn from_block(name: &str) -> Option<Self> {
         Some(match name {
             "minecraft:enchanting_table" => Self::Enchanting,
             "minecraft:anvil" | "minecraft:chipped_anvil" | "minecraft:damaged_anvil" => {
@@ -53,7 +53,7 @@ impl Kind {
             _ => return None,
         })
     }
-    fn inputs(self) -> usize {
+    pub(super) fn inputs(self) -> usize {
         match self {
             Self::Smithing | Self::Loom => 3,
             Self::Stonecutter | Self::Beacon => 1,
@@ -110,7 +110,7 @@ impl Kind {
         };
         table[i.min(table.len() - 1)]
     }
-    fn result_pos(self) -> Option<(f32, f32)> {
+    pub(super) fn result_pos(self) -> Option<(f32, f32)> {
         match self {
             Self::Enchanting => None,
             Self::Anvil => Some((134.0, 47.0)),
@@ -130,18 +130,18 @@ pub(super) struct Station {
     pub(super) pos: [i32; 3],
     pub(super) inputs: Vec<Option<ItemStack>>,
     pub(super) result: Option<ItemStack>,
-    offers: EnchantOffers,
+    pub(super) offers: EnchantOffers,
     bookcases: i32,
-    anvil: AnvilResult,
+    pub(super) anvil: AnvilResult,
     /// Anvil rename box text.
     pub(super) name: String,
     /// Stonecutter: recipe indices for the input, selection and first shown index.
-    recipes: Vec<usize>,
-    selected: Option<usize>,
-    start: usize,
-    input_item: Option<Arc<str>>,
+    pub(super) recipes: Vec<usize>,
+    pub(super) selected: Option<usize>,
+    pub(super) start: usize,
+    pub(super) input_item: Option<Arc<str>>,
     /// Anvil: the input the rename box was last filled from.
-    anvil_last: Option<ItemStack>,
+    pub(super) anvil_last: Option<ItemStack>,
     /// When the screen opened: the rename box has the focus from then.
     opened: std::time::Instant,
     pub(super) last_sound: u64,
@@ -151,6 +151,8 @@ pub(super) struct Station {
     pub(super) beacon: [Option<usize>; 2],
     /// The loom's patterns, selection and scroller (game/loom.rs).
     pub(super) loom: super::loom::LoomState,
+    /// A server's workstation: its data slots (game/remote_stations.rs).
+    pub(super) server: Option<super::remote_stations::ServerStation>,
 }
 impl Station {
     fn new(kind: Kind, pos: [i32; 3]) -> Self {
@@ -173,6 +175,7 @@ impl Station {
             merchant: None,
             beacon: [None; 2],
             loom: Default::default(),
+            server: None,
         }
     }
     pub(super) fn new_kind(kind: Kind, pos: [i32; 3]) -> Self {
@@ -181,10 +184,10 @@ impl Station {
 }
 
 /// The 108x19 enchantment button `i` (relative to the GUI origin).
-fn enchant_button(i: usize) -> (f32, f32, f32, f32) {
+pub(super) fn enchant_button(i: usize) -> (f32, f32, f32, f32) {
     (60.0, 14.0 + 19.0 * i as f32, 108.0, 19.0)
 }
-fn inside(p: (f32, f32), x: f32, y: f32, w: f32, h: f32) -> bool {
+pub(super) fn inside(p: (f32, f32), x: f32, y: f32, w: f32, h: f32) -> bool {
     p.0 >= x && p.1 >= y && p.0 < x + w && p.1 < y + h
 }
 /// `EnchantmentNames` word list.
@@ -328,6 +331,10 @@ impl Game<'_> {
         if let Some(m) = station.merchant.as_mut() {
             self.merchant_closed(m);
         }
+        if station.server.is_some() {
+            // A server's workstation: its clearContainer is the server's.
+            return;
+        }
         for stack in station.inputs.into_iter().flatten() {
             self.give_or_drop(stack);
         }
@@ -377,7 +384,7 @@ impl Game<'_> {
             _ => &mut self.scratch_slot,
         }
     }
-    fn count_bookshelves(&self, pos: [i32; 3]) -> i32 {
+    pub(super) fn count_bookshelves(&self, pos: [i32; 3]) -> i32 {
         let tags = &self.res.items.block_tags;
         let is = |p: [i32; 3], tag: &str| {
             let name = &self.res.facts.get(self.world.block(p[0], p[1], p[2])).name;
@@ -410,6 +417,11 @@ impl Game<'_> {
     }
     /// `slotsChanged` / `createResult` for the open station.
     pub(super) fn station_changed(&mut self) {
+        if self.station.as_ref().is_some_and(|s| s.server.is_some()) {
+            // A server's workstation computes its own results.
+            self.remote_station_changed();
+            return;
+        }
         let Some(mut s) = self.station.take() else {
             return;
         };
@@ -1075,6 +1087,10 @@ impl Game<'_> {
                 // A server's trading window: its slots are the server's.
                 return false;
             }
+            if self.station.as_ref().is_some_and(|s| s.server.is_some()) {
+                // A server's workstation: its buttons and slots are the server's.
+                return !right && self.remote_station_click(local);
+            }
             if kind == Kind::Loom && !right && self.loom_click(local) {
                 return true;
             }
@@ -1461,7 +1477,12 @@ impl Game<'_> {
                             oy + 47.0,
                         );
                     }
-                    let mut names = LegacyRandom::new(i64::from(self.level.xp_seed));
+                    // EnchantmentMenu.getEnchantmentSeed: a server's comes in a data slot.
+                    let seed = s
+                        .server
+                        .as_ref()
+                        .map_or(self.level.xp_seed, |v| v.enchantment_seed());
+                    let mut names = LegacyRandom::new(i64::from(seed));
                     let gold = s.inputs[1].as_ref().map_or(0, |l| l.count as i32);
                     let level = self.experience.level;
                     let offers = s.offers.clone();

@@ -1340,6 +1340,15 @@ packet!(
     }
 );
 packet!(SelectTrade { item: i32 => VarInt });
+packet!(
+    /// ServerboundContainerButtonClickPacket: `clickMenuButton` (an enchantment
+    /// offer, a stonecutter recipe, a loom pattern).
+    ContainerButtonClick { container: i32 => VarInt, button: i32 => VarInt }
+);
+packet!(
+    /// ServerboundRenameItemPacket: the anvil's name box.
+    RenameItem { name: String => Str }
+);
 packet!(Interact { id: i32 => VarInt, hand: i32 => VarInt, location: [f64; 3] => LpVec3, secondary: bool => Bool });
 packet!(
     /// ServerboundMovePlayerPacket flags: 1 on ground, 2 horizontal collision.
@@ -1401,6 +1410,7 @@ packet_enum!(Serverbound, crate::ids::play::serverbound {
     ClientInformation(ClientInformation) = CLIENT_INFORMATION,
     ClientTickEnd(Empty) = CLIENT_TICK_END,
     ConfigurationAcknowledged(Empty) = CONFIGURATION_ACKNOWLEDGED,
+    ContainerButtonClick(ContainerButtonClick) = CONTAINER_BUTTON_CLICK,
     ContainerClick(ContainerClick) = CONTAINER_CLICK,
     ContainerClose(ContainerClose) = CONTAINER_CLOSE,
     CustomPayload(CustomPayload) = CUSTOM_PAYLOAD,
@@ -1418,6 +1428,7 @@ packet_enum!(Serverbound, crate::ids::play::serverbound {
     PlayerLoaded(Empty) = PLAYER_LOADED,
     Pong(Ping) = PONG,
     Punch(Empty) = PUNCH,
+    RenameItem(RenameItem) = RENAME_ITEM,
     ResourcePack(ResourcePackResponse) = RESOURCE_PACK,
     SelectTrade(SelectTrade) = SELECT_TRADE,
     SetCarriedItem(SetCarriedItem) = SET_CARRIED_ITEM,
@@ -1908,6 +1919,23 @@ mod tests {
             Serverbound::encode,
             Serverbound::decode,
         );
+    }
+
+    #[test]
+    fn workstation_packets_match_vanilla_stream_codecs() {
+        // ServerboundContainerButtonClickPacket: CONTAINER_ID and VAR_INT.
+        let button = Serverbound::ContainerButtonClick(ContainerButtonClick {
+            container: 3,
+            button: 2,
+        });
+        assert_eq!(button.encode(), vec![17, 3, 2]);
+        round_trip(button, Serverbound::encode, Serverbound::decode);
+        // ServerboundRenameItemPacket: readUtf.
+        let rename = Serverbound::RenameItem(RenameItem {
+            name: "Sting".into(),
+        });
+        assert_eq!(rename.encode(), b"\x31\x05Sting".to_vec());
+        round_trip(rename, Serverbound::encode, Serverbound::decode);
     }
 
     #[test]

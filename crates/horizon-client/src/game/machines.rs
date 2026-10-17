@@ -773,6 +773,18 @@ enum Screen {
 impl Game<'_> {
     fn machine_screen(&self) -> Option<Screen> {
         let key = self.container?;
+        // A server's HopperMenu or DispenserMenu, whatever block (or cart) it is.
+        let dropper = || {
+            let state = self.world.block(key.0, key.1, key.2);
+            &*self.res.facts.get(state).name == "minecraft:dropper"
+        };
+        match self.remote_menu().map(|m| m.1) {
+            Some("minecraft:hopper") => return Some(Screen::Hopper),
+            Some("minecraft:generic_3x3") if dropper() => return Some(Screen::Dropper),
+            Some("minecraft:generic_3x3") => return Some(Screen::Dispenser),
+            Some(_) => return None,
+            None => {}
+        }
         if key.1 == super::minecarts::CART_KEY_Y {
             return (self.open_cart_kind() == Some(super::minecarts::CartKind::Hopper))
                 .then_some(Screen::Hopper);
@@ -855,7 +867,11 @@ impl Game<'_> {
             batch.rect_uv(ox, oy, 176.0, height, r, u32::MAX);
         }
         let grey = horizon_client::hud::rgba(64, 64, 64, 255);
-        let title = &self.container_title(title.to_owned());
+        // A server's menu has the title it was opened with.
+        let title = &match self.remote_menu() {
+            Some((_, _, remote)) => remote.to_owned(),
+            None => self.container_title(title.to_owned()),
+        };
         let title_x = if screen == Screen::Hopper {
             8.0
         } else {

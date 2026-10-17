@@ -485,6 +485,7 @@ impl Game<'_> {
         if let Some(Component::Int(id)) = s.component(component::MAP_ID) {
             out.data_mut().map_id = Some(*id);
         }
+        super::remote_stations::stack_components(s, &mut out, &|id| self.remote_enchantment(id));
         Some(out)
     }
     fn to_network(&self, s: &Option<ItemStack>) -> Option<Stack> {
@@ -1060,7 +1061,14 @@ impl Game<'_> {
             "minecraft:generic_9x4" => rows(4),
             "minecraft:generic_9x5" => rows(5),
             "minecraft:generic_9x6" => rows(6),
-            _ => None,
+            // DispenserMenu (dispensers and droppers), HopperMenu, BrewingStandMenu.
+            "minecraft:generic_3x3" => super::remote_stations::container_slot(9, s),
+            "minecraft:hopper" | "minecraft:brewing_stand" => {
+                super::remote_stations::container_slot(5, s)
+            }
+            // The workstations (game/remote_stations.rs).
+            m => super::remote_stations::station_kind(m)
+                .and_then(|kind| super::remote_stations::station_slot(kind, s)),
         }
     }
     fn open_menu_name(&self, container: i32) -> String {
@@ -1081,6 +1089,7 @@ impl Game<'_> {
             return; // the result slot is recomputed from the grid
         }
         *self.slot_mut(internal) = item;
+        self.remote_station_slot(internal);
     }
 
     fn handle_packet(&mut self, packet: C) -> Result<()> {
@@ -1652,15 +1661,29 @@ impl Game<'_> {
                 self.remote_synced();
             }
             C::ContainerSetData(p) => {
-                if let Some(key) = self.container
-                    && let Some(BlockEntity::Furnace(f)) = self.world.block_entities.get_mut(&key)
-                {
-                    let v = i32::from(p.value);
-                    match p.id {
-                        0 => f.lit_remaining = v,
-                        1 => f.lit_total = v,
-                        2 => f.cooking_timer = v,
-                        3 => f.cooking_total = v,
+                let v = i32::from(p.value);
+                let station = self.station.as_ref().is_some_and(|s| s.server.is_some());
+                if station && self.open_menu_name(p.container) != "inventory" {
+                    if let Ok(id) = usize::try_from(p.id) {
+                        self.remote_station_data(id, v);
+                    }
+                } else if let Some(key) = self.container {
+                    match self.world.block_entities.get_mut(&key) {
+                        Some(BlockEntity::Furnace(f)) => match p.id {
+                            0 => f.lit_remaining = v,
+                            1 => f.lit_total = v,
+                            2 => f.cooking_timer = v,
+                            3 => f.cooking_total = v,
+                            _ => {}
+                        },
+                        // BrewingStandMenu: brew time, fuel, then their totals.
+                        Some(BlockEntity::Brewing(b)) => match p.id {
+                            0 => b.brew_time = v,
+                            1 => b.fuel = v,
+                            2 => b.total_brew_time = v,
+                            3 => b.total_fuel = v,
+                            _ => {}
+                        },
                         _ => {}
                     }
                 }
@@ -3391,7 +3414,7 @@ impl Game<'_> {
             Some((_, name)) => name,
             None => "inventory".to_owned(),
         };
-        let slot = (0..64).find(|&s| Self::menu_slot(&menu, s) == Some(internal));
+        let slot = (0..super::remote_stations::MENU_SLOTS).find(|&s| Self::menu_slot(&menu, s) == Some(internal));
         let Some(slot) = slot else { return false };
         self.remote_menu_click(slot as i16, button, input);
         true
@@ -3428,6 +3451,90 @@ impl Game<'_> {
             self.remote_slot_click(slot, mask(1), QUICK_CRAFT);
         }
         self.remote_menu_click(-999, mask(2), QUICK_CRAFT);
+    }
+    /// Clicks the screen made on the server's open menu (`slotClicked`; a
+    /// quick craft drag is three or more, None the outside of the window),
+    /// each a `ContainerClick`; the server answers with the slots. False when
+    /// a slot is not the menu's.
+    pub(super) fn remote_menu_ops(
+        &mut self,
+        ops: &[(Option<usize>, i32, horizon_client::menu::Input)],
+    ) -> bool {
+        use horizon_client::menu::Input;
+        let (container, menu) = match self.remote.as_ref().and_then(|r| r.menu.clone()) {
+            Some((id, name)) => (id, name),
+            None => (0, "inventory".to_owned()),
+        };
+        let mut clicks = Vec::new();
+        for &(slot, button, input) in ops {
+            let slot = match slot {
+                Some(internal) => {
+                    match (0..super::remote_stations::MENU_SLOTS).find(|&s| Self::menu_slot(&menu, s) == Some(internal)) {
+                        Some(s) => s as i16,
+                        None => return false,
+                    }
+                }
+                None => -999,
+            };
+            // The ContainerInput ordinal.
+            let input = match input {
+                Input::Pickup => 0,
+                Input::QuickMove => 1,
+                Input::Swap => 2,
+                Input::Clone => 3,
+                Input::Throw => 4,
+                Input::QuickCraft => 5,
+                Input::PickupAll => 6,
+            };
+            clicks.push((slot, button as i8, input));
+        }
+        let carried = self.to_network(&self.carried).map(|s| Hashed::of(&s));
+        let state = self.remote.as_ref().map_or(0, |r| r.state_id);
+        for (slot, button, input) in clicks {
+            self.send(S::ContainerClick(play::ContainerClick {
+                container,
+                state,
+                slot,
+                button,
+                input,
+                changed: Vec::new(),
+                carried: carried.clone(),
+            }));
+        }
+        true
+    }
+    /// `AbstractContainerScreen.mouseReleased` on a Shift double click on a
+    /// server's menu: QUICK_MOVE on every slot of the clicked slot's
+    /// container holding `moved`'s item (`canItemQuickReplace`).
+    pub(super) fn remote_quick_move_all(&mut self, clicked: usize, moved: &ItemStack) {
+        let menu = match self.remote.as_ref().and_then(|r| r.menu.as_ref()) {
+            Some((_, name)) => name.clone(),
+            None => "inventory".to_owned(),
+        };
+        // The containers a menu's slots belong to; the armour and the off
+        // hand are the player's inventory.
+        let container = |g: usize| match g {
+            0..36 | 500..505 => 0,
+            100..109 => 1,
+            200 => 2,
+            300..500 => 3,
+            super::stations::INPUT..super::stations::RESULT => 4,
+            _ => g,
+        };
+        let max = self.max_stack(moved);
+        let slots: Vec<usize> = (0..super::remote_stations::MENU_SLOTS)
+            .filter_map(|s| Self::menu_slot(&menu, s))
+            .filter(|&g| container(g) == container(clicked))
+            .collect();
+        for g in slots {
+            let replaceable = self
+                .slot_mut(g)
+                .as_ref()
+                .is_some_and(|s| s.same_item_same_components(moved) && s.count <= max);
+            if replaceable {
+                self.remote_slot_click(g, 0, 1);
+            }
+        }
     }
     /// The server's open menu is the inventory or a chest-like container
     /// (chests, barrels, ender chests: `generic_9xN`; shulker boxes).
@@ -3487,10 +3594,11 @@ impl Game<'_> {
             r.menu = None;
             r.menu_title = None;
         }
+        // A trading window or workstation is the server's menu too.
         if self
             .station
             .as_ref()
-            .is_some_and(|s| s.kind == super::stations::Kind::Merchant)
+            .is_some_and(|s| s.kind == super::stations::Kind::Merchant || s.server.is_some())
         {
             self.station = None;
         }
@@ -3580,6 +3688,23 @@ impl Game<'_> {
             self.remote_open_merchant(p.container, title);
             return;
         }
+        if let Some(kind) = super::remote_stations::station_kind(&menu) {
+            // A workstation (game/remote_stations.rs).
+            let title = plain(
+                &p.title,
+                &self
+                    .remote
+                    .as_ref()
+                    .map(|r| r.lang.clone())
+                    .unwrap_or_default(),
+            );
+            if let Some(r) = self.remote.as_mut() {
+                r.menu = Some((p.container, menu.clone()));
+                r.menu_title = Some(title);
+            }
+            self.remote_open_station(kind, target.map(|t| [t.0, t.1, t.2]));
+            return;
+        }
         let entity = match menu.as_str() {
             "minecraft:crafting" => None,
             "minecraft:furnace" | "minecraft:blast_furnace" | "minecraft:smoker" => {
@@ -3605,6 +3730,12 @@ impl Game<'_> {
                     .unwrap_or(3);
                 Some(BlockEntity::Chest(vec![None; rows * 9]))
             }
+            // Dispensers and droppers, hoppers.
+            "minecraft:generic_3x3" => Some(BlockEntity::Chest(vec![None; 9])),
+            "minecraft:hopper" => Some(BlockEntity::Chest(vec![None; 5])),
+            "minecraft:brewing_stand" => Some(BlockEntity::Brewing(Box::new(
+                horizon_client::brewing::BrewingStand::new(),
+            ))),
             _ => {
                 // Unsupported menu: tell the server we closed it.
                 self.send(S::ContainerClose(play::ContainerClose {
@@ -3627,6 +3758,8 @@ impl Game<'_> {
             r.menu_title = Some(title);
         }
         self.craft_size = if menu == "minecraft:crafting" { 3 } else { 2 };
+        // The screen this one replaces (a trading window, a workstation).
+        self.station = None;
         self.container = None;
         if let Some(entity) = entity {
             // The clicked block shows the menu when it holds that container;
@@ -3644,6 +3777,19 @@ impl Game<'_> {
         }
         self.screen = Screen::Inventory;
         self.capture(false);
+    }
+    /// The server's open menu: its window, `MenuType` and title.
+    pub(super) fn remote_menu(&self) -> Option<(i32, &str, &str)> {
+        let r = self.remote.as_ref()?;
+        let (window, name) = r.menu.as_ref()?;
+        Some((*window, name, r.menu_title.as_deref().unwrap_or_default()))
+    }
+    /// An enchantment of the server's registry by its network id.
+    pub(super) fn remote_enchantment(&self, id: i32) -> Option<Arc<str>> {
+        let r = self.remote.as_ref()?;
+        r.registries
+            .name("minecraft:enchantment", id)
+            .map(Arc::from)
     }
     /// A server's chest-like menu (`MenuType.GENERIC_9xN`): its rows and title.
     pub(super) fn remote_chest_menu(&self) -> Option<(usize, String)> {

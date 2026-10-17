@@ -51,6 +51,8 @@ pub(super) struct GuestPlay {
     pub(super) merchant: Option<super::lan_trading::GuestMerchant>,
     /// The inventory menu and the crafting table the guest crafts in.
     pub(super) crafting: super::lan_crafting::GuestCrafting,
+    /// The workstation or brewing stand the guest has open.
+    pub(super) stations: super::lan_stations::GuestStations,
     /// What the guest's body was given for its effects and enchantments.
     potions: super::potions::BodyPotions,
     /// `ServerPlayer.getStats` and the inventory `inventory_changed` last saw.
@@ -323,6 +325,13 @@ impl Game<'_> {
                 _ => ("minecraft:furnace", "container.furnace"),
             };
             (menu, title, Slots::Block(pos))
+        } else if let Some(BlockEntity::Brewing(_)) = self.world.block_entities.get(&pos) {
+            // BrewingStandBlock.openContainer: BrewingStandMenu (game/lan_stations.rs).
+            (
+                "minecraft:brewing_stand",
+                "container.brewing",
+                Slots::Block(pos),
+            )
         } else if let Some((other, right)) = self.chest_partner(pos) {
             // ChestBlock.combine: the right half's slots come first.
             let halves = if right {
@@ -358,6 +367,7 @@ impl Game<'_> {
         };
         // ServerPlayer.openMenu closes the menu that was open.
         self.guest_container_closed(host, conn);
+        self.lan_station_closed(host, conn, None);
         host.hub.open_container(
             conn,
             menu,
@@ -539,6 +549,10 @@ impl Game<'_> {
             S::ContainerClick(p) if self.lan_inventory_click(host, conn, &p) => {}
             S::ContainerClick(p) if self.lan_crafting_click(host, conn, &p) => {}
             S::ContainerClick(p) if self.lan_furnace_click(host, conn, &p) => {}
+            S::ContainerClick(p) if self.lan_station_click(host, conn, &p) => {}
+            S::ContainerClick(p) if self.lan_brewing_click(host, conn, &p) => {}
+            S::ContainerButtonClick(p) => self.lan_station_button(host, conn, p.container, p.button),
+            S::RenameItem(p) => self.lan_station_rename(host, conn, &p.name),
             S::SelectTrade(p) => self.lan_select_trade(host, conn, p.item),
             S::ContainerClose(p) if self.lan_merchant_closed(host, conn, Some(p.container)) => {
                 let g = &mut host.hub.guests[gi];
@@ -552,6 +566,7 @@ impl Game<'_> {
                     self.drop_guest_items(host, gi, vec![c]);
                 }
             }
+            S::ContainerClose(p) if self.lan_station_closed(host, conn, Some(p.container)) => {}
             S::ContainerClick(p) => {
                 let rules = ItemRules(&self.res.items);
                 let drops = host.hub.container_click(conn, &p, &mut self.world, &rules);
@@ -974,6 +989,7 @@ impl Game<'_> {
     /// Per tick, for every guest: dig, use items, pick up drops, die.
     pub(super) fn tick_guests(&mut self, host: &mut LanHost) {
         self.lan_merchant_tick(host);
+        self.lan_stations_tick(host);
         self.announce_guest_advancements(host);
         let conns: Vec<u32> = host
             .hub

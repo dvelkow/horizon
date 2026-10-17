@@ -91,6 +91,10 @@ impl Game<'_> {
     /// `LoomScreen.mouseClicked` on a pattern button: `clickMenuButton`, and
     /// the select sound when the menu took it.
     fn loom_button(&mut self, index: usize) -> bool {
+        if self.station.as_ref().is_some_and(|s| s.server.is_some()) {
+            // A server's loom: the button goes to it (game/remote_stations.rs).
+            return self.remote_loom_button(index);
+        }
         let mut taken = false;
         let flag = &mut taken;
         self.menu_session(|menu, env, _| {

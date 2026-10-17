@@ -46,7 +46,7 @@ const ARMOR: [usize; 4] = [39, 38, 37, 36];
 const OFFHAND: usize = 40;
 
 /// The guest's inventory, armor, off hand, selection and carried stack into `menu`.
-fn load_player(menu: &mut Menu, g: &Guest) {
+pub(super) fn load_player(menu: &mut Menu, g: &Guest) {
     for i in 0..36 {
         menu.set_player_item(i, g.inventory[i].clone());
     }
@@ -60,7 +60,7 @@ fn load_player(menu: &mut Menu, g: &Guest) {
 }
 
 /// `load_player` back.
-fn store_player(menu: &mut Menu, g: &mut Guest) {
+pub(super) fn store_player(menu: &mut Menu, g: &mut Guest) {
     for i in 0..36 {
         g.inventory[i] = menu.player_item(i).cloned();
     }
@@ -91,11 +91,12 @@ impl Game<'_> {
             brewing: &self.res.stations.brewing,
             banners: &self.res.stations.banners,
             trade: None,
+            stations: None,
         }
     }
 
     /// Runs `op` on the guest's menu with their inventory copied in and back.
-    fn guest_menu_op<R>(
+    pub(super) fn guest_menu_op<R>(
         &mut self,
         host: &mut LanHost,
         gi: usize,
@@ -230,6 +231,7 @@ impl Game<'_> {
     /// The guest opened a crafting table (`CraftingTableBlock.getMenuProvider`).
     pub(super) fn lan_open_crafting(&mut self, host: &mut LanHost, conn: u32) {
         self.lan_crafting_closed(host, conn, None);
+        self.lan_station_closed(host, conn, None);
         // The container it replaces loses its opener.
         self.guest_container_closed(host, conn);
         let title = horizon_protocol::text::translatable("container.crafting", &[]);

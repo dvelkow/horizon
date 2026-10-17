@@ -71,6 +71,7 @@ mod lan_mobs;
 mod lan_pvp;
 mod lan_homes;
 mod lan_screen;
+mod lan_stations;
 mod lan_tpa;
 mod lan_trading;
 mod leads;
@@ -110,6 +111,7 @@ mod powder_snow;
 mod raids;
 mod recipe_book;
 mod remote;
+mod remote_stations;
 mod render_control;
 mod render_tick;
 mod respawn_anchor;
@@ -4576,6 +4578,10 @@ impl Game<'_> {
     /// Several clicks on one menu instance (a quick craft drag is three).
     fn menu_ops(&mut self, ops: &[(Option<usize>, i32, horizon_client::menu::Input)]) -> bool {
         use horizon_client::menu::Input;
+        if self.remote.is_some() && self.screen == Screen::Inventory {
+            // A server's menu: the clicks are the server's (game/remote.rs).
+            return self.remote_menu_ops(ops);
+        }
         if let [(Some(slot), button, input)] = ops {
             self.crafter_slot_clicked(*slot, *button, *input);
         }
@@ -4824,6 +4830,7 @@ impl Game<'_> {
             brewing: &self.res.stations.brewing,
             banners: &self.res.stations.banners,
             trade: Some(&trade_env),
+            stations: None,
         };
         menu.creative = creative;
         menu.selected = self.selected;
@@ -5016,9 +5023,14 @@ impl Game<'_> {
                     return;
                 }
                 if let Some(moved) = self.last_quick_moved.clone() {
-                    self.menu_session(|menu, env, to_menu| {
-                        Some(menu.quick_move_all(env, to_menu(slot)?, &moved).is_ok())
-                    });
+                    if self.remote.is_some() {
+                        // A server's menu: the quick moves are sent.
+                        self.remote_quick_move_all(slot, &moved);
+                    } else {
+                        self.menu_session(|menu, env, to_menu| {
+                            Some(menu.quick_move_all(env, to_menu(slot)?, &moved).is_ok())
+                        });
+                    }
                 }
                 self.last_inv_click = None;
                 self.inv_clicks.skip_release();

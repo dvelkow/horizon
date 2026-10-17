@@ -44,6 +44,7 @@ fn main() -> horizon_client::Result<()> {
         brewing: &brewing,
         banners: &banners,
         trade: None,
+        stations: None,
     };
     let mut out = String::new();
     for (line, order) in cases.lines().zip(orders.lines()) {

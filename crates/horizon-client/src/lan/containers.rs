@@ -421,7 +421,8 @@ impl Hub {
 
     /// AbstractContainerMenu.broadcastChanges' data slots: a furnace's
     /// AbstractFurnaceBlockEntity.dataAccess (lit time left, lit total, cooking
-    /// timer, cooking total), each sent when it changes.
+    /// timer, cooking total) or a brewing stand's BrewingStandBlockEntity.dataAccess
+    /// (brew time, fuel, the brew's and the fuel's totals), each sent when it changes.
     fn sync_container_data(&mut self, i: usize, world: &World) {
         let g = &mut self.guests[i];
         let Some(m) = g.menu.as_mut() else {
@@ -430,15 +431,16 @@ impl Hub {
         let Slots::Block(pos) = m.slots else {
             return;
         };
-        let Some(BlockEntity::Furnace(f)) = world.block_entities.get(&pos) else {
-            return;
-        };
-        let data = [
-            f.lit_remaining,
-            f.lit_total,
-            f.cooking_timer,
-            f.cooking_total,
-        ]
+        let data = match world.block_entities.get(&pos) {
+            Some(BlockEntity::Furnace(f)) => [
+                f.lit_remaining,
+                f.lit_total,
+                f.cooking_timer,
+                f.cooking_total,
+            ],
+            Some(BlockEntity::Brewing(b)) => [b.brew_time, b.fuel, b.total_brew_time, b.total_fuel],
+            _ => return,
+        }
         .map(|v| v as i16);
         m.sent_data.resize(data.len(), i16::MIN);
         let window = m.window;

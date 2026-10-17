@@ -57,8 +57,9 @@ impl Game<'_> {
             state.session.update_special_prices();
         }
         let title = self.merchant_display_name(&state);
-        // The container the trading screen replaces loses its opener.
+        // The container or workstation the trading screen replaces closes.
         self.guest_container_closed(host, conn);
+        self.lan_station_closed(host, conn, None);
         let Some(window) = host.hub.open_merchant_window(conn, title) else {
             self.merchant_closed(&mut state);
             return;
@@ -257,6 +258,7 @@ impl Game<'_> {
             brewing: &self.res.stations.brewing,
             banners: &self.res.stations.banners,
             trade: Some(&trade_env),
+            stations: None,
         };
         let mut menu = Menu::new(Kind::Merchant);
         {
@@ -395,8 +397,9 @@ impl Game<'_> {
             });
         }
     }
-    /// Takes a station a guest's action opened: a trading screen goes to the
-    /// guest; other stations are not shown to guests yet.
+    /// Takes a station a guest's action opened: a trading screen or a
+    /// workstation goes to the guest (game/lan_stations.rs); the beacon is
+    /// not shown to guests yet.
     pub(super) fn lan_station_opened(
         &mut self,
         host: &mut LanHost,
@@ -404,10 +407,12 @@ impl Game<'_> {
         station: super::stations::Station,
     ) {
         let mut station = station;
-        if station.kind == StationKind::Merchant
-            && let Some(m) = station.merchant.take()
-        {
-            self.lan_open_merchant(host, conn, *m);
+        if station.kind == StationKind::Merchant {
+            if let Some(m) = station.merchant.take() {
+                self.lan_open_merchant(host, conn, *m);
+            }
+        } else {
+            self.lan_open_station(host, conn, station.kind, station.pos);
         }
     }
 }
