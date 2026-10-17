@@ -1,0 +1,17 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="theme-color" content="#f2f6f2"><title>Mod workshop — Horizon</title><link rel="stylesheet" href="/style.css"></head>
+<body><main class="workshop">
+  <header class="workshop-header"><a class="wordmark" href="/">Horizon<span class="brand-square" aria-hidden="true"></span></a><a href="/">Back to the world</a></header>
+  <section class="workshop-intro"><h1>Make the world your own.</h1><p>Upload a mod, check what it can do, and send it for approval. Approved updates reach everyone while they play.</p></section>
+  <div class="workshop-grid">
+    <section aria-labelledby="upload-title"><h2 id="upload-title">Share a mod</h2><p id="friend-status" class="muted" role="status">Checking your session…</p><p id="friend-login" hidden><a href="/">Sign in with your invite</a> to upload a mod.</p>
+      <form id="upload-form" class="compact-form" hidden><label for="mod-file">Your .hmod file</label><input id="mod-file" type="file" accept=".hmod" required aria-describedby="upload-help"><small id="upload-help">Up to 16 MB. Every upload is checked before the host reviews it.</small><button class="primary" type="submit">Upload for review</button></form><p id="upload-status" class="status-box" role="status"></p>
+    </section>
+    <section aria-labelledby="owner-title"><h2 id="owner-title">Host review</h2><p class="owner-note">Only the host can approve an update for everyone.</p>
+      <form id="owner-form" class="compact-form" hidden><label for="owner-secret">Host key</label><input id="owner-secret" type="password" autocomplete="off" maxlength="256" required><button class="primary" type="submit">Open reviews</button></form><div id="owner-signed-in" hidden><p class="success">Host review is unlocked.</p><button id="owner-logout" class="secondary">Lock reviews</button></div><p id="owner-status" class="status-box" role="status"></p>
+    </section>
+  </div>
+  <section id="review-section" hidden aria-labelledby="review-title"><div class="review-heading"><h2 id="review-title">Uploads to review</h2><button id="refresh" class="secondary">Refresh</button></div><p id="review-status" class="status-box" role="status"></p><ul id="pending-list" class="mod-list"></ul></section>
+  <section id="active-section" hidden aria-labelledby="active-title"><div class="review-heading"><h2 id="active-title">In the world now</h2></div><p class="owner-note">Removing a mod stops it for connected players. The uploaded file stays available for review.</p><ul id="active-list" class="mod-list"></ul></section>
+  <noscript>This workshop needs JavaScript to upload and review mods.</noscript>
+</main><script type="module" src="/portal.js"></script></body></html>

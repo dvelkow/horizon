@@ -28,6 +28,13 @@ Every subsystem matches vanilla in all 281 parity harnesses, on Linux and macOS:
 
 > Not an official Minecraft product. Not approved by or associated with Mojang or Microsoft. Horizon contains no Minecraft code, assets or data: you need your own legally obtained copy of Minecraft: Java Edition 26.3.
 
+## Browser multiplayer fork
+
+This fork adds a WebGPU browser client, a private hosted multiplayer world, and
+a workshop for approving live `.hmod` updates. See [the browser guide](docs/browser.md)
+for playing, authoring mods, deployment, validation results and runtime limits.
+The native client and server remain available.
+
 ## What changed in v2026.10.13.1
 
 The latest release ([notes](https://github.com/ludovic111/horizon/releases/tag/v2026.10.13.1)):

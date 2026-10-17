@@ -6,8 +6,12 @@ mods and the data-driven parts of packs and mods. Fabric and NeoForge jars do
 **not** run as they are: [research/java-mod-compat.md](research/java-mod-compat.md)
 explains why and what we do instead.
 
-Mods are **off and absent by default**. A fresh install has no `horizon-mods`
+Native desktop mods are **off and absent by default**. A fresh install has no `horizon-mods`
 folder, loads no runtime and plays exactly like vanilla 26.3.
+
+Hosted browser worlds use [the approval workshop](browser.md): friends upload
+the same `.hmod` format, the owner approves its exact hash, and connected clients
+receive the update. Approved server mods run in native Wasmtime.
 
 | Part | Where | State |
 |---|---|---|
@@ -17,7 +21,8 @@ folder, loads no runtime and plays exactly like vanilla 26.3.
 | Runtime | `crates/horizon-mods` | wasmtime 36 LTS, component model |
 | Authoring tool | `crates/cargo-horizon-mod` | `cargo horizon-mod new / build / run` |
 | In the game | `crates/horizon-client/src/game/mods.rs`, Options > Mods | client mods |
-| Launcher mod browser, signing, server mods, registries | this page, [Roadmap](#roadmap) | planned |
+| Browser workshop and approved server mods | [Browser guide](browser.md) | implemented in this fork |
+| Launcher mod browser, signing, registries | this page, [Roadmap](#roadmap) | planned |
 
 ## Design goals
 

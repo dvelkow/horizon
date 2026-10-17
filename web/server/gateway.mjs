@@ -6,8 +6,8 @@ import { resolve, sep, extname } from 'node:path';
 import { isIP } from 'node:net';
 import { WebSocketServer } from 'ws';
 import { Sessions, RateLimit, validSecretHash, verifySecret, cookieValue, sessionCookie, equalToken } from './security.mjs';
+import { ModStore } from './mod-store.mjs';
 import { bridgeGame } from './bridge.mjs';
-import { ReadonlyModCatalog } from './readonly-mod-catalog.mjs';
 
 class HttpError extends Error { constructor(status, message) { super(message); this.status = status; } }
 const fail = (status, message) => { throw new HttpError(status, message); };
@@ -70,7 +70,7 @@ function validateConfig(input) {
   const origin = new URL(config.origin);
   const local = ['localhost', '127.0.0.1', '[::1]'].includes(origin.hostname);
   if (origin.origin !== config.origin || (origin.protocol !== 'https:' && !(config.allowInsecureLocalhost === true && local && origin.protocol === 'http:'))) throw new Error('Use an HTTPS origin, or explicitly allow loopback HTTP for development');
-  if (!validSecretHash(config.inviteHash)) throw new Error('A scrypt invite hash is required');
+  if (!validSecretHash(config.inviteHash) || !validSecretHash(config.adminHash) || config.inviteHash === config.adminHash) throw new Error('Distinct scrypt invite and admin hashes are required');
   if (!Number.isInteger(config.gamePort) || config.gamePort < 1 || config.gamePort > 65535) throw new Error('A fixed gamePort is required');
   for (const field of ['privateDir', 'publicDir', 'assetsDir']) if (typeof config[field] !== 'string') throw new Error(`${field} is required`);
   const privateDir = resolve(config.privateDir);
@@ -82,7 +82,7 @@ function validateConfig(input) {
   return config;
 }
 
-/** Authenticate browser players and bridge their stream to a fixed loopback server. */
+/** One process owns the candidate/index writes. Run one instance against this privateDir. */
 export async function createGateway(input) {
   // Resolve roots before comparing them: a symlinked "public" directory must
   // never turn private state into a static asset tree.
@@ -90,13 +90,16 @@ export async function createGateway(input) {
   const roots = { ...input };
   for (const key of ['privateDir', 'publicDir', 'assetsDir', 'modsRuntimeDir']) if (roots[key]) roots[key] = await fs.realpath(roots[key]);
   const config = validateConfig(roots);
-  const catalog = await ReadonlyModCatalog.open(config.privateDir);
+  const store = new ModStore(config); await store.init();
   const friends = new Sessions({ capacity: config.maxSessions ?? 128 });
+  const admins = new Sessions({ capacity: 8, lifetimeMs: 20 * 60 * 1000 });
   const friendCookie = config.secure ? '__Host-horizon_session' : 'horizon_session';
+  const adminCookie = config.secure ? '__Host-horizon_admin' : 'horizon_admin';
   const logins = new RateLimit({ limit: config.loginAttempts ?? 10, windowMs: 60_000 });
+  const writes = new RateLimit({ limit: 30, windowMs: 60_000 });
   const upgrades = new RateLimit({ limit: 30, windowMs: 60_000 });
-  let passwordChecks = 0;
-  const sockets = new Map();
+  let passwordChecks = 0, validating = false;
+  const sockets = new Map(), modSockets = new Set();
   const wss = new WebSocketServer({ noServer: true, maxPayload: 2 * 1024 * 1024, maxFragments: 256,
     maxBufferedChunks: 1024, perMessageDeflate: false, clientTracking: true });
   const peer = request => {
@@ -110,8 +113,16 @@ export async function createGateway(input) {
   const host = request => { if (request.headers.host !== config.originHost) fail(421, 'Unexpected host'); };
   const origin = request => { if (request.headers.origin !== config.origin) fail(403, 'Origin rejected'); };
   const friend = request => friends.get(cookieValue(request, friendCookie)) ?? fail(401, 'Sign in with your invite first');
+  const admin = request => admins.get(cookieValue(request, adminCookie)) ?? fail(401, 'Owner sign-in required');
   const csrf = (request, session) => { origin(request); if (!equalToken(request.headers['x-csrf-token'], session.csrf)) fail(403, 'CSRF token rejected'); };
   const closeSession = id => { for (const [ws, value] of sockets) if (value === id) ws.close(1008, 'Signed out'); };
+  const notify = () => {
+    const message = JSON.stringify({ type: 'mods-changed', revision: store.index.revision });
+    for (const ws of modSockets) {
+      if (ws.bufferedAmount > 64 * 1024) ws.terminate();
+      else if (ws.readyState === ws.OPEN) ws.send(message);
+    }
+  };
 
   const server = createServer(async (request, response) => {
     securityHeaders(response, config.secure);
@@ -124,33 +135,69 @@ export async function createGateway(input) {
         const session = friends.get(cookieValue(request, friendCookie));
         return json(response, 200, session ? { authenticated: true, name: session.name, csrf: session.csrf, expires: session.expires } : { authenticated: false });
       }
-      if (request.method === 'POST' && path === '/api/login') {
+      if (request.method === 'GET' && path === '/api/admin/session') {
+        const session = admins.get(cookieValue(request, adminCookie));
+        return json(response, 200, session ? { authenticated: true, csrf: session.csrf, expires: session.expires } : { authenticated: false });
+      }
+      if (request.method === 'POST' && ['/api/login', '/api/admin/login'].includes(path)) {
         origin(request);
         if (!logins.take(`${peer(request)}:${path}`) || passwordChecks >= 2) fail(429, 'Too many sign-in attempts; retry later');
-        const value = await jsonBody(request);
+        const value = await jsonBody(request), owner = path === '/api/admin/login';
+        if (!value || typeof value !== 'object' || Array.isArray(value)) fail(400, 'A sign-in object is required');
         passwordChecks++;
         let verified;
-        try { verified = await verifySecret(value.invite, config.inviteHash); }
+        try { verified = await verifySecret(owner ? value.secret : value.invite, owner ? config.adminHash : config.inviteHash); }
         finally { passwordChecks--; }
         if (!verified) fail(401, 'Sign-in rejected');
-        if (typeof value.name !== 'string' || !/^[A-Za-z0-9_]{1,16}$/.test(value.name)) fail(400, 'Use a player name with 1–16 letters, digits or underscores');
-        if (config.protectedNames.has(value.name.toLowerCase())) fail(403, 'That player name is reserved');
-        const previous = cookieValue(request, friendCookie); friends.delete(previous); if (previous) closeSession(previous);
-        const session = friends.create({name: value.name});
-        return json(response, 200, {authenticated: true, name: session.name, csrf: session.csrf, expires: session.expires}, {
-          'Set-Cookie': sessionCookie(friendCookie, session.id, 28800, config.secure),
+        if (!owner && (typeof value.name !== 'string' || !/^[A-Za-z0-9_]{1,16}$/.test(value.name))) fail(400, 'Use a player name with 1–16 letters, digits or underscores');
+        if (!owner && config.protectedNames.has(value.name.toLowerCase()) && !admins.get(cookieValue(request, adminCookie))) fail(403, 'That player name is reserved for the owner');
+        const collection = owner ? admins : friends, cookie = owner ? adminCookie : friendCookie;
+        const previous = cookieValue(request, cookie); collection.delete(previous); if (!owner && previous) closeSession(previous);
+        const session = collection.create(owner ? {} : { name: value.name });
+        return json(response, 200, { authenticated: true, name: session.name, csrf: session.csrf, expires: session.expires }, {
+          'Set-Cookie': sessionCookie(cookie, session.id, owner ? 1200 : 28800, config.secure),
         });
       }
-      if (request.method === 'POST' && path === '/api/logout') {
-        const session = friend(request); csrf(request, session); friends.delete(session.id); closeSession(session.id);
-        return json(response, 200, {ok: true}, {'Set-Cookie': sessionCookie(friendCookie, '', 0, config.secure)});
+      if (request.method === 'POST' && ['/api/logout', '/api/admin/logout'].includes(path)) {
+        const owner = path === '/api/admin/logout', session = owner ? admin(request) : friend(request); csrf(request, session);
+        (owner ? admins : friends).delete(session.id); if (!owner) closeSession(session.id);
+        return json(response, 200, { ok: true }, { 'Set-Cookie': sessionCookie(owner ? adminCookie : friendCookie, '', 0, config.secure) });
       }
-      if (request.method === 'GET' && path === '/mods/index.json') { friend(request); return json(response, 200, catalog.index); }
+      if (request.method === 'POST' && path === '/api/mods/upload') {
+        const session = friend(request); csrf(request, session);
+        if (!writes.take(session.id) || validating) fail(429, 'A mod is already being checked; retry shortly');
+        if (request.headers['content-type']?.split(';')[0] !== 'application/octet-stream') fail(415, 'Upload .hmod bytes as application/octet-stream');
+        validating = true;
+        try {
+          const bytes = await body(request, config.maxUploadBytes ?? 16 * 1024 * 1024);
+          if (!bytes.length) fail(400, 'The upload is empty');
+          const candidate = await store.upload(bytes, session.name);
+          return json(response, candidate.status === 'rejected' ? 422 : 202, { sha256: candidate.sha256, status: candidate.status, error: candidate.error });
+        } finally { validating = false; }
+      }
+      if (request.method === 'GET' && path === '/api/mods/pending') { admin(request); return json(response, 200, { candidates: await store.pending() }); }
+      const decision = /^\/api\/mods\/([a-f0-9]{64})\/(approve|reject|revoke)$/.exec(path);
+      if (request.method === 'POST' && decision) {
+        const session = admin(request); csrf(request, session);
+        const value = await jsonBody(request);
+        if (value.sha256 !== decision[1]) fail(409, 'Approval hash does not match the reviewed candidate');
+        const previousRevision = store.index.revision;
+        try { await store[decision[2]](decision[1]); }
+        catch (error) { fail(error.code === 'ENOENT' ? 404 : 409, error.message); }
+        finally { if (store.index.revision !== previousRevision) notify(); }
+        return json(response, 200, { ok: true, revision: store.index.revision });
+      }
+      if (request.method === 'GET' && path === '/mods/index.json') { friend(request); return json(response, 200, { schema: 1, revision: store.index.revision, mods: store.index.mods }); }
       if (!['GET', 'HEAD'].includes(request.method)) fail(405, 'Method not allowed');
       if (path.startsWith('/api/') || path === '/game' || path === '/mods/events') fail(404, 'Not found');
-      if (path.startsWith('/mods/')) { friend(request); const file = catalog.files.get(path); if (!file) fail(404, 'Not found'); return await staticFile(request, response, config.privateDir, file, {immutable: true}); }
-      if (path.startsWith('/mods-runtime/')) { friend(request); return await staticFile(request, response, config.modsRuntimeDir, path.slice('/mods-runtime/'.length)); }
+      if (path.startsWith('/mods/')) {
+        friend(request);
+        const file = store.publishedPath(path);
+        if (!file) fail(404, 'Not found');
+        return await staticFile(request, response, config.privateDir, file.slice(resolve(config.privateDir).length + 1), { immutable: true });
+      }
       if (path.startsWith('/assets/')) { friend(request); return await staticFile(request, response, config.assetsDir, path.slice('/assets/'.length)); }
+      if (path.startsWith('/mods-runtime/')) { friend(request); return await staticFile(request, response, config.modsRuntimeDir, path.slice('/mods-runtime/'.length)); }
       return await staticFile(request, response, config.publicDir, path === '/' ? 'index.html' : path.slice(1));
     } catch (error) {
       if (response.headersSent || response.destroyed) { response.destroy(); return; }
@@ -172,10 +219,14 @@ export async function createGateway(input) {
       wss.handleUpgrade(request, socket, head, ws => {
         sockets.set(ws, session.id); ws.alive = true;
         ws.on('pong', () => { ws.alive = true; });
-        ws.on('close', () => { sockets.delete(ws); });
+        ws.on('close', () => { sockets.delete(ws); modSockets.delete(ws); });
         ws.on('error', () => ws.terminate());
         if (path === '/game') bridgeGame(ws, session, config);
-        else { ws.send(JSON.stringify({type: 'mods-changed', revision: catalog.index.revision})); ws.on('message', () => ws.close(1008, 'Read-only mod notifications')); }
+        else {
+          modSockets.add(ws);
+          ws.send(JSON.stringify({ type: 'mods-changed', revision: store.index.revision }));
+          ws.on('message', () => ws.close(1008, 'This channel only sends mod notifications'));
+        }
       });
     } catch (error) {
       const status = error instanceof HttpError ? error.status : 400;
@@ -188,7 +239,7 @@ export async function createGateway(input) {
       else { ws.alive = false; ws.ping(); }
     }
   }, 30_000); heartbeat.unref();
-  return { server, config,
+  return { server, store, config,
     async close() {
       clearInterval(heartbeat);
       for (const ws of wss.clients) ws.terminate();
