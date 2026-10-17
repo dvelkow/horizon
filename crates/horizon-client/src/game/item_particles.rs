@@ -21,13 +21,26 @@ impl Game<'_> {
             return;
         };
         let eye_y = self.eye_position().map_or(p.y, |e| e[1]);
+        let (pitch, yaw) = (self.pitch, self.yaw);
+        self.eat_particles_at(stack, [p.x, p.y, p.z], eye_y, (pitch, yaw), count);
+    }
+    /// `LivingEntity.spawnItemParticles` for any entity: from its mouth, along
+    /// its look (`pitch`, `yaw`), e.g. another player eating.
+    pub(super) fn eat_particles_at(
+        &mut self,
+        stack: &ItemStack,
+        feet: [f64; 3],
+        eye_y: f64,
+        (pitch, yaw): (f32, f32),
+        count: u32,
+    ) {
         let options = self.item_particle(stack);
         let mut spawned = Vec::new();
         particles::item_use_particles(
             &mut self.world.random,
-            self.pitch,
-            self.yaw,
-            [p.x, p.y, p.z],
+            pitch,
+            yaw,
+            feet,
             eye_y,
             count,
             |p, v| spawned.push((p, v)),

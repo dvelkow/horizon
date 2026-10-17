@@ -71,6 +71,8 @@ pub struct Guest {
     pub fall_flying: bool,
     pub flying: bool,
     pub sleeping: bool,
+    /// The hand of the item in use, true for the off hand (others see it).
+    pub using: Option<bool>,
     /// Pending ClientboundPlayerPositionPacket id; movement is ignored until
     /// the client accepts it (ServerGamePacketListenerImpl.awaitingPositionFromClient).
     pub awaiting_teleport: Option<(i32, [f64; 3])>,
@@ -187,6 +189,7 @@ impl Guest {
             fall_flying: false,
             flying: false,
             sleeping: false,
+            using: None,
             awaiting_teleport: None,
             teleport_counter: 0,
             loaded: false,

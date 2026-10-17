@@ -568,6 +568,14 @@ impl Game<'_> {
                 }
             }
             S::ChatCommand(c) => self.guest_command(host, conn, &c.command),
+            // A swing at nothing (attack missed): the arm swings for everyone
+            // else and the attack strength starts over.
+            S::Punch(_) => {
+                self.as_guest(host, conn, |g| {
+                    g.reset_attack_strength();
+                    g.swing_arm();
+                });
+            }
             S::ChangeDifficulty(p) if host.hub.guests[gi].permission >= 2 => {
                 if !self.level.difficulty_locked && (0..=3).contains(&p.difficulty) {
                     self.ui.difficulty = if self.level.hardcore {
@@ -804,7 +812,7 @@ impl Game<'_> {
             return;
         }
         // Teleport requests need no permission either: the other player answers.
-        if super::lan_tpa::command(host, conn, &words) {
+        if super::lan_tpa::command(host, conn, &words) || self.home_command(host, conn, &words) {
             return;
         }
         // An integrated server runs every player's commands at their own
@@ -1003,6 +1011,10 @@ impl Game<'_> {
                     }
                 });
             }
+            // LivingEntity.DATA_LIVING_ENTITY_FLAGS for the others: the hand in use.
+            let used = host.play.get(&conn).and_then(|p| p.using);
+            host.hub.guests[gi].using =
+                used.map(|(slot, _)| slot == super::shield::OFFHAND_SLOT);
             self.guest_delayed_destroy(host, conn);
             self.guest_server_tick(host, conn);
             // Player.tick's statistics and ServerPlayer.tick's triggers, then

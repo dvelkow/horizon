@@ -62,7 +62,7 @@ impl Requests {
 }
 
 /// A line in one player's chat, in a vanilla chat colour.
-fn tell(host: &LanHost, conn: u32, text: &str, color: &str) {
+pub(super) fn tell(host: &LanHost, conn: u32, text: &str, color: &str) {
     let content = Tag::compound([
         ("text", Tag::String(JavaString::from(text))),
         ("color", Tag::String(JavaString::from(color))),
@@ -169,15 +169,20 @@ pub(super) fn command(host: &mut LanHost, conn: u32, words: &[&str]) -> bool {
         return true;
     }
     let to = host.hub.guests[me].position;
-    if let Some(m) = host.hub.guests[from].motion.as_mut() {
+    teleport(host, from, to);
+    tell(host, conn, &format!("{} is on the way.", request.from_name), "green");
+    tell(host, from_conn, &format!("Teleporting to {my_name}."), "green");
+    true
+}
+
+/// Moves guest `i` to `to`, still and with no fall to land from.
+pub(super) fn teleport(host: &mut LanHost, i: usize, to: [f64; 3]) {
+    if let Some(m) = host.hub.guests[i].motion.as_mut() {
         m.position = Vec3::new(to[0], to[1], to[2]);
         m.velocity = Vec3::new(0.0, 0.0, 0.0);
         m.fall_distance = 0.0;
     }
-    host.hub.teleport(from, Some(to));
-    tell(host, conn, &format!("{} is on the way.", request.from_name), "green");
-    tell(host, from_conn, &format!("Teleporting to {my_name}."), "green");
-    true
+    host.hub.teleport(i, Some(to));
 }
 
 #[cfg(test)]

@@ -122,6 +122,12 @@ pub(super) struct Remote {
     entities: HashMap<i32, Tracked>,
     lerps: HashMap<i32, Lerp>,
     turns: HashMap<i32, Turn>,
+    /// Other players' breaking cracks (ClientboundBlockDestructionPacket):
+    /// by breaker, the block, its stage 0-9 and the tick it last changed.
+    cracks: HashMap<i32, ([i32; 3], u8, u64)>,
+    /// Other players' walked distance and next footstep (Entity.moveDist,
+    /// nextStep), for their step sounds.
+    steps: HashMap<i32, (f32, f32)>,
     /// Item entities waiting for their item data.
     pending_items: HashMap<i32, PendingItem>,
     health: (f32, i32, f32),
@@ -309,6 +315,8 @@ impl Game<'_> {
             entities: HashMap::new(),
             lerps: HashMap::new(),
             turns: HashMap::new(),
+            cracks: HashMap::new(),
+            steps: HashMap::new(),
             pending_items: HashMap::new(),
             health: (20.0, 20, 5.0),
             game_mode: 0,
@@ -615,6 +623,8 @@ impl Game<'_> {
                 r.entities.clear();
                 r.lerps.clear();
                 r.turns.clear();
+                r.cracks.clear();
+                r.steps.clear();
                 r.pending_items.clear();
                 // A new ClientLevel: a new chunk storage, centred on 0, 0.
                 r.chunk_center = (0, 0);
@@ -1215,6 +1225,24 @@ impl Game<'_> {
                 );
                 self.destroy_particles(p.pos, state);
             }
+            // Every other level event: LevelEventHandler's particles, with the
+            // sound left to the server's own sound packet.
+            C::LevelEvent(p) => {
+                self.audio.muted = true;
+                self.level_event_at(p.kind, p.pos, p.data);
+                self.audio.muted = false;
+            }
+            // LevelRenderer.destroyBlockProgress: another player's crack.
+            C::BlockDestruction(p) => {
+                let ticks = self.ticks;
+                if let Some(r) = self.remote.as_mut() {
+                    if p.progress < 10 {
+                        r.cracks.insert(p.id, (p.pos, p.progress, ticks));
+                    } else {
+                        r.cracks.remove(&p.id);
+                    }
+                }
+            }
             C::Sound(p) => {
                 let name = match &p.sound.1 {
                     Some((location, _)) => Some(location.clone()),
@@ -1348,6 +1376,14 @@ impl Game<'_> {
                         match (index, value) {
                             (0, Value::Byte(flags)) => m.extra.crouching = flags & 0x02 != 0,
                             (6, Value::Id(pose)) => m.extra.crouching = *pose == 5,
+                            // DATA_LIVING_ENTITY_FLAGS: using an item (bow, crossbow, food).
+                            (8, Value::Byte(flags)) => {
+                                m.extra.using_item = if flags & 1 != 0 {
+                                    m.extra.using_item.max(1)
+                                } else {
+                                    0
+                                };
+                            }
                             _ => {}
                         }
                     }
@@ -1433,6 +1469,13 @@ impl Game<'_> {
                 }
             }
             C::HurtAnimation(p) => {
+                // The player's own: the camera's hurt tilt (LocalPlayer.animateHurt).
+                if self.remote.as_ref().is_some_and(|r| r.entity_id == p.id)
+                    && let Some(pl) = self.player.as_mut()
+                {
+                    pl.health.hurt.hurt_duration = 10;
+                    pl.health.hurt.hurt_time = 10;
+                }
                 if let Some(m) = self.mobs.iter_mut().find(|m| m.id == p.id as u32) {
                     m.hurt_time = 10;
                 }
@@ -2378,7 +2421,10 @@ impl Game<'_> {
         };
         let mut lerps = std::mem::take(&mut r.lerps);
         let mut turns = std::mem::take(&mut r.turns);
+        let mut steps = std::mem::take(&mut r.steps);
         let players = &r.level_players;
+        let mut crumbs = Vec::new();
+        let mut footsteps = Vec::new();
         for m in &mut self.mobs {
             #[cfg(target_arch = "wasm32")]
             if let Some(uuid) = players.get(&(m.id as i32))
@@ -2461,6 +2507,40 @@ impl Game<'_> {
             let target = (((dx * dx + dz * dz).sqrt() * 4.0) as f32).min(1.0);
             m.limb_speed += (target - m.limb_speed) * 0.4;
             m.limb_position += m.limb_speed;
+            if players.contains_key(&(m.id as i32)) {
+                // Another player's item in use, and food's crumbs
+                // (LivingEntity.triggerItemUseEffects, 32 ticks to eat).
+                if m.extra.using_item > 0 {
+                    m.extra.using_item += 1;
+                    let ticks = m.extra.using_item as u32 - 1;
+                    let food = [&m.extra.main_hand, &m.extra.off_hand]
+                        .into_iter()
+                        .flatten()
+                        .find(|id| {
+                            self.res
+                                .items
+                                .get(id)
+                                .is_some_and(|i| i.consumable && i.food.is_some())
+                        });
+                    if let Some(id) = food
+                        && ticks > 7
+                        && (32 - ticks.min(32)).is_multiple_of(4)
+                    {
+                        let feet = [m.position.x, m.position.y, m.position.z];
+                        crumbs.push((id.clone(), feet, m.eye_y(), (m.head_pitch, m.head_yaw)));
+                    }
+                }
+                // Entity.move's footsteps: a step each 1/0.6 blocks walked on the ground.
+                if m.on_ground && !m.extra.crouching {
+                    let walked = ((dx * dx + dz * dz).sqrt() * 0.6) as f32;
+                    let (dist, next) = steps.entry(m.id as i32).or_insert((0.0, 1.0));
+                    *dist += walked;
+                    if *dist > *next {
+                        *next = *dist + 1.0;
+                        footsteps.push([m.position.x, m.position.y - 0.2, m.position.z]);
+                    }
+                }
+            }
             if m.species() == horizon_client::mobs::Species::Rabbit {
                 horizon_client::mobs::rabbit::post_tick(m);
             }
@@ -2479,7 +2559,24 @@ impl Game<'_> {
         }
         lerps.retain(|_, l| l.steps > 0);
         turns.retain(|_, t| t.body.is_some() || t.head.is_some());
+        for (id, feet, eye, look) in crumbs {
+            let stack = horizon_client::items::ItemStack::new(&id, 1);
+            self.eat_particles_at(&stack, feet, eye, look, 5);
+        }
+        for at in footsteps {
+            let state = self.world.block(
+                at[0].floor() as i32,
+                at[1].floor() as i32,
+                at[2].floor() as i32,
+            );
+            if !self.res.facts.is_air(state) {
+                let s = self.res.facts.get(state).sounds.clone();
+                self.audio
+                    .play(&s.step, Some(at), s.volume * 0.15, s.pitch);
+            }
+        }
         if let Some(r) = self.remote.as_mut() {
+            r.steps = steps;
             for (id, l) in lerps {
                 r.lerps.entry(id).or_insert(l);
             }
@@ -2778,6 +2875,7 @@ impl Game<'_> {
     }
     /// Minecraft.startUseItem: use on the targeted block, then the item itself.
     fn remote_use(&mut self) {
+        let off_hand = !self.main_hand_acts() && self.offhand.is_some();
         let held_block = self
             .held()
             .and_then(|h| self.res.items.get(&h.item))
@@ -2825,26 +2923,111 @@ impl Game<'_> {
                 self.swing_arm();
                 return;
             }
+            // Minecraft.startUseItem tries the off hand when the main hand did
+            // nothing: an off-hand torch beside a pickaxe. Blocks that are used
+            // (chests, doors) took the main hand's click already.
+            if off_hand && !self.interactive_block(hit.pos) {
+                let seq = self.next_sequence();
+                self.send(S::UseItemOn(play::UseItemOn {
+                    hand: 1,
+                    pos: hit.pos,
+                    face: i32::from(face_direction(hit.face)),
+                    cursor,
+                    inside: hit.face == [0; 3],
+                    world_border: false,
+                    sequence: seq,
+                }));
+                let off_block = self
+                    .offhand
+                    .as_ref()
+                    .and_then(|s| self.res.items.get(&s.item))
+                    .is_some_and(|i| i.block.is_some());
+                if off_block {
+                    self.swing_hand(horizon_client::first_person::Hand::Off, horizon_client::first_person::SwingAnimation::DEFAULT);
+                    return;
+                }
+            }
         }
-        if self.held().is_some() {
-            self.remote_start_using();
-            let seq = self.next_sequence();
-            self.send(S::UseItem(play::UseItem {
-                hand: 0,
-                sequence: seq,
-                yaw: self.yaw,
-                pitch: self.pitch,
-            }));
+        let hand = if off_hand {
+            1
+        } else if self.held().is_some() {
+            0
+        } else {
+            return;
+        };
+        let slot = if hand == 1 {
+            super::shield::OFFHAND_SLOT
+        } else {
+            self.selected
+        };
+        self.remote_start_using(slot);
+        let seq = self.next_sequence();
+        self.send(S::UseItem(play::UseItem {
+            hand,
+            sequence: seq,
+            yaw: self.yaw,
+            pitch: self.pitch,
+        }));
+    }
+    /// Whether the main hand's item does anything on a right click; when it
+    /// does not, the off hand acts (a shield, a torch). Unknown items count as
+    /// doing nothing.
+    fn main_hand_acts(&self) -> bool {
+        let Some(stack) = self.inventory[self.selected].as_ref() else {
+            return false;
+        };
+        let item = &*stack.item;
+        let info = self.res.items.get(&stack.item);
+        info.is_some_and(|i| i.block.is_some() || i.consumable || i.blocks_attacks.is_some())
+            || [
+                "bucket", "boat", "minecart", "spawn_egg", "flint_and_steel", "fire_charge",
+                "bone_meal", "ender_pearl", "ender_eye", "snowball", "egg", "potion",
+                "experience_bottle", "fishing_rod", "bow", "crossbow", "trident", "spyglass",
+                "goat_horn", "_hoe", "_shovel", "_axe", "shears", "lead", "name_tag", "saddle",
+                "_helmet", "_chestplate", "_leggings", "_boots", "elytra", "on_a_stick", "map",
+                "book", "firework", "wind_charge", "brush", "honeycomb", "glass_bottle", "_dye",
+                "bundle", "armor_stand", "item_frame", "painting", "end_crystal", "ink_sac",
+                "totem", "compass", "clock", "harness",
+            ]
+            .iter()
+            .any(|part| item.contains(part))
+    }
+    /// A block a right click uses rather than builds on (containers, doors,
+    /// switches, stations): the off hand stays out of it.
+    fn interactive_block(&self, pos: [i32; 3]) -> bool {
+        let state = self.world.block(pos[0], pos[1], pos[2]);
+        let facts = self.res.facts.get(state);
+        facts.block_entity
+            || [
+                "door", "fence_gate", "button", "lever", "crafting_table", "anvil", "stonecutter",
+                "grindstone", "loom", "cartography_table", "smithing_table", "repeater",
+                "comparator", "note_block", "daylight_detector", "cake", "composter",
+                "respawn_anchor", "cauldron", "flower_pot", "candle", "redstone_wire",
+            ]
+            .iter()
+            .any(|part| facts.name.contains(part))
+    }
+    /// The crack drawn this frame: the player's own, else the latest of other
+    /// players' (the renderer draws one; vanilla forgets one after 400 ticks).
+    pub(super) fn shown_crack(&self) -> Option<([i32; 3], u32)> {
+        if let Some(m) = self.mining.as_ref().filter(|m| m.progress > 0.0) {
+            return Some((m.pos, ((m.progress * 10.0) as u32).min(9)));
         }
+        let r = self.remote.as_ref()?;
+        r.cracks
+            .values()
+            .filter(|c| self.ticks.saturating_sub(c.2) < 400)
+            .max_by_key(|c| c.2)
+            .map(|c| (c.0, u32::from(c.1)))
     }
     /// LivingEntity.startUsingItem on the client: the server runs the use
     /// (food, effects, arrows); this shows it here — the eating bob and
     /// crumbs, the drawn bow and its zoom, the raised shield, the spyglass.
-    fn remote_start_using(&mut self) {
+    fn remote_start_using(&mut self, slot: usize) {
         if self.using.is_some() {
             return;
         }
-        let Some(stack) = self.held().cloned() else {
+        let Some(stack) = self.stack_in(slot).cloned() else {
             return;
         };
         let Some(info) = self.res.items.get(&stack.item).cloned() else {
@@ -2876,7 +3059,7 @@ impl Game<'_> {
                             | "minecraft:chorus_fruit"
                     )));
         if usable {
-            self.using = Some((self.held_slot(), 0));
+            self.using = Some((slot, 0));
         }
     }
     /// LivingEntity.updatingUsingItem for the online player's own use: ends
@@ -2888,7 +3071,9 @@ impl Game<'_> {
         };
         let stack = self.stack_in(slot).cloned();
         let Some(stack) = stack.filter(|_| {
-            self.right && slot == self.selected && self.screen == Screen::Playing
+            self.right
+                && (slot == self.selected || slot == super::shield::OFFHAND_SLOT)
+                && self.screen == Screen::Playing
         }) else {
             if self
                 .stack_in(slot)

@@ -69,6 +69,7 @@ mod lan_actions;
 mod lan_crafting;
 mod lan_mobs;
 mod lan_pvp;
+mod lan_homes;
 mod lan_screen;
 mod lan_tpa;
 mod lan_trading;
@@ -5670,19 +5671,16 @@ impl Game<'_> {
                     .block_entity_render
                     .render(&scene, visible, &mut out);
             }
-            if let Some(mining) = &self.mining
-                && mining.progress > 0.0
-                && self.atlas.sprites.contains_key(&format!(
-                    "block/destroy_stage_{}",
-                    ((mining.progress * 10.0) as u32).min(9)
-                ))
+            if let Some((pos, stage)) = self.shown_crack()
+                && self
+                    .atlas
+                    .sprites
+                    .contains_key(&format!("block/destroy_stage_{stage}"))
             {
-                let state = self
-                    .world
-                    .block(mining.pos[0], mining.pos[1], mining.pos[2]);
+                let state = self.world.block(pos[0], pos[1], pos[2]);
                 self.res
                     .block_entity_render
-                    .render_breaking(&scene, mining.pos, state.0, &mut out);
+                    .render_breaking(&scene, pos, state.0, &mut out);
             }
         }
         // Experience orbs (ExperienceOrbRenderer): pulsing billboards from a 4x4 icon sheet.
@@ -5800,34 +5798,31 @@ impl Game<'_> {
         );
         let atlas = &self.atlas;
         // Breaking progress overlay (destroy_stage_0..9).
-        if let Some(m) = &self.mining
-            && m.progress > 0.0
-        {
-            let stage = ((m.progress * 10.0) as u32).min(9);
+        if let Some((pos, stage)) = self.shown_crack() {
             if atlas
                 .sprites
                 .contains_key(&format!("block/destroy_stage_{stage}"))
             {
                 let o = (glam::DVec3::new(
-                    f64::from(m.pos[0]),
-                    f64::from(m.pos[1]),
-                    f64::from(m.pos[2]),
+                    f64::from(pos[0]),
+                    f64::from(pos[1]),
+                    f64::from(pos[2]),
                 ) - camera)
                     .as_vec3();
-                let state = self.world.block(m.pos[0], m.pos[1], m.pos[2]);
+                let state = self.world.block(pos[0], pos[1], pos[2]);
                 if self.res.facts.get(state).render_shape
                     == horizon_client::blocks::RenderShape::Model
                     && let Ok(models) = self
                         .pack
                         .assets
                         .model_catalog
-                        .collect(state, BlockPos::new(m.pos[0], m.pos[1], m.pos[2]))
+                        .collect(state, BlockPos::new(pos[0], pos[1], pos[2]))
                 {
                     let offset = self
                         .pack
                         .context
                         .tables
-                        .offset(state, m.pos[0], m.pos[2])
+                        .offset(state, pos[0], pos[2])
                         .unwrap_or([0.0; 3]);
                     let origin = o + glam::DVec3::from(offset).as_vec3();
                     let translucent = models
@@ -8946,13 +8941,11 @@ impl Game<'_> {
             game_time: self.world.game_time as f32,
             shader_game_time: ((self.world.game_time % 24000) as f32 + alpha as f32) / 24000.0,
             crumbling_sprite: self
-                .mining
-                .as_ref()
-                .and_then(|m| {
-                    self.atlas.sprites.get(&format!(
-                        "block/destroy_stage_{}",
-                        ((m.progress * 10.0) as u32).min(9)
-                    ))
+                .shown_crack()
+                .and_then(|(_, stage)| {
+                    self.atlas
+                        .sprites
+                        .get(&format!("block/destroy_stage_{stage}"))
                 })
                 .map_or([0.0; 4], |r| [r.u0, r.v0, r.u1 - r.u0, r.v1 - r.v0]),
             end_portal_sprites: ["environment/end_sky", "entity/end_portal/end_portal"].map(|n| {

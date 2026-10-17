@@ -165,6 +165,9 @@ pub struct Audio {
     /// Positional sounds played since the last drain, kept while the world
     /// is open to the network so guests hear them too.
     pub capture: Option<Vec<(String, [f64; 3], f32, f32)>>,
+    /// Plays nothing while set: an online client running an effect whose
+    /// sound the server already sends.
+    pub muted: bool,
 }
 #[cfg(not(target_arch = "wasm32"))]
 fn decode(path: &Path) -> Option<(Vec<f32>, u32)> {
@@ -626,6 +629,7 @@ impl Audio {
             random: LegacyRandom::new(crate::sound_engine::unique_seed()),
             source_override: None,
             capture: None,
+            muted: false,
         }
     }
     fn open(mixer: Arc<Mutex<Mixer>>) -> Result<cpal::Stream> {
@@ -771,6 +775,9 @@ impl Audio {
     ) {
         if let (Some(capture), Some(at)) = (self.capture.as_mut(), at) {
             capture.push((event.to_owned(), at, volume, pitch));
+        }
+        if self.muted {
+            return;
         }
         self.sync_volumes();
         let event = crate::sound_events::normalize(event);

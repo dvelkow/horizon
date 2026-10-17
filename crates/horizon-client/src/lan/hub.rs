@@ -1230,6 +1230,7 @@ impl Hub {
         rot: (f32, f32, f32),
         on_ground: bool,
         flags: (bool, bool, bool, bool),
+        using: Option<bool>,
         skin: u8,
         health: f32,
         equipment: Vec<(u8, Option<horizon_protocol::item::Stack>)>,
@@ -1256,9 +1257,12 @@ impl Hub {
         };
         // Always present, so standing back up or waking is sent too: the
         // tracker only sends values that differ from the last ones sent.
+        // LivingEntity.DATA_LIVING_ENTITY_FLAGS: using an item, in the off hand.
+        let living = using.map_or(0, |off| 1 | if off { 2 } else { 0 });
         let mut meta = vec![
             (0, serializer::BYTE, Value::Byte(shared)),
             (6, serializer::POSE, Value::Id(pose)),
+            (8, serializer::BYTE, Value::Byte(living)),
         ];
         if (health - 1.0).abs() > f32::EPSILON && health != 20.0 {
             meta.push((9, serializer::FLOAT, Value::Float(health)));
@@ -1322,6 +1326,7 @@ impl Hub {
                 (h.yaw, h.pitch, h.head_yaw),
                 h.on_ground,
                 (h.sneaking, h.sprinting, false, false),
+                None,
                 0x7F,
                 h.health,
                 equipment,
@@ -1351,6 +1356,7 @@ impl Hub {
                     (g.yaw, g.pitch, g.head_yaw),
                     g.on_ground,
                     (g.sneaking, g.sprinting, g.fall_flying, g.sleeping),
+                    g.using,
                     g.info.model_customisation,
                     g.health,
                     equipment,
@@ -1455,12 +1461,19 @@ impl Hub {
         // A dead player's health isn't sent (the death screen shows from the combat kill).
         if self.guests[i].sent_health != Some(health) && !self.guests[i].dead {
             let g = &mut self.guests[i];
+            let hurt = g.sent_health.is_some_and(|(old, _, _)| health.0 < old);
             g.send(&C::SetHealth(play::SetHealth {
                 health: health.0,
                 food: health.1,
                 saturation: health.2,
             }));
             g.sent_health = Some(health);
+            // LivingEntity.handleDamageEvent's ClientboundHurtAnimationPacket:
+            // the red flash for everyone, the camera tilt for the player.
+            if hurt {
+                let id = g.entity_id;
+                self.broadcast(&C::HurtAnimation(play::HurtAnimation { id, yaw: 0.0 }));
+            }
         }
         let xp = {
             let g = &self.guests[i];
