@@ -1,25 +1,26 @@
 <!doctype html>
 <html lang="en">
-<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="theme-color" content="#b9d5d6"><title>Horizon — our world</title><link rel="stylesheet" href="/style.css"></head>
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="theme-color" content="#dcebef"><meta name="description" content="Build with friends. Make ridiculous mods. Welcome to (dev)Modcraft."><title>(dev)Modcraft — our world</title><link rel="preload" as="image" href="/branding/pepe-pixel-party-v1.png"><link rel="stylesheet" href="/style.css"></head>
 <body class="play-page">
   <main id="launcher" class="launcher">
-    <div class="landscape" aria-hidden="true"><div class="sun"></div><div class="ridge far"></div><div class="ridge near"></div></div>
-    <header class="site-header"><a class="wordmark" href="/">Horizon<span class="brand-square" aria-hidden="true"></span></a><a href="/portal.html" target="_blank" rel="noopener">Mod workshop</a></header>
-    <section class="welcome"><h1>A world<br>we make<br>together.</h1><p>Build a home. Find your friends.<br>Try something you made this afternoon.</p></section>
+    <img class="pepe-frame" src="/branding/pepe-pixel-party-v1.png" alt="" aria-hidden="true" fetchpriority="high">
+    <div class="menu-center">
+    <header class="welcome"><h1>(dev)Modcraft</h1><p>Build with friends. Make ridiculous mods.</p></header>
     <section class="entry-panel" aria-label="Join the world">
       <p id="connection-status" role="status">Connecting to your world…</p>
       <form id="login-form" hidden>
-        <h2>Come on in</h2><p>Use the invite from your host.</p>
         <label for="player-name">Your player name</label><input id="player-name" name="name" autocomplete="username" pattern="[A-Za-z0-9_]{1,16}" maxlength="16" required placeholder="BlockExplorer" aria-describedby="name-help"><small id="name-help">1–16 letters, numbers, or underscores.</small>
-        <label for="invite">Invite code</label><input id="invite" name="invite" type="password" autocomplete="off" required maxlength="256">
-        <button type="submit" class="primary">Join our world</button>
+        <label for="invite">Invite code</label><input id="invite" name="invite" type="password" autocomplete="off" required maxlength="256" placeholder="The one your friend sent you">
+        <button type="submit" class="primary">Join the world</button>
       </form>
-      <div id="signed-in" hidden><h2>Welcome back,<br><span id="session-name"></span>.</h2><p>Your friends are a click away.</p><button id="play" class="primary">Play Horizon</button><button id="logout" class="quiet">Use a different name</button></div>
+      <div id="signed-in" hidden><h2>Hey, <span id="session-name"></span>.</h2><p>Your next bad idea starts here.</p><button id="play" class="primary">Play (dev)Modcraft</button><button id="logout" class="quiet">Use a different name</button></div>
       <p id="entry-error" class="error" role="alert" hidden></p>
+      <a class="menu-link secondary" href="/portal.html" target="_blank" rel="noopener">Mod workshop</a>
       <p class="desktop-note">Play on a computer with Chrome or Edge.</p>
     </section>
-    <footer class="launcher-footer"><span>A shared world. Always a work in progress.</span><span>Move <kbd>W A S D</kbd> · Look with your mouse · Pause <kbd>Esc</kbd></span></footer>
+    <footer class="launcher-footer"><span><kbd>W A S D</kbd> move <span class="control-dot">·</span> Mouse to look <span class="control-dot">·</span> <kbd>Esc</kbd> pause</span></footer>
+    </div>
   </main>
-  <canvas id="horizon" tabindex="0" aria-label="Horizon game" hidden></canvas>
+  <canvas id="horizon" tabindex="0" aria-label="(dev)Modcraft game" hidden></canvas>
   <script type="module" src="/app.js"></script>
 </body></html>

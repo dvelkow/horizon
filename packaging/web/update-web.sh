@@ -65,7 +65,9 @@ root, out = map(pathlib.Path, sys.argv[1:])
 required = ['index.html', 'app.js', 'style.css', 'portal.html', 'portal.js',
             'bootstrap.js', 'rust-worker.js', 'pkg/horizon_client.js',
             'pkg/horizon_client_bg.wasm', 'mods-runtime/host.js',
-            'mods-runtime/worker.js', 'assets/index.json']
+            'mods-runtime/worker.js', 'assets/index.json',
+            'branding/pepe-pixel-party-v1.png', 'branding/Geist-SemiBold.ttf',
+            'branding/Geist-Regular.ttf', 'branding/OFL-Geist.txt']
 selected = set(required)
 for folder in ['pkg', 'assets']:
     for path in (root / folder).rglob('*'):

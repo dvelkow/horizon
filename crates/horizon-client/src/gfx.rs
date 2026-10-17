@@ -543,7 +543,7 @@ const NO_GPU_DRIVER: &str = "No Vulkan graphics driver found: Horizon needs a GP
 #[cfg(target_os = "macos")]
 const NO_GPU_DRIVER: &str = "No Metal graphics device found";
 #[cfg(target_arch = "wasm32")]
-const NO_GPU_DRIVER: &str = "WebGPU is unavailable: open Horizon in a current Chrome or Edge with hardware acceleration enabled";
+const NO_GPU_DRIVER: &str = "WebGPU is unavailable: open (dev)Modcraft in a current Chrome or Edge with hardware acceleration enabled";
 #[cfg(not(any(target_os = "windows", target_os = "macos", target_arch = "wasm32")))]
 const NO_GPU_DRIVER: &str = "No Vulkan graphics driver found: Horizon needs the Vulkan loader \
      (libvulkan.so.1) and a Vulkan driver for your GPU (Mesa's, or NVIDIA's)";

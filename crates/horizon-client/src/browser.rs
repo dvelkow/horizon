@@ -69,7 +69,10 @@ impl Drop for RestoreGuard {
 
 /// Keeps startup failures visible instead of leaving a blank canvas.
 pub fn startup_error(message: &str) {
-    loading_status(&format!("Unable to start Horizon: {message}"), 0.0);
+    loading_status(
+        &format!("Unable to start {}: {message}", crate::brand::NAME),
+        0.0,
+    );
 }
 
 /// A lightweight browser-visible measurement for comparing native and web FPS.
@@ -320,7 +323,7 @@ pub async fn ready() -> Result<(), JsValue> {
     // Directory creation during restoration is already persisted in the catalog.
     fs::drain_changes().map_err(fail)?;
     fs::create_dir_all("/tmp").map_err(fail)?;
-    loading_status("Starting Horizon…", 100.0);
+    loading_status(&format!("Starting {}…", crate::brand::NAME), 100.0);
     Ok(())
 }
 

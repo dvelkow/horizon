@@ -1333,7 +1333,7 @@ impl<'a> Ui<'a> {
     /// The giant faint wordmark, whole, as wide as the column at `x` (`w` wide, at most `max`
     /// tall) with its baseline at `bottom`.
     pub fn wordmark(&mut self, x: f32, w: f32, bottom: f32, max: f32) {
-        let unit = self.measure(Face::Display, 100.0, "horizon") / 100.0;
+        let unit = self.measure(Face::Display, 100.0, crate::brand::NAME) / 100.0;
         let size = (w / unit).min(max).floor();
         // Geist's x-height glyphs sit on the baseline; its ascenders reach 0.75 em above it.
         let line = (size * 1.2).round();
@@ -1345,7 +1345,7 @@ impl<'a> Ui<'a> {
             x - size * 0.05,
             top,
             color::with_alpha(color::TEXT, 0.06),
-            "horizon",
+            crate::brand::NAME,
         );
     }
     /// The plain background while the live backdrop loads: the page colour.

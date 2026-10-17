@@ -476,7 +476,7 @@ impl OptionsUi {
                 }
                 HRow::Style => {
                     ui.row(x, y, "Menu style", "", 0.0);
-                    let labels = ["Horizon", "Classic"];
+                    let labels = [crate::brand::NAME, "Classic"];
                     let probe = ui.segmented(STYLE, -10_000.0, -10_000.0, &labels, 0);
                     let selected = usize::from(t::style() == MenuStyle::Classic);
                     ui.segmented(STYLE, control_x - probe, y + 12.0 - 3.0, &labels, selected);
