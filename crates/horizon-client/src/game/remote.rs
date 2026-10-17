@@ -1322,6 +1322,20 @@ impl Game<'_> {
                         }
                     }
                 }
+                // Another player's shared flags and pose: crouching.
+                let player = self
+                    .remote
+                    .as_ref()
+                    .is_some_and(|r| r.level_players.contains_key(&p.id));
+                if player && let Some(m) = self.mobs.iter_mut().find(|m| m.id == p.id as u32) {
+                    for (index, _, value) in &p.values {
+                        match (index, value) {
+                            (0, Value::Byte(flags)) => m.extra.crouching = flags & 0x02 != 0,
+                            (6, Value::Id(pose)) => m.extra.crouching = *pose == 5,
+                            _ => {}
+                        }
+                    }
+                }
                 for (index, _, value) in &p.values {
                     if *index == ITEM_ENTITY_ITEM
                         && let Value::Item(stack) = value
@@ -1396,6 +1410,12 @@ impl Game<'_> {
                 }
             }
             C::SetEntityMotion(p) => self.remote_entity_motion(p.id, p.velocity),
+            // ClientboundSwingAnimationPacket: another player or a mob swings.
+            C::SwingAnimation(p) => {
+                if let Some(m) = self.mobs.iter_mut().find(|m| m.id == p.id as u32) {
+                    m.swing();
+                }
+            }
             C::HurtAnimation(p) => {
                 if let Some(m) = self.mobs.iter_mut().find(|m| m.id == p.id as u32) {
                     m.hurt_time = 10;
@@ -1414,6 +1434,12 @@ impl Game<'_> {
                     && m.species() == horizon_client::mobs::Species::Rabbit
                 {
                     horizon_client::mobs::rabbit::hop_event(m);
+                }
+                // EntityEvent.HURT (the server's older hurt signal): the red flash.
+                if p.event == 2
+                    && let Some(m) = self.mobs.iter_mut().find(|m| m.id == p.id as u32)
+                {
+                    m.hurt_time = 10;
                 }
                 // EntityEvent.DEATH: start the death animation.
                 if p.event == 3
@@ -2254,6 +2280,18 @@ impl Game<'_> {
             [player.position.x, player.position.y, player.position.z],
         );
         player.yaw = self.yaw;
+        // LocalPlayer.modifyInput: walking while using an item.
+        player.item_use_speed = self
+            .using
+            .and_then(|(slot, _)| {
+                if slot == super::shield::OFFHAND_SLOT {
+                    self.offhand.as_ref()
+                } else {
+                    self.inventory.get(slot)?.as_ref()
+                }
+            })
+            .and_then(|s| self.res.items.get(&s.item))
+            .map(|i| i.use_speed);
         let dead = self.screen == Screen::Dead;
         if !dead {
             // Mods' movement nudges (docs/mods.md), bounded, before the step.
@@ -2305,10 +2343,12 @@ impl Game<'_> {
         self.tick_player_model();
         if !dead {
             self.remote_mining();
-            if self.right && self.use_delay == 0 && playing {
+            // Minecraft.continueAttack/startUseItem: no new use while one runs.
+            if self.right && self.use_delay == 0 && playing && self.using.is_none() {
                 self.remote_use();
                 self.use_delay = 4;
             }
+            self.tick_remote_using();
         }
         self.remote_send_state(input);
         self.send(S::ClientTickEnd(Empty));
@@ -2345,6 +2385,9 @@ impl Game<'_> {
             m.previous_body_yaw = m.body_yaw;
             m.previous_limb_speed = m.limb_speed;
             m.age += 1;
+            // LivingEntity.updateSwingTime: other players' and mobs' arm swings.
+            m.anim.attack_anim_o = m.anim.attack_anim;
+            m.tick_swing_anim();
             if m.species() == horizon_client::mobs::Species::Rabbit {
                 horizon_client::mobs::rabbit::base_tick(m);
             }
@@ -2733,6 +2776,7 @@ impl Game<'_> {
             }
         }
         if self.held().is_some() {
+            self.remote_start_using();
             let seq = self.next_sequence();
             self.send(S::UseItem(play::UseItem {
                 hand: 0,
@@ -2740,6 +2784,106 @@ impl Game<'_> {
                 yaw: self.yaw,
                 pitch: self.pitch,
             }));
+        }
+    }
+    /// LivingEntity.startUsingItem on the client: the server runs the use
+    /// (food, effects, arrows); this shows it here — the eating bob and
+    /// crumbs, the drawn bow and its zoom, the raised shield, the spyglass.
+    fn remote_start_using(&mut self) {
+        if self.using.is_some() {
+            return;
+        }
+        let Some(stack) = self.held().cloned() else {
+            return;
+        };
+        let Some(info) = self.res.items.get(&stack.item).cloned() else {
+            return;
+        };
+        let hungry = self.creative || self.remote.as_ref().is_some_and(|r| r.health.1 < 20);
+        let item = &*stack.item;
+        let usable = info.blocks_attacks.is_some()
+            || matches!(
+                item,
+                "minecraft:spyglass"
+                    | "minecraft:trident"
+                    | "minecraft:goat_horn"
+                    | "minecraft:potion"
+                    | "minecraft:ominous_bottle"
+                    | "minecraft:milk_bucket"
+                    | "minecraft:honey_bottle"
+            )
+            || (item == "minecraft:bow"
+                && (self.creative || self.projectile_slot("minecraft:bow").is_some()))
+            // Player.canEat: these are eaten when full too.
+            || (info.consumable
+                && info.food.is_some()
+                && (hungry
+                    || matches!(
+                        item,
+                        "minecraft:golden_apple"
+                            | "minecraft:enchanted_golden_apple"
+                            | "minecraft:chorus_fruit"
+                    )));
+        if usable {
+            self.using = Some((self.held_slot(), 0));
+        }
+    }
+    /// LivingEntity.updatingUsingItem for the online player's own use: ends
+    /// on release, a slot change or a closed screen (the release itself is
+    /// sent by the mouse handler); food and drink end after their time.
+    fn tick_remote_using(&mut self) {
+        let Some((slot, ticks)) = self.using else {
+            return;
+        };
+        let stack = self.stack_in(slot).cloned();
+        let Some(stack) = stack.filter(|_| {
+            self.right && slot == self.selected && self.screen == Screen::Playing
+        }) else {
+            if self
+                .stack_in(slot)
+                .is_some_and(|s| &*s.item == "minecraft:spyglass")
+            {
+                self.stop_spyglass();
+            }
+            self.using = None;
+            return;
+        };
+        let ticks = ticks + 1;
+        let info = self.res.items.get(&stack.item).cloned();
+        let item = &*stack.item;
+        let eats = info
+            .as_ref()
+            .is_some_and(|i| i.consumable && i.food.is_some());
+        let drinks = matches!(
+            item,
+            "minecraft:potion" | "minecraft:ominous_bottle" | "minecraft:milk_bucket" | "minecraft:honey_bottle"
+        );
+        let duration = match item {
+            "minecraft:honey_bottle" => 40,
+            "minecraft:dried_kelp" => 16,
+            "minecraft:spyglass" => 1200,
+            "minecraft:goat_horn" => 140,
+            _ if eats || drinks => 32,
+            // Bows, shields and tridents last until released.
+            _ => u32::MAX,
+        };
+        // Consumable.emitParticlesAndSounds' crumbs (the server plays the sounds).
+        if eats {
+            let remaining = duration.saturating_sub(ticks - 1);
+            if ticks - 1 > (duration as f32 * 0.21875) as u32 && remaining % 4 == 0 {
+                self.eat_particles(&stack, 5);
+            }
+        }
+        if ticks >= duration {
+            if eats {
+                self.eat_particles(&stack, 16);
+            }
+            if item == "minecraft:spyglass" {
+                self.stop_spyglass();
+            }
+            self.using = None;
+        } else {
+            self.using = Some((slot, ticks));
         }
     }
     /// Left click: attack the targeted entity (MultiPlayerGameMode.attack).

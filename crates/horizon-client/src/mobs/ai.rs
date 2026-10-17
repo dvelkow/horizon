@@ -59,6 +59,10 @@ pub struct Ai {
     pub steps: super::living::Steps,
 }
 impl Mob {
+    /// LivingEntity.updateSwingTime alone, for entities a server moves.
+    pub fn tick_swing_anim(&mut self) {
+        tick_swing(self);
+    }
     /// LivingEntity.swing
     pub fn swing(&mut self) {
         if !self.ai.swinging || self.ai.swing_time >= 3 || self.ai.swing_time < 0 {

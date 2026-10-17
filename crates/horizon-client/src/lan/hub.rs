@@ -1254,13 +1254,12 @@ impl Hub {
         } else {
             0
         };
-        let mut meta = Vec::new();
-        if shared != 0 {
-            meta.push((0, serializer::BYTE, Value::Byte(shared)));
-        }
-        if pose != 0 {
-            meta.push((6, serializer::POSE, Value::Id(pose)));
-        }
+        // Always present, so standing back up or waking is sent too: the
+        // tracker only sends values that differ from the last ones sent.
+        let mut meta = vec![
+            (0, serializer::BYTE, Value::Byte(shared)),
+            (6, serializer::POSE, Value::Id(pose)),
+        ];
         if (health - 1.0).abs() > f32::EPSILON && health != 20.0 {
             meta.push((9, serializer::FLOAT, Value::Float(health)));
         }

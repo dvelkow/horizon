@@ -437,12 +437,16 @@ impl Game<'_> {
                     }
                 }
                 6 => {
+                    // RELEASE_USE_ITEM: bows shoot and tridents throw (or riptide),
+                    // as in Game::tick_used_item; a spyglass just lowers.
                     self.as_guest(host, conn, |g| {
-                        if let Some((slot, ticks)) = g.using.take()
-                            && g.stack_in(slot)
-                                .is_some_and(|s| &*s.item == "minecraft:bow")
-                        {
-                            g.release_bow(ticks);
+                        if let Some((slot, ticks)) = g.using.take() {
+                            match g.stack_in(slot).map(|s| s.item.clone()).as_deref() {
+                                Some("minecraft:bow") => g.release_bow(ticks),
+                                Some("minecraft:trident") => g.release_trident(ticks),
+                                Some("minecraft:spyglass") => g.stop_spyglass(),
+                                _ => {}
+                            }
                         }
                     });
                 }
