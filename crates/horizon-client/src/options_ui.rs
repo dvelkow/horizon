@@ -475,7 +475,7 @@ impl Opt {
             }),
             Opt::PadKeyboard => Text::literal(match s.controller.keyboard {
                 gamepad::TextKeyboard::Auto => "Auto",
-                gamepad::TextKeyboard::Horizon => "Horizon",
+                gamepad::TextKeyboard::Horizon => crate::brand::NAME,
                 gamepad::TextKeyboard::Steam => "Steam",
             }),
             _ => Text::empty(),
@@ -984,7 +984,7 @@ impl OptionsUi {
             Page::Graphics | Page::GraphicsAdvanced => "options.videoTitle",
             Page::Controller => "Controller Settings",
             Page::PadBinds => "Controller Binds",
-            Page::Extras => "Horizon Extras",
+            Page::Extras => "Modcraft Extras",
         }
     }
     fn scrollbar_x(&self, width: f32) -> f32 {
@@ -1020,7 +1020,7 @@ impl OptionsUi {
                         0.0,
                         0.0,
                         150.0,
-                        Text::literal("Horizon Graphics..."),
+                        Text::literal("Modcraft Graphics..."),
                         Act::Push(Page::Graphics),
                     ),
                     Some(button(
@@ -1264,7 +1264,7 @@ impl OptionsUi {
                     ("options.resourcepack", Some(Page::Packs)),
                     ("options.accessibility", Some(Page::Accessibility)),
                     ("Mods...", Some(Page::Mods)),
-                    ("Horizon Extras...", Some(Page::Extras)),
+                    ("Modcraft Extras...", Some(Page::Extras)),
                 ];
                 let gy = (61.0 + 30.0f32).min(h - 33.0 - 120.0);
                 for (i, (key, page)) in entries.iter().enumerate() {

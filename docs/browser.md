@@ -6,6 +6,13 @@ WebGPU enabled. The first visit downloads the game and prepared resources;
 subsequent visits reuse content whose SHA-256 still matches. WASM Workers require
 COOP `same-origin` and COEP `require-corp`; the gateway supplies both.
 
+The hosted game is branded **(dev)Modcraft**. Its landing page centers the name,
+sign-in controls and workshop link inside a generated Pepe crowd. The artwork,
+local fonts, license and exact generation prompt are in `web/branding/`.
+`web/build.sh` copies the public assets and the deployment allowlist explicitly
+includes them. Game menu labels share `horizon-client/src/brand.rs`; engine,
+protocol and saved-data identifiers retain their existing names.
+
 The operator's private access file contains the play URL, friend invite and a
 separate owner approval key. Neither key belongs in source control. Cloud API
 credentials are used only by the operator's provisioning process, outside the

@@ -26,6 +26,7 @@ pub mod block_transform;
 pub mod blocks;
 pub mod border_render;
 pub mod bossbar;
+pub mod brand;
 pub mod breaking;
 pub mod brewing;
 pub mod camera;

@@ -116,7 +116,7 @@ export function installGpuErrorHandling() {
     const box = document.getElementById("horizon-loading");
     box.setAttribute("role", "alert");
     box.querySelector("progress").hidden = true;
-    const reload = document.createElement("button"); reload.textContent = "Reload Horizon";
+    const reload = document.createElement("button"); reload.textContent = "Reload (dev)Modcraft";
     reload.addEventListener("click", () => location.reload()); box.append(reload);
     console.error("Horizon graphics stopped:", gpuFailure);
     // Do not keep submitting invalid command buffers after a fatal error.
@@ -157,7 +157,7 @@ export function loadingStatus(message, percent) {
     box.setAttribute("role", "status");
     Object.assign(box.style, { position: "fixed", inset: "0", zIndex: "20", background: "#0d171e",
       color: "#edf7f5", display: "grid", placeContent: "center", font: "16px system-ui", textAlign: "center", padding: "24px" });
-    const title = document.createElement("strong"); title.textContent = "Horizon"; title.style.fontSize = "32px";
+    const title = document.createElement("strong"); title.textContent = "(dev)Modcraft"; title.style.fontSize = "32px";
     const label = document.createElement("p"); label.dataset.loadingMessage = "";
     const progress = document.createElement("progress"); progress.max = 100; progress.style.width = "min(360px,75vw)";
     box.append(title, label, progress); document.body.append(box);
@@ -236,7 +236,7 @@ export async function fetchVerified(value, hash, size) {
   return bytes;
 }
 export async function loadResourceIndex() {
-  if (!isSecureContext || !crypto.subtle) throw new Error("Horizon needs HTTPS for verified browser resources");
+  if (!isSecureContext || !crypto.subtle) throw new Error("(dev)Modcraft needs HTTPS for verified browser resources");
   const response = await fetch("/assets/index.json", {credentials: "same-origin", cache: "no-store", redirect: "error"});
   if (!response.ok) throw new Error(`Resource index unavailable (${response.status})`);
   const reader = response.body?.getReader();
@@ -261,7 +261,7 @@ function savePath(path) {
   return path;
 }
 async function storageRoot() {
-  if (!navigator.storage?.getDirectory || !navigator.locks?.request) throw new Error("This browser does not support Horizon's local save storage");
+  if (!navigator.storage?.getDirectory || !navigator.locks?.request) throw new Error("This browser does not support (dev)Modcraft's local save storage");
   if (!rootPromise) rootPromise = navigator.storage.getDirectory().then(root => root.getDirectoryHandle("horizon-v1", {create: true}));
   return rootPromise;
 }

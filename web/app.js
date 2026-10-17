@@ -7,7 +7,7 @@ function showError(message) { $("entry-error").textContent = message; $("entry-e
 function reportFailure(error) {
   const message = error?.message ?? String(error);
   if (local) window.horizonLastError = error?.stack ?? message;
-  if (started) loadingStatus("Unable to start Horizon: " + message, 0); else showError(message);
+  if (started) loadingStatus("Unable to start (dev)Modcraft: " + message, 0); else showError(message);
 }
 window.addEventListener("error", event => reportFailure(event.error ?? new Error(event.message)));
 window.addEventListener("unhandledrejection", event => reportFailure(event.reason));
