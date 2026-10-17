@@ -6,6 +6,10 @@ let session;
 let started = false;
 let skins = [], selectedSkin = 'steve', editing = false;
 let linkedSkin, lookingUp = false;
+// The client release this page loaded (the gateway's /api/session names it).
+let pageRelease = null;
+const RESUME_KEY = "horizon-resume", RELOADED_KEY = "horizon-reloaded-for";
+const stored = key => { try { return sessionStorage.getItem(key); } catch (_) { return null; } };
 function showError(message) { $("entry-error").textContent = message; $("entry-error").hidden = false; }
 function reportFailure(error) {
   const message = error?.message ?? String(error);
@@ -87,12 +91,23 @@ async function loadWardrobe() {
   }
 }
 function cycleSkin(direction) { const i = skins.findIndex(s => s.id === selectedSkin); selectSkin(skins[(i + direction + skins.length) % skins.length].id).catch(reportFailure); }
+/* A newer client went live since this page loaded: reload into it and rejoin, once per release. */
+async function reloadedForNewRelease() {
+  if (!pageRelease) return false;
+  let latest;
+  try { ({release: latest} = await request("/api/release")); } catch (_) { return false; }
+  if (!latest || latest === pageRelease || stored(RELOADED_KEY) === latest) return false;
+  try { sessionStorage.setItem(RELOADED_KEY, latest); sessionStorage.setItem(RESUME_KEY, String(Date.now())); } catch (_) { return false; }
+  location.reload();
+  return true;
+}
 async function play(join = true) {
   if (started) return;
+  if (join && await reloadedForNewRelease()) return;
   if (!crossOriginIsolated) throw new Error("The host needs to enable the game's browser isolation settings.");
   if (!navigator.gpu) throw new Error("This browser does not offer WebGPU. Open this page in an updated Chrome or Edge browser.");
   if (join) await startPlayerSkins(session.name);
-  globalThis.horizonOptions = Object.freeze({name: session?.name, join});
+  globalThis.horizonOptions = Object.freeze({name: session?.name, join, release: pageRelease});
   started = true; $("launcher").hidden = true; $("horizon").hidden = false;
   loadingStatus("Opening your world…", 0);
   if (join) { const {startMods} = await import("/mods-runtime/host.js"); await startMods(); }
@@ -122,7 +137,12 @@ $("logout").addEventListener("click", async () => {
 });
 try {
   const value = await request("/api/session");
+  pageRelease = typeof value.release === "string" ? value.release : null;
   if (value.localPreview) await play(false); else { await loadWardrobe(); showSession(value); }
+  // Reloaded for an update while playing: straight back into the world (a click recaptures the mouse).
+  const resume = Number(stored(RESUME_KEY));
+  try { sessionStorage.removeItem(RESUME_KEY); } catch (_) {}
+  if (resume && Date.now() - resume < 120000 && value.authenticated && !value.needsProfile) await play();
   const auth = new URLSearchParams(location.search).get('auth');
   if (auth) { history.replaceState(null, '', '/'); showError(auth === 'cancelled' ? 'Discord sign-in was cancelled. Try again when you’re ready.' : 'Discord sign-in did not finish. Please try again.'); }
 } catch (error) { $("connection-status").textContent = "The world is unavailable right now."; reportFailure(error); }

@@ -9,6 +9,11 @@ const LIMITS = {initialize: 15000, tick: 1000, frame: 1000, chat: 1000, command:
 const clip = (value, maximum = 256) => Array.from(String(value).slice(0, maximum * 2)).slice(0, maximum).join("");
 const hex = value => typeof value === "string" && /^[a-f0-9]{64}$/.test(value);
 const errorText = error => clip(error?.message ?? error);
+/* A newer game client went live: the notice, then a reload once the player stands still. */
+const RELOAD_NOTICE_MS = 10000;
+const RELOAD_SETTLE_MS = 20000;
+const RESUME_KEY = "horizon-resume";
+const RELOADED_KEY = "horizon-reloaded-for";
 const allowedCapabilities = new Set(["game-read", "chat", "hud", "movement", "registries"]);
 
 function modUrl(value, hash) {
@@ -178,6 +183,37 @@ class ModManager {
     this.socket = null; this.reconnect = null; this.pollTimer = null;
     this.refreshPromise = null;
     this.failedUpdates = new Map();
+    this.release = globalThis.horizonOptions?.release ?? null; this.updating = null;
+  }
+  /* The gateway names its client release; a different one means this page runs old code. */
+  sawRelease(release) {
+    if (typeof release !== "string" || !/^[a-f0-9]{16}$/.test(release) || !this.release || release === this.release
+        || this.updating || this.closed) return;
+    this.updating = release;
+    let tried = null;
+    try { tried = sessionStorage.getItem(RELOADED_KEY); } catch (_) {}
+    if (tried === release) {
+      // This page already reloaded for that release and is still older: never loop.
+      this.addOutput([{kind: "feedback", text: "(dev)Modcraft was updated: reload the page to get the new version", error: true}]);
+      return;
+    }
+    this.addOutput([{kind: "feedback", text: "(dev)Modcraft was updated: reloading in 10 seconds, you will rejoin right away", error: false}]);
+    const started = performance.now();
+    const attempt = () => {
+      if (this.closed) return;
+      // Not mid-jump or mid-fall: the world is the server's, but a reload in the air looks like a glitch.
+      const motion = this.snapshot.motion;
+      const settled = !motion || motion.on_ground === true || motion.steerable === false;
+      if (document.hidden || settled || performance.now() - started > RELOAD_NOTICE_MS + RELOAD_SETTLE_MS) {
+        try { sessionStorage.setItem(RELOADED_KEY, release); sessionStorage.setItem(RESUME_KEY, String(Date.now())); } catch (_) {}
+        location.reload();
+      } else setTimeout(attempt, 250);
+    };
+    setTimeout(attempt, document.hidden ? 0 : RELOAD_NOTICE_MS);
+  }
+  async checkRelease() {
+    if (this.closed || this.updating) return;
+    try { this.sawRelease(JSON.parse(new TextDecoder().decode(await boundedFetch("/api/release", 4096))).release); } catch (_) {}
   }
   addOutput(rows) {
     this.output.push(...rows);
@@ -219,6 +255,7 @@ class ModManager {
         if (old?.hash === row.entry.sha256 && ["running", "failed", "off"].includes(old.status)) continue;
         if (this.failedUpdates.get(id) === row.entry.sha256) continue;
         if (row.manifest.unsupported) {
+          this.checkRelease();
           if (old) old.stop();
           this.instances.set(id, {manifest: row.manifest, hash: row.entry.sha256, status: "off", error: "Needs a newer game: reload the page", panel: null, hooks: {commands: []}, stop() {}});
           this.revision++;
@@ -258,7 +295,9 @@ class ModManager {
     this.socket = new WebSocket(url);
     this.socket.onopen = () => this.refresh();
     this.socket.onmessage = event => {
-      if (typeof event.data === "string" && event.data.length <= 4096) this.refresh();
+      if (typeof event.data !== "string" || event.data.length > 4096) return;
+      try { this.sawRelease(JSON.parse(event.data).release); } catch (_) {}
+      this.refresh();
     };
     this.socket.onclose = () => { if (!this.closed) this.reconnect = setTimeout(() => this.connect(), 3000 + Math.random() * 2000); };
     this.socket.onerror = () => this.socket?.close();
@@ -301,7 +340,7 @@ export async function startMods() {
   if (globalThis.horizonMods) return globalThis.horizonMods;
   const manager = new ModManager(); globalThis.horizonMods = manager;
   await manager.refresh(); manager.connect();
-  manager.pollTimer = setInterval(() => manager.refresh(), 30000);
+  manager.pollTimer = setInterval(() => { manager.refresh(); manager.checkRelease(); }, 30000);
   addEventListener("pagehide", () => manager.close(), {once: true});
   return manager;
 }

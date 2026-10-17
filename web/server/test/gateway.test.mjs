@@ -360,3 +360,21 @@ test('WebSocket upgrades reject wrong origins, unauthenticated access and destin
   assert.equal((await f.request('/api/logout', { method: 'POST', headers: { Cookie: friend.cookie, 'X-CSRF-Token': friend.csrf } })).status, 200);
   assert.equal((await closed)[0], 1008);
 });
+
+test('the client release identifies the served game files, so open pages can reload into a new one', async t => {
+  const f = await fixture(t), friend = await f.login();
+  const { release } = await (await f.request('/api/release')).json();
+  assert.match(release, /^[a-f0-9]{16}$/);
+  assert.equal(release, f.gateway.release);
+  assert.equal((await (await f.request('/api/session', { headers: { Cookie: friend.cookie } })).json()).release, release);
+  const ws = f.websocket('/mods/events', friend);
+  const [hello] = await once(ws, 'message');
+  assert.equal(JSON.parse(hello).release, release);
+  ws.close();
+  // Another client build is another release; the same files are the same one.
+  await fs.writeFile(join(f.root, 'runtime', 'host.js'), '/* newer */');
+  const next = await createGateway(f.config), again = await createGateway(f.config);
+  t.after(async () => { await next.close(); await again.close(); });
+  assert.notEqual(next.release, release);
+  assert.equal(again.release, next.release);
+});

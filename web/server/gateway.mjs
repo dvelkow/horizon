@@ -4,6 +4,7 @@ import { createReadStream } from 'node:fs';
 import { pipeline } from 'node:stream/promises';
 import { resolve, sep, extname } from 'node:path';
 import { isIP } from 'node:net';
+import { createHash } from 'node:crypto';
 import { WebSocketServer } from 'ws';
 import { Sessions, RateLimit, validSecretHash, verifySecret, cookieValue, sessionCookie, equalToken } from './security.mjs';
 import { ModStore } from './mod-store.mjs';
@@ -86,6 +87,25 @@ function validateConfig(input) {
   return config;
 }
 
+/** The served game client's identity: a digest of the files a page runs. A
+ * release switch restarts the gateway, so it is computed once at startup. */
+const CLIENT_FILES = ['index.html', 'app.js', 'bootstrap.js', 'rust-worker.js', 'wardrobe.js', 'style.css',
+  'pkg/horizon_client.js', 'pkg/horizon_client_bg.wasm'];
+async function clientRelease(config) {
+  const hash = createHash('sha256');
+  const files = [...CLIENT_FILES.map(name => [config.publicDir, name]),
+    ...(config.modsRuntimeDir ? ['host.js', 'worker.js'].map(name => [config.modsRuntimeDir, 'mods-runtime/' + name]) : [])];
+  for (const [root, name] of files) {
+    const path = resolve(root, name.replace(/^mods-runtime\//, ''));
+    try {
+      const digest = createHash('sha256');
+      for await (const chunk of createReadStream(path)) digest.update(chunk);
+      hash.update(`${name} ${digest.digest('hex')}\n`);
+    } catch (error) { if (error?.code !== 'ENOENT') throw error; }
+  }
+  return hash.digest('hex').slice(0, 16);
+}
+
 /** One process owns the candidate/index writes. Run one instance against this privateDir. */
 export async function createGateway(input, { discordFetch, minecraftFetch } = {}) {
   // Resolve roots before comparing them: a symlinked "public" directory must
@@ -95,6 +115,7 @@ export async function createGateway(input, { discordFetch, minecraftFetch } = {}
   for (const key of ['privateDir', 'publicDir', 'assetsDir', 'modsRuntimeDir']) if (roots[key]) roots[key] = await fs.realpath(roots[key]);
   const config = validateConfig(roots);
   const store = new ModStore(config); await store.init();
+  const release = await clientRelease(config);
   const apiTokens = new ModApiTokens(config.privateDir); await apiTokens.init();
   const minecraftSkins = new MinecraftSkins(config.privateDir, minecraftFetch); await minecraftSkins.init();
   const accounts = config.discord ? new Accounts(config.privateDir, { protectedNames: [...config.protectedNames], ownerIds: config.discord.ownerIds ?? [], skinStore: minecraftSkins }) : null;
@@ -143,7 +164,7 @@ export async function createGateway(input, { discordFetch, minecraftFetch } = {}
   };
   const closeSession = id => { for (const [ws, value] of sockets) if (value === id) ws.close(1008, 'Signed out'); };
   const notify = () => {
-    const message = JSON.stringify({ type: 'mods-changed', revision: store.index.revision });
+    const message = JSON.stringify({ type: 'mods-changed', revision: store.index.revision, release });
     for (const ws of modSockets) {
       if (ws.bufferedAmount > 64 * 1024) ws.terminate();
       else if (ws.readyState === ws.OPEN) ws.send(message);
@@ -236,8 +257,10 @@ export async function createGateway(input, { discordFetch, minecraftFetch } = {}
       }
       if (request.method === 'GET' && path === '/api/session') {
         const session = friends.get(cookieValue(request, friendCookie));
-        return json(response, 200, publicSession(session));
+        return json(response, 200, { ...publicSession(session), release });
       }
+      // Open pages compare this with the release they loaded and reload for a new one.
+      if (request.method === 'GET' && path === '/api/release') return json(response, 200, { release });
       if (request.method === 'GET' && path === '/api/skins') return json(response, 200, { skins: SKINS.map(id => ({ id, name: id[0].toUpperCase() + id.slice(1), url: `/skins/${id}.png` })) });
       if (request.method === 'POST' && path === '/api/skins/minecraft') {
         const session = signedIn(request); csrf(request, session);
@@ -353,7 +376,7 @@ export async function createGateway(input, { discordFetch, minecraftFetch } = {}
         if (path === '/game') bridgeGame(ws, session, config);
         else {
           modSockets.add(ws);
-          ws.send(JSON.stringify({ type: 'mods-changed', revision: store.index.revision }));
+          ws.send(JSON.stringify({ type: 'mods-changed', revision: store.index.revision, release }));
           ws.on('message', () => ws.close(1008, 'This channel only sends mod notifications'));
         }
       });
@@ -368,7 +391,7 @@ export async function createGateway(input, { discordFetch, minecraftFetch } = {}
       else { ws.alive = false; ws.ping(); }
     }
   }, 30_000); heartbeat.unref();
-  return { server, store, config,
+  return { server, store, config, release,
     async close() {
       clearInterval(heartbeat);
       for (const ws of wss.clients) ws.terminate();
