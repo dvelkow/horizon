@@ -156,8 +156,9 @@ export async function startPlayerSkins(name) {
     if (!response.ok) throw new Error('Your player profile could not be loaded. Sign in again.');
     const data = await response.json(), next = new Map();
     for (const [uuid, player] of Object.entries(data.players ?? {})) {
-      if (/^[a-f0-9]{32}$/.test(uuid) && wardrobeSkins.has(player.skin)) {
-        const texture = `entity/player/wide/${player.skin}`;
+      const imported = /^mc_(wide|slim)_([a-f0-9]{64})$/.exec(player.skin);
+      if (/^[a-f0-9]{32}$/.test(uuid) && (wardrobeSkins.has(player.skin) || imported)) {
+        const texture = imported ? `modcraft/skins/${imported[1]}/${imported[2]}` : `entity/player/wide/${player.skin}`;
         next.set(uuid, texture); if (player.name === name) localSkin = texture;
       }
     }
@@ -168,6 +169,26 @@ export async function startPlayerSkins(name) {
   skinTimer = setInterval(() => refresh().catch(() => {}), 15_000);
 }
 export function selectedPlayerSkin(uuid) { return uuid ? playerSkins.get(uuid) ?? '' : localSkin; }
+
+const skinRequests = new Set(), readySkinTextures = new Map(), skinRetries = new Map();
+export function requestPlayerSkin(path) {
+  const match = /^modcraft\/skins\/(wide|slim)\/([a-f0-9]{64})$/.exec(path);
+  if (!match || skinRequests.has(path) || readySkinTextures.has(path) || skinRequests.size >= 4 || readySkinTextures.size >= 32 || (skinRetries.get(path) ?? 0) > Date.now()) return;
+  skinRequests.add(path);
+  (async () => {
+    const response = await fetch(`/player-skins/mc_${match[1]}_${match[2]}.png`, {credentials:'same-origin',redirect:'error',signal:AbortSignal.timeout(10_000)});
+    const size = Number(response.headers.get('content-length')); checkedSize(size,64*1024);
+    const bytes = await boundedResponse(response,size);
+    if (await sha256(bytes) !== match[2]) throw new Error('Player skin hash mismatch');
+    readySkinTextures.set(path,{path,bytes}); skinRetries.delete(path);
+  })().catch(() => {
+    if(skinRetries.size>=128) skinRetries.delete(skinRetries.keys().next().value);
+    skinRetries.set(path,Date.now()+15_000);
+  }).finally(() => skinRequests.delete(path));
+}
+export function takePlayerSkinTextures() {
+  const result = [...readySkinTextures.values()]; readySkinTextures.clear(); return result;
+}
 
 export function loadingStatus(message, percent) {
   if (gpuFailure) { message = "Graphics stopped: " + gpuFailure; percent = 0; }

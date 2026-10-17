@@ -337,6 +337,14 @@ impl Game<'_> {
             return;
         };
         if m.kind.texture != skin {
+            #[cfg(target_arch = "wasm32")]
+            if let Some(model) = if skin.starts_with("modcraft/skins/slim/") {
+                self.res.player_slim_model.clone()
+            } else {
+                self.res.player_type.as_ref().map(|p| p.model.clone())
+            } {
+                Arc::make_mut(&mut m.kind).model = model;
+            }
             Arc::make_mut(&mut m.kind).texture = skin;
         }
         let at = Vec3::new(

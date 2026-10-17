@@ -1897,7 +1897,9 @@ impl Game<'_> {
             self.store_skin(location, rgba);
         }
         for p in &mut players {
-            if p.skin.starts_with("skins/") && !self.show_skin(&p.skin) {
+            if (p.skin.starts_with("skins/") || p.skin.starts_with("modcraft/skins/"))
+                && !self.show_skin(&p.skin)
+            {
                 p.skin = horizon_client::tab_list::default_skin(p.uuid).to_owned();
             }
         }
@@ -1920,6 +1922,8 @@ impl Game<'_> {
             self.skin_slots.len()
         } else {
             let (old, slot) = self.skin_slots.remove(0);
+            #[cfg(target_arch = "wasm32")]
+            horizon_client::browser::player_skin_ready(&old, false);
             self.atlas.sprites.remove(&old);
             slot
         };
@@ -1940,6 +1944,8 @@ impl Game<'_> {
             rgba,
         });
         self.atlas.sprites.insert(location.clone(), rect);
+        #[cfg(target_arch = "wasm32")]
+        horizon_client::browser::player_skin_ready(&location, true);
         self.skin_slots.push((location, slot));
     }
     /// Whether a downloaded skin is in the atlas, marking it recently shown.
@@ -2125,6 +2131,10 @@ impl Game<'_> {
         }
         // ClientLevel.tick: the border's size change.
         self.border.tick();
+        #[cfg(target_arch = "wasm32")]
+        for (path, rgba) in horizon_client::browser::take_player_skins() {
+            self.store_skin(path, rgba);
+        }
         self.tick_remote_entities(running);
         // ClientLevel.tickBlockEntities: chest lids, shulker boxes, bells.
         self.tick_block_entity_anims();
@@ -2250,6 +2260,13 @@ impl Game<'_> {
                 && let Some(skin) = horizon_client::browser::player_skin(Some(*uuid))
                 && m.kind.texture != skin
             {
+                if let Some(model) = if skin.starts_with("modcraft/skins/slim/") {
+                    self.res.player_slim_model.clone()
+                } else {
+                    self.res.player_type.as_ref().map(|p| p.model.clone())
+                } {
+                    Arc::make_mut(&mut m.kind).model = model;
+                }
                 Arc::make_mut(&mut m.kind).texture = skin;
             }
             if !running && !players.contains_key(&(m.id as i32)) {

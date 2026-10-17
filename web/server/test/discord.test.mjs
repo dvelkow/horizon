@@ -12,7 +12,7 @@ import { hashSecret } from '../security.mjs';
 const origin = 'https://game.example.test', clientId = '123456789012345678', clientSecret = 'test-only-discord-secret-not-real';
 const firstId = '223456789012345678', secondId = '323456789012345678';
 const adminHash = await hashSecret('test-only-separate-owner-key');
-async function fixture(t) {
+async function fixture(t, minecraftFetch) {
   const root = await fs.mkdtemp(join(tmpdir(), 'modcraft-discord-'));
   for (const folder of ['public', 'assets', 'runtime']) await fs.mkdir(join(root, folder));
   await fs.writeFile(join(root, 'assets', 'test.txt'), 'protected');
@@ -30,7 +30,7 @@ async function fixture(t) {
   };
   const config = { origin, adminHash, discord: { clientId, clientSecret }, protectedNames: ['Host'], privateDir: join(root, 'private'), publicDir: join(root, 'public'), assetsDir: join(root, 'assets'), modsRuntimeDir: join(root, 'runtime'), gamePort: 25565 };
   let gateway, port;
-  const start = async () => { gateway = await createGateway(config, { discordFetch }); await new Promise(resolve => gateway.server.listen(0, '127.0.0.1', resolve)); port = gateway.server.address().port; };
+  const start = async () => { gateway = await createGateway(config, { discordFetch, minecraftFetch }); await new Promise(resolve => gateway.server.listen(0, '127.0.0.1', resolve)); port = gateway.server.address().port; };
   await start();
   t.after(async () => { await gateway.close(); await fs.rm(root, {recursive:true, force:true}); });
   const request = (path, { method = 'GET', cookie, body, csrf, originHeader = origin } = {}) => new Promise((resolve, reject) => {
@@ -112,4 +112,27 @@ test('expired remembered sessions are rejected',async t=>{
   const accounts=new Accounts(root);await accounts.init();const session=await accounts.signIn({id:firstId});
   const key=Object.keys(accounts.data.sessions)[0];accounts.data.sessions[key].expires=Date.now()-1;
   assert.equal(accounts.get(session.id),undefined);
+});
+
+test('Minecraft preview requires sign-in and CSRF; linked skin survives profile save and restart',async t=>{
+  const png=await fs.readFile(new URL('../../skins/alex.png',import.meta.url));let calls=0;
+  const f=await fixture(t,async url=>{
+    calls++;
+    if(url.includes('api.mojang.com')) return Response.json({id:'a'.repeat(32),name:'Builder'});
+    if(url.includes('sessionserver.mojang.com')) return Response.json({id:'a'.repeat(32),properties:[{name:'textures',value:Buffer.from(JSON.stringify({profileId:'a'.repeat(32),textures:{SKIN:{url:'http://textures.minecraft.net/texture/'+'b'.repeat(64),metadata:{model:'slim'}}}})).toString('base64')}]});
+    return new Response(png);
+  });
+  assert.equal((await f.request('/api/skins/minecraft',{method:'POST',body:{name:'Builder'}})).status,401);
+  const session=await f.signIn(firstId), preview=extra=>f.request('/api/skins/minecraft',{method:'POST',cookie:session.cookie,csrf:session.csrf,body:{name:'Builder'},...extra});
+  assert.equal((await preview({csrf:undefined})).status,403);assert.equal(calls,0);
+  assert.equal((await f.profile(session,'Player','minecraft:Unknown')).status,400);
+  const response=await preview();assert.equal(response.status,200);const {skin}=JSON.parse(response.text);
+  assert.equal((await f.request(skin.url)).status,401);assert.equal((await f.request(skin.url,{cookie:session.cookie})).status,200);
+  assert.equal((await f.profile(session,'Player',skin.id)).status,200);await f.restart();
+  const current=JSON.parse((await f.request('/api/session',{cookie:session.cookie})).text);
+  assert.equal(current.skin,'minecraft:Builder');assert.equal(current.customSkin.model,'slim');
+  const players=JSON.parse((await f.request('/api/players/skins',{cookie:session.cookie})).text);
+  assert.equal(players.players[offlineUuid('Player')].skin,skin.textureId);
+  assert.equal((await f.profile(session,'Player','steve')).status,200);
+  assert.equal(JSON.parse((await f.request('/api/session',{cookie:session.cookie})).text).customSkin,undefined);
 });

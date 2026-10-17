@@ -10,6 +10,7 @@ import { ModStore } from './mod-store.mjs';
 import { bridgeGame } from './bridge.mjs';
 import { Accounts, ProfileError, SKINS, SESSION_SECONDS } from './accounts.mjs';
 import { DiscordAuth, oauthCookie } from './discord.mjs';
+import { MinecraftSkins, COPIED_SKIN } from './minecraft-skins.mjs';
 
 class HttpError extends Error { constructor(status, message) { super(message); this.status = status; } }
 const fail = (status, message) => { throw new HttpError(status, message); };
@@ -85,7 +86,7 @@ function validateConfig(input) {
 }
 
 /** One process owns the candidate/index writes. Run one instance against this privateDir. */
-export async function createGateway(input, { discordFetch } = {}) {
+export async function createGateway(input, { discordFetch, minecraftFetch } = {}) {
   // Resolve roots before comparing them: a symlinked "public" directory must
   // never turn private state into a static asset tree.
   await fs.mkdir(input.privateDir, { recursive: true, mode: 0o700 });
@@ -93,7 +94,8 @@ export async function createGateway(input, { discordFetch } = {}) {
   for (const key of ['privateDir', 'publicDir', 'assetsDir', 'modsRuntimeDir']) if (roots[key]) roots[key] = await fs.realpath(roots[key]);
   const config = validateConfig(roots);
   const store = new ModStore(config); await store.init();
-  const accounts = config.discord ? new Accounts(config.privateDir, { protectedNames: [...config.protectedNames], ownerIds: config.discord.ownerIds ?? [] }) : null;
+  const minecraftSkins = new MinecraftSkins(config.privateDir, minecraftFetch); await minecraftSkins.init();
+  const accounts = config.discord ? new Accounts(config.privateDir, { protectedNames: [...config.protectedNames], ownerIds: config.discord.ownerIds ?? [], skinStore: minecraftSkins }) : null;
   if (accounts) await accounts.init();
   const discord = config.discord ? new DiscordAuth(config.discord, config.origin, discordFetch) : null;
   const friends = accounts ?? new Sessions({ capacity: config.maxSessions ?? 128 });
@@ -103,6 +105,7 @@ export async function createGateway(input, { discordFetch } = {}) {
   const flowCookie = config.secure ? '__Host-modcraft_oauth' : 'modcraft_oauth';
   const logins = new RateLimit({ limit: config.loginAttempts ?? 10, windowMs: 60_000 });
   const writes = new RateLimit({ limit: 30, windowMs: 60_000 });
+  const skinLookups = new RateLimit({ limit: 6, windowMs: 60_000 });
   const upgrades = new RateLimit({ limit: 30, windowMs: 60_000 });
   let passwordChecks = 0, validating = false;
   const sockets = new Map(), modSockets = new Set();
@@ -121,6 +124,7 @@ export async function createGateway(input, { discordFetch } = {}) {
   const signedIn = request => friends.get(cookieValue(request, friendCookie)) ?? fail(401, 'Sign in with Discord first');
   const friend = request => { const session = signedIn(request); if (!session.name) fail(403, 'Choose your in-game name and skin first'); return session; };
   const publicSession = session => session ? { authenticated: true, name: session.name, skin: session.skin, displayName: session.displayName,
+    ...(session.customSkin ? {customSkin: minecraftSkins.latest(session.minecraftName,session.customSkin)} : {}),
     needsProfile: !session.name, csrf: session.csrf, expires: session.expires, authProvider: discord ? 'discord' : 'invite' }
     : { authenticated: false, discordAvailable: !!discord };
   const redirect = (response, location, cookies = []) => { response.writeHead(303, { Location: location, 'Cache-Control': 'no-store', ...(cookies.length ? { 'Set-Cookie': cookies } : {}) }); response.end(); };
@@ -168,6 +172,12 @@ export async function createGateway(input, { discordFetch } = {}) {
         return json(response, 200, publicSession(session));
       }
       if (request.method === 'GET' && path === '/api/skins') return json(response, 200, { skins: SKINS.map(id => ({ id, name: id[0].toUpperCase() + id.slice(1), url: `/skins/${id}.png` })) });
+      if (request.method === 'POST' && path === '/api/skins/minecraft') {
+        const session = signedIn(request); csrf(request, session);
+        if (!accounts) fail(404, 'Not found');
+        if (!skinLookups.take(session.discordId)) fail(429, 'Too many skin lookups. Try again in a minute');
+        return json(response, 200, {skin: await minecraftSkins.copy((await jsonBody(request))?.name)});
+      }
       if (request.method === 'POST' && path === '/api/profile') {
         if (!accounts) fail(404, 'Not found');
         const session = signedIn(request); csrf(request, session);
@@ -175,7 +185,11 @@ export async function createGateway(input, { discordFetch } = {}) {
         const updated = await accounts.saveProfile(session, await jsonBody(request), !!admins.get(cookieValue(request, adminCookie)));
         return json(response, 200, publicSession(updated));
       }
-      if (request.method === 'GET' && path === '/api/players/skins') { friend(request); return json(response, 200, accounts?.skins() ?? { revision: 0, players: {} }); }
+      if (request.method === 'GET' && path === '/api/players/skins') {
+        const session=friend(request), activeNames=new Set([session.name]);
+        for(const id of sockets.values()) { const user=friends.get(id); if(user?.name) activeNames.add(user.name); }
+        return json(response, 200, accounts?.skins(activeNames) ?? { revision: 0, players: {} });
+      }
       if (request.method === 'GET' && path === '/api/admin/session') {
         const session = admins.get(cookieValue(request, adminCookie));
         return json(response, 200, session ? { authenticated: true, csrf: session.csrf, expires: session.expires } : { authenticated: false });
@@ -232,6 +246,12 @@ export async function createGateway(input, { discordFetch } = {}) {
       if (request.method === 'GET' && path === '/mods/index.json') { friend(request); return json(response, 200, { schema: 1, revision: store.index.revision, mods: store.index.mods }); }
       if (!['GET', 'HEAD'].includes(request.method)) fail(405, 'Method not allowed');
       if (path.startsWith('/api/') || path === '/game' || path === '/mods/events') fail(404, 'Not found');
+      if (path.startsWith('/player-skins/')) {
+        signedIn(request);
+        const id=path.slice('/player-skins/'.length,-4);
+        if (!path.endsWith('.png') || !COPIED_SKIN.test(id) || !minecraftSkins.describe(id)) fail(404,'Not found');
+        return await staticFile(request,response,minecraftSkins.root,id+'.png',{immutable:true});
+      }
       if (path.startsWith('/mods/')) {
         friend(request);
         const file = store.publishedPath(path);
