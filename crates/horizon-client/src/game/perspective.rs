@@ -292,7 +292,18 @@ impl Game<'_> {
     }
     /// Keep the player's model in step with the player (`LivingEntity.tick`
     /// body turning, `WalkAnimationState`, the swing and the pose).
+    pub(super) fn local_player_skin(&self) -> String {
+        #[cfg(target_arch = "wasm32")]
+        if self.remote.is_some()
+            && let Some(skin) = horizon_client::browser::player_skin(None)
+        {
+            return skin;
+        }
+        "entity/player/wide/steve".into()
+    }
+
     pub(super) fn tick_player_model(&mut self) {
+        let skin = self.local_player_skin();
         let Some(p) = self.player.as_ref() else {
             self.player_model = None;
             return;
@@ -325,6 +336,9 @@ impl Game<'_> {
         let Some(m) = self.player_model.as_mut() else {
             return;
         };
+        if m.kind.texture != skin {
+            Arc::make_mut(&mut m.kind).texture = skin;
+        }
         let at = Vec3::new(
             position.x,
             position.y - if crouching { 0.125 } else { 0.0 },

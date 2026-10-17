@@ -67,3 +67,24 @@ test('DEV MODE opens only the same-origin portal with no opener', async t => {
   api.openModPortal();
   assert.deepEqual(opened, [['/portal.html', '_blank', 'noopener,noreferrer']]);
 });
+
+test('wardrobe textures come only from validated same-origin player profiles', async t => {
+  const {api} = await browser(t);
+  t.mock.method(globalThis, 'setInterval', () => 0);
+  t.mock.method(globalThis, 'clearInterval', () => {});
+  let requested;
+  t.mock.method(globalThis, 'fetch', async (url, options) => {
+    requested = {url, options};
+    return Response.json({players: {
+      ['a'.repeat(32)]: {name:'Builder',skin:'kai'},
+      ['b'.repeat(32)]: {name:'Friend',skin:'alex'},
+      ['c'.repeat(32)]: {name:'Invalid',skin:'../../secret'},
+      'not-a-uuid': {name:'Invalid',skin:'steve'},
+    }});
+  });
+  await api.startPlayerSkins('Builder');
+  assert.equal(requested.url, '/api/players/skins'); assert.equal(requested.options.credentials,'same-origin');
+  assert.equal(api.selectedPlayerSkin(''),'entity/player/wide/kai');
+  assert.equal(api.selectedPlayerSkin('b'.repeat(32)),'entity/player/wide/alex');
+  assert.equal(api.selectedPlayerSkin('c'.repeat(32)),''); assert.equal(api.selectedPlayerSkin('not-a-uuid'),'');
+});

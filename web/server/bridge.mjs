@@ -51,12 +51,19 @@ export function initialPackets(bytes, playerName, protocol = 777) {
 export function bridgeGame(ws, session, config) {
   let upstream, initial = Buffer.alloc(0), ready = false, connecting = false, closed = false;
   const timer = setTimeout(() => stop(1008, 'Game handshake timed out'), config.handshakeTimeoutMs ?? 10_000);
-  const expiry = setTimeout(() => stop(1008, 'Game session expired'), Math.max(1, session.expires - Date.now()));
+  // Remembered sessions can outlive Node's signed 32-bit timeout limit.
+  let expiry;
+  const armExpiry = () => {
+    const remaining = session.expires - Date.now();
+    if (remaining <= 0) return stop(1008, 'Game session expired');
+    expiry = setTimeout(armExpiry, Math.min(remaining, 2_147_483_647));
+  };
   const stop = (code = 1011, reason = 'Game connection ended') => {
     if (closed) return; closed = true; clearTimeout(timer); clearTimeout(expiry);
     upstream?.destroy();
     if (ws.readyState === ws.OPEN) ws.close(code, reason); else ws.terminate();
   };
+  armExpiry();
   ws.on('error', () => stop());
   ws.on('close', () => { if (!closed) { closed = true; clearTimeout(timer); clearTimeout(expiry); upstream?.destroy(); } });
   ws.on('message', (data, binary) => {

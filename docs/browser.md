@@ -1,7 +1,9 @@
 # Playing and updating the hosted browser world
 
-Friends open the HTTPS play URL, enter their chosen name and the shared invite,
-and join the native Horizon world. Use a current desktop Chrome or Edge with
+Friends open the HTTPS play URL and sign in with Discord. On their first visit
+they choose an in-game name and a skin from the nine-character wardrobe, then
+join the native Horizon world. Returning players keep their profile and a
+remembered sign-in for 30 days; the Change skin button opens their wardrobe. Use a current desktop Chrome or Edge with
 WebGPU enabled. The first visit downloads the game and prepared resources;
 subsequent visits reuse content whose SHA-256 still matches. WASM Workers require
 COOP `same-origin` and COEP `require-corp`; the gateway supplies both.
@@ -13,8 +15,12 @@ local fonts, license and exact generation prompt are in `web/branding/`.
 includes them. Game menu labels share `horizon-client/src/brand.rs`; engine,
 protocol and saved-data identifiers retain their existing names.
 
-The operator's private access file contains the play URL, friend invite and a
-separate owner approval key. Neither key belongs in source control. Cloud API
+The operator's private configuration contains the Discord application ID and
+client secret; the owner approval key stays separate. Neither secret belongs in
+source control. Discord sign-in requests only the `identify` scope, and exchanges
+a short-lived authorization code on the gateway. Discord access tokens are never
+sent to the game or saved. The gateway stores account profiles and hashes of
+remembered session tokens in mode-0600 `accounts.json` under its private directory. Cloud API
 credentials are used only by the operator's provisioning process, outside the
 repository, host application and browser bundles. They are not application
 configuration and must never be uploaded to a served directory.
@@ -35,7 +41,7 @@ to the Mod workshop linked from the play page. Native `cargo horizon-mod run`
 still supports the local authoring loop. Agents do not need the cloud token or
 owner approval key to write/build mods.
 
-1. Sign in with the friend invite and upload the `.hmod` in Mod workshop.
+1. Sign in with Discord, complete your player profile and upload the `.hmod` in Mod workshop.
 2. The host checks bounded archive paths/sizes, manifest, actual component imports
    against declared capabilities, content fences, and native sandbox initialization
    within fuel. Client components are transpiled and their memories/tables capped.
@@ -48,10 +54,15 @@ owner approval key to write/build mods.
    working mod. A guest that traps or exceeds its time/memory budget stops without
    restarting the game or other guests.
 
-A shared invite establishes membership, not unique ownership of every player
-name. Reserve operator names in `protectedNames`; the gateway requires an owner
-session before issuing one. The production native TCP port is loopback-only.
-There is no public native administration endpoint.
+Each Discord account reserves one case-insensitive in-game name. That exact name
+continues to derive the native offline UUID, preserving progress for returning
+players. Names cannot be changed through the profile editor; skins can. The
+gateway validates the handshake's name and UUID against the authenticated
+profile before connecting to the loopback-only native server. `protectedNames`
+remain reserved for `discord.ownerIds` or an independently authenticated owner.
+Accounts without a completed profile cannot join the world or upload mods.
+Discord sign-in is open to people who have the URL and a Discord account; mod
+publication still requires the separate owner approval key.
 
 ## Runtime choice and limits
 
@@ -128,7 +139,7 @@ machine, then install these explicit paths:
 | `/opt/horizon/mod-tools` | Jco and locked dependencies, never served |
 | `/var/lib/horizon/game` | World, supervisor configuration and backups |
 | `/var/lib/horizon-portal` | Private candidates, approval index and server mirror |
-| `/etc/horizon/gateway.json` | Mode-0600 gateway configuration with scrypt hashes |
+| `/etc/horizon/gateway.json` | Mode-0600 gateway configuration with Discord credentials and owner hash |
 
 Use the systemd units and small-host configuration in `packaging/web`. Services
 run as the unprivileged `horizon` user with restricted writable directories.
@@ -167,7 +178,8 @@ and diagnostic pages are not uploaded by this script.
 
 Staging does not restart a service. Activation switches `/opt/horizon/web` to the
 complete release and restarts only `horizon-gateway`. The gateway resolves served
-roots on startup and stores sessions in memory, so players must sign in again.
+roots on startup. Discord profiles and remembered player sessions survive this
+restart; owner review sessions remain memory-only.
 The first activation migrates an existing physical `web` directory while the
 gateway is stopped; later symlink switches are atomic. A failed service restart
 restores the previous link. A healthy process is not sufficient verification:
@@ -258,3 +270,32 @@ with each result; do not compare samples taken while another game is running.
 For service configuration, API endpoints and validation tests see
 [the gateway guide](../web/server/README.md). Measured memory and its regression
 checks are in [the hosting measurement](../web/server/deploy/memory-results.md).
+
+
+### Discord application setup
+
+Create a Discord application named `(dev)Modcraft` and register exactly
+`https://horizon.134.122.62.190.sslip.io/auth/discord/callback` as its OAuth2 redirect.
+Set the private gateway configuration's `discord` object to
+`{"clientId":"APPLICATION_ID","clientSecret":"CLIENT_SECRET","ownerIds":["HOST_DISCORD_USER_ID"]}`.
+Keep `adminHash` for the independent mod approval login. The secret belongs only
+in the mode-0600 server configuration, never a browser asset or environment that
+mod validation inherits. No bot invitation, email permission or guild access is
+needed. The authorization flow uses a one-time state value, a browser-bound
+SameSite=Lax cookie, PKCE and server-side code exchange. Authentication failures
+return to the launcher without exposing provider responses or tokens.
+
+Legacy invite authentication remains available only to non-Discord gateway
+installations for compatibility; `/api/login` returns 410 whenever Discord is
+configured. The hosted launcher has no invite form. During migration, preserve
+`accounts.json` in backups and never replace it with test accounts. Previously
+unclaimed, unprotected offline names can be claimed on the first Discord setup;
+reserve existing operator names before opening sign-in.
+
+The wardrobe uses nine wide-model skins already present in prepared game
+resources. Its preview textures are copied to `web/skins/`; the build and deploy
+allowlist carry those same files. Authenticated browsers refresh the public
+player-name/skin mapping every 15 seconds; it contains no Discord IDs or session
+credentials. The WASM client applies only allowlisted prepared textures to
+first-person hands, third-person/inventory avatars, remote players and tab-list
+faces. Native rendering behavior is unchanged.
