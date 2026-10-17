@@ -6,6 +6,8 @@ use horizon_core::{
     geometry::{Aabb, Axis, Vec3, VoxelShape, trig},
     position::BlockPos,
 };
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 
 /// `Float.MIN_VALUE`, the "no obstacle" marker.
 const NO_OBSTACLE: f32 = f32::from_bits(1);

@@ -4,6 +4,10 @@
 //! `final`) to WGSL, and `gfx/java_stages.rs` runs them over Horizon's world
 //! as Iris runs them over its own. Geometry programs (`gbuffers_*`,
 //! `shadow`) don't run yet: the world is drawn by Horizon.
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
+#[allow(unused_imports)]
+use horizon_platform::PathExt;
 use horizon_shaderpack::{
     JavaPack,
     pipeline::{Program, TargetSettings},
@@ -48,8 +52,8 @@ impl JavaPasses {
 
 /// A folder holding `shaders/`, or a zip.
 pub fn is_java_pack(path: &Path) -> bool {
-    path.join("shaders").is_dir()
-        || path.is_file()
+    path.join("shaders").platform_is_dir()
+        || path.platform_is_file()
             && path
                 .extension()
                 .is_some_and(|e| e.eq_ignore_ascii_case("zip"))

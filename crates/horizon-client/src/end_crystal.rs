@@ -2,6 +2,8 @@
 //! and the poses of its base, glass and cube.
 use crate::mobs::{Part, anim::Poses};
 use horizon_core::geometry::trig::Mth;
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 
 /// `EndCrystalRenderer.getY`: the crystal's bob below its resting height.
 pub fn y(age: f32) -> f32 {

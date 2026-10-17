@@ -10,6 +10,8 @@ use horizon_core::{
     position::ChunkPos,
     random::{LegacyRandom, RandomSource, WorldgenRandom},
 };
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 use std::{collections::BTreeSet, f64::consts::PI, sync::Mutex};
 
 /// ChunkGeneratorStructureState.generateRingPositions with

@@ -1,4 +1,6 @@
 //! Initial block-state providers, bound to immutable block and tag identities.
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 mod catalog;
 mod noise;
 pub use catalog::StateProviderCatalog;

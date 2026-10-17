@@ -8,6 +8,8 @@ use horizon_core::{
     noise::{Noise, NormalNoise},
     random::{LegacyRandom, RandomSource, XoroshiroRandom},
 };
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 use horizon_world::worldgen::{
     decode_noise,
     density::DensityRegistry,

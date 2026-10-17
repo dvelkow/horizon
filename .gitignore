@@ -30,3 +30,7 @@
 /screenshots/
 /crash-reports/
 /debug/
+
+# Browser dependency caches and generated site artifacts.
+**/node_modules/
+/web/dist/

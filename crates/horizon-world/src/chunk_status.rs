@@ -1,6 +1,8 @@
 //! Pinned generation-status identities and ordering. A status describes progress;
 //! assigning one does not execute its generation task or implement lighting.
 use crate::{compression::invalid, heightmap::HeightmapType, nbt::Tag};
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 use std::io;
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord, Hash)]

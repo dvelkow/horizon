@@ -1,5 +1,8 @@
 //! The playable game loop: streaming world, player simulation at 20 ticks/s,
 //! block interaction, inventory and HUD.
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
+use horizon_platform::PathExt;
 mod advancements;
 mod advancements_screen;
 mod agent;
@@ -198,12 +201,14 @@ use std::{
     sync::Arc,
     time::{Duration, Instant},
 };
+#[cfg(not(target_arch = "wasm32"))]
+use winit::window::CursorGrabMode;
 use winit::{
     application::ApplicationHandler,
     event::{DeviceEvent, DeviceId, ElementState, MouseButton, MouseScrollDelta, WindowEvent},
     event_loop::{ActiveEventLoop, ControlFlow, EventLoop},
     keyboard::{KeyCode, PhysicalKey},
-    window::{CursorGrabMode, Window, WindowId},
+    window::{Window, WindowId},
 };
 
 #[derive(Clone)]
@@ -269,7 +274,7 @@ impl Options {
             .ok_or("missing executable directory")?
             .join("resources");
         let mut o = Self {
-            resources: if sibling.join("horizon-resources.json").exists() {
+            resources: if sibling.join("horizon-resources.json").platform_exists() {
                 sibling
             } else {
                 PathBuf::from(".local/horizon-client/26.3")
@@ -765,6 +770,25 @@ fn select_creative_tab(
     clicks.skip_release();
 }
 
+/// Browser promises hand results back to the owning winit event loop.
+#[cfg(target_arch = "wasm32")]
+#[derive(Default)]
+struct BrowserState {
+    renderer: std::rc::Rc<std::cell::RefCell<Option<Result<Renderer>>>>,
+    paste: std::rc::Rc<std::cell::RefCell<Option<BrowserPaste>>>,
+    input_revision: u64,
+    replaying_paste: bool,
+}
+#[cfg(target_arch = "wasm32")]
+struct BrowserPaste {
+    revision: u64,
+    screen: Screen,
+    title: bool,
+    event: WindowEvent,
+    modifiers: winit::keyboard::ModifiersState,
+    text: String,
+}
+
 struct Game<'a> {
     /// Shared with an integrated server; `collision` and `motion` borrow from it.
     res: Arc<Resources>,
@@ -848,6 +872,8 @@ struct Game<'a> {
     screen: Screen,
     window: Option<Arc<Window>>,
     renderer: Option<Renderer>,
+    #[cfg(target_arch = "wasm32")]
+    browser: BrowserState,
     /// CPU geometry storage retained across frames, including empty/title frames.
     entity_vertices: Vec<Vertex>,
     /// Name tags drawn over everything (`RenderPipelines.TEXT_SEE_THROUGH`).
@@ -3676,17 +3702,29 @@ impl Game<'_> {
         // The real pointer takes over from an agent's.
         self.agent_pointer = false;
         let Some(window) = &self.window else { return };
-        if capture {
-            self.mouse.set_ignore_first_move();
-            self.captured = window
-                .set_cursor_grab(CursorGrabMode::Locked)
-                .or_else(|_| window.set_cursor_grab(CursorGrabMode::Confined))
-                .is_ok();
-        } else {
-            let _ = window.set_cursor_grab(CursorGrabMode::None);
-            self.captured = false;
+        #[cfg(target_arch = "wasm32")]
+        {
+            self.captured = horizon_client::browser::capture_pointer(capture);
+            if self.captured {
+                self.mouse.set_ignore_first_move();
+            }
+            window.set_cursor_visible(!self.captured);
+            return;
         }
-        window.set_cursor_visible(!self.captured);
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            if capture {
+                self.mouse.set_ignore_first_move();
+                self.captured = window
+                    .set_cursor_grab(CursorGrabMode::Locked)
+                    .or_else(|_| window.set_cursor_grab(CursorGrabMode::Confined))
+                    .is_ok();
+            } else {
+                let _ = window.set_cursor_grab(CursorGrabMode::None);
+                self.captured = false;
+            }
+            window.set_cursor_visible(!self.captured);
+        }
     }
     /// LevelLoadingScreen.onClose -> Gui.setScreen(null) -> grabMouse.
     fn capture_loaded_world(&mut self) {
@@ -6409,7 +6447,7 @@ impl Game<'_> {
         self.streaming.sky_light = dim != Dim::Nether;
         self.streaming.nether_shading = dim == Dim::Nether;
         // New worlds get their level.dat right away.
-        if !save_root.join("level.dat").exists() {
+        if !save_root.join("level.dat").platform_exists() {
             self.level.write(&save_root)?;
         }
         self.load_world_state();
@@ -7741,9 +7779,11 @@ impl Game<'_> {
     }
     /// The renderer for the window, with the current block sprites, shared
     /// atlas and world border texture.
+    #[cfg(not(target_arch = "wasm32"))]
     fn new_renderer(&self, window: Arc<Window>) -> Result<Renderer> {
         self.renderer_for(window, &self.pack, &self.atlas)
     }
+    #[cfg(not(target_arch = "wasm32"))]
     fn renderer_for(
         &self,
         window: Arc<Window>,
@@ -7772,6 +7812,151 @@ impl Game<'_> {
             .collect();
         Ok(renderer)
     }
+    #[cfg(target_arch = "wasm32")]
+    fn start_browser_renderer(&self, window: Arc<Window>) {
+        let pack = self.pack.clone();
+        let pixels = self.atlas.pixels.clone();
+        let (width, height) = (self.atlas.width, self.atlas.height);
+        let fire_animations = self.atlas.fire_animations.clone();
+        let completed = self.browser.renderer.clone();
+        wasm_bindgen_futures::spawn_local(async move {
+            let assets = &pack.assets;
+            let result = Renderer::new(
+                window.clone(),
+                false,
+                &assets.pixels,
+                assets.sprite_size,
+                assets.sprite_minimum_size,
+                assets.texture_layers,
+                &assets.sprite_mips,
+                &assets.animations,
+                (&pixels, width, height),
+                (&pack.forcefield.2, pack.forcefield.0),
+                &pack.panorama,
+                None,
+            )
+            .await
+            .map(|mut renderer| {
+                renderer.hud.fire_animations = fire_animations
+                    .into_iter()
+                    .map(|(rect, animation)| (rect, animation, usize::MAX))
+                    .collect();
+                renderer
+            });
+            *completed.borrow_mut() = Some(result);
+            window.request_redraw();
+        });
+    }
+
+    #[cfg(target_arch = "wasm32")]
+    fn install_browser_renderer(&mut self, event_loop: &ActiveEventLoop) -> bool {
+        let result = self.browser.renderer.borrow_mut().take();
+        if let Some(result) = result {
+            match result {
+                Ok(mut renderer) => {
+                    if let Some(window) = &self.window {
+                        let size = window.inner_size();
+                        renderer.resize(size.width, size.height);
+                    }
+                    self.renderer = Some(renderer);
+                    self.apply_settings();
+                    self.previous = Instant::now();
+                }
+                Err(error) => {
+                    log::error!("Horizon: browser renderer initialization failed: {error}");
+                    horizon_client::browser::startup_error(&error.to_string());
+                    self.error = Some(error);
+                    event_loop.exit();
+                }
+            }
+        }
+        self.renderer.is_some()
+    }
+
+    #[cfg(target_arch = "wasm32")]
+    fn browser_paste(&mut self, event: &WindowEvent) -> bool {
+        if self.browser.replaying_paste {
+            return false;
+        }
+        if matches!(event,
+            WindowEvent::KeyboardInput { event, .. } if event.state == ElementState::Pressed)
+            || matches!(
+                event,
+                WindowEvent::MouseInput {
+                    state: ElementState::Pressed,
+                    ..
+                } | WindowEvent::Focused(false)
+                    | WindowEvent::Ime(winit::event::Ime::Commit(_))
+            )
+        {
+            // A newer edit or focus change invalidates a delayed paste.
+            self.browser.input_revision = self.browser.input_revision.wrapping_add(1);
+        }
+        let WindowEvent::KeyboardInput { event: key, .. } = event else {
+            return false;
+        };
+        if self.edit_shortcut(key) != Some(horizon_client::clipboard::EditShortcut::Paste) {
+            return false;
+        }
+        let Some(window) = self.window.clone() else {
+            return false;
+        };
+        let completed = self.browser.paste.clone();
+        let pending = BrowserPaste {
+            revision: self.browser.input_revision,
+            screen: self.screen,
+            title: self.title.is_some(),
+            event: event.clone(),
+            modifiers: self.modifiers,
+            text: String::new(),
+        };
+        // Invoke readText while the keyboard event's user activation is active.
+        let read = self.clipboard.read_async();
+        wasm_bindgen_futures::spawn_local(async move {
+            let mut pending = pending;
+            pending.text = read.await;
+            let mut result = completed.borrow_mut();
+            if result
+                .as_ref()
+                .is_none_or(|newer| newer.revision <= pending.revision)
+            {
+                *result = Some(pending);
+            }
+            window.request_redraw();
+        });
+        true
+    }
+
+    #[cfg(target_arch = "wasm32")]
+    fn finish_browser_paste(&mut self, event_loop: &ActiveEventLoop) {
+        let pending = self.browser.paste.borrow_mut().take();
+        let Some(pending) = pending else {
+            return;
+        };
+        if pending.revision != self.browser.input_revision
+            || pending.screen != self.screen
+            || pending.title != self.title.is_some()
+            || !self.focused
+        {
+            return;
+        }
+        let Some(id) = self.window.as_ref().map(|window| window.id()) else {
+            return;
+        };
+        self.clipboard.accept_read(pending.text);
+        let modifiers = self.modifiers;
+        let physical_keys = self.physical_keys.clone();
+        let keys = self.keys.clone();
+        self.modifiers = pending.modifiers;
+        self.browser.replaying_paste = true;
+        self.window_event(event_loop, id, pending.event);
+        self.browser.replaying_paste = false;
+        self.modifiers = modifiers;
+        // The actual key may have been released while readText was pending.
+        self.physical_keys = physical_keys;
+        self.keys = keys;
+    }
+
     fn apply_settings(&mut self) {
         if let Some(r) = &self.renderer {
             self.settings
@@ -9153,6 +9338,16 @@ impl ApplicationHandler for Game<'_> {
         let attributes = winit::platform::wayland::WindowAttributesExtWayland::with_name(
             attributes, "horizon", "horizon",
         );
+        #[cfg(target_arch = "wasm32")]
+        let attributes = {
+            use wasm_bindgen::JsCast;
+            use winit::platform::web::WindowAttributesExtWebSys;
+            let canvas = web_sys::window()
+                .and_then(|window| window.document())
+                .and_then(|document| document.get_element_by_id("horizon"))
+                .and_then(|element| element.dyn_into::<web_sys::HtmlCanvasElement>().ok());
+            attributes.with_canvas(canvas).with_append(true)
+        };
         let window = match event_loop.create_window(
             attributes
                 .with_inner_size(winit::dpi::LogicalSize::new(1280.0, 720.0))
@@ -9160,25 +9355,44 @@ impl ApplicationHandler for Game<'_> {
         ) {
             Ok(w) => Arc::new(w),
             Err(e) => {
+                log::error!("Horizon: window initialization failed: {e}");
+                #[cfg(target_arch = "wasm32")]
+                horizon_client::browser::startup_error(&e.to_string());
                 self.error = Some(e.into());
                 event_loop.exit();
                 return;
             }
         };
-        match self.new_renderer(window.clone()) {
-            Ok(r) => self.renderer = Some(r),
-            Err(e) => {
-                self.error = Some(e);
-                event_loop.exit();
-                return;
-            }
+        #[cfg(target_arch = "wasm32")]
+        {
+            self.window = Some(window.clone());
+            self.start_browser_renderer(window);
         }
-        self.window = Some(window);
-        self.apply_settings();
-        self.previous = Instant::now();
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            match self.new_renderer(window.clone()) {
+                Ok(r) => self.renderer = Some(r),
+                Err(e) => {
+                    self.error = Some(e);
+                    event_loop.exit();
+                    return;
+                }
+            }
+            self.window = Some(window);
+            self.apply_settings();
+            self.previous = Instant::now();
+        }
     }
     fn window_event(&mut self, event_loop: &ActiveEventLoop, id: WindowId, event: WindowEvent) {
         if self.window.as_ref().is_none_or(|w| w.id() != id) {
+            return;
+        }
+        #[cfg(target_arch = "wasm32")]
+        if !self.install_browser_renderer(event_loop) {
+            return;
+        }
+        #[cfg(target_arch = "wasm32")]
+        if self.browser_paste(&event) {
             return;
         }
         if let WindowEvent::KeyboardInput { event, .. } = &event
@@ -9704,6 +9918,10 @@ impl ApplicationHandler for Game<'_> {
                     self.mapped_key(key, event.state == ElementState::Pressed, event.repeat)?;
                 }
                 WindowEvent::RedrawRequested => {
+                    #[cfg(target_arch = "wasm32")]
+                    {
+                        self.captured = horizon_client::browser::pointer_captured();
+                    }
                     self.observe_fullscreen();
                     let now = Instant::now();
                     let elapsed = now.duration_since(self.previous);
@@ -9806,6 +10024,7 @@ impl ApplicationHandler for Game<'_> {
                         self.frame_stats.record_gpu(&r.gpu_times);
                         r.gpu_times.clear();
                     }
+                    #[cfg(not(target_arch = "wasm32"))]
                     self.limit_frame();
                     self.pause = self.pauses_game();
                     if let Some(server) = &self.integrated {
@@ -9838,6 +10057,8 @@ impl ApplicationHandler for Game<'_> {
                         self.frame_stats.record(elapsed.as_secs_f32() * 1000.0);
                         self.debug_charts.frame_times.log(elapsed.as_nanos() as i64);
                         if self.frames == 0 {
+                            #[cfg(target_arch = "wasm32")]
+                            horizon_client::browser::hide_loading();
                             // The launcher times Play to this line (launcher/src/perf.rs).
                             log::info!(
                                 "Horizon: first frame after {} ms",
@@ -9855,6 +10076,12 @@ impl ApplicationHandler for Game<'_> {
                         horizon_client::crash::debug_crash_tick();
                         if self.fps_at.elapsed() >= Duration::from_secs(1) {
                             self.fps = self.fps_frames as f32 / self.fps_at.elapsed().as_secs_f32();
+                            #[cfg(target_arch = "wasm32")]
+                            horizon_client::browser::report_performance(
+                                self.fps,
+                                self.frames,
+                                self.world_frames,
+                            );
                             self.fps_frames = 0;
                             self.fps_at = Instant::now();
                         }
@@ -9874,6 +10101,9 @@ impl ApplicationHandler for Game<'_> {
             Ok(())
         })();
         if let Err(e) = result {
+            log::error!("Horizon: {e}");
+            #[cfg(target_arch = "wasm32")]
+            horizon_client::browser::startup_error(&e.to_string());
             self.error = Some(e);
             event_loop.exit();
         }
@@ -9890,6 +10120,14 @@ impl ApplicationHandler for Game<'_> {
         }
     }
     fn about_to_wait(&mut self, event_loop: &ActiveEventLoop) {
+        #[cfg(target_arch = "wasm32")]
+        {
+            if !self.install_browser_renderer(event_loop) {
+                event_loop.set_control_flow(ControlFlow::Wait);
+                return;
+            }
+            self.finish_browser_paste(event_loop);
+        }
         self.poll_control(event_loop);
         self.poll_pads(event_loop);
         if self.options.frames.is_some() && self.started.elapsed() > self.options.timeout {
@@ -9907,7 +10145,10 @@ impl ApplicationHandler for Game<'_> {
                 w.request_redraw();
             }
         }
+        #[cfg(not(target_arch = "wasm32"))]
         event_loop.set_control_flow(ControlFlow::Poll);
+        #[cfg(target_arch = "wasm32")]
+        event_loop.set_control_flow(ControlFlow::Wait);
     }
     /// The application is ending. On macOS, Quit (Cmd+Q) ends it through
     /// applicationWillTerminate without a CloseRequested; vanilla's GLFW
@@ -10042,6 +10283,8 @@ impl<'a> Game<'a> {
             screen: Screen::Playing,
             window: None,
             renderer: None,
+            #[cfg(target_arch = "wasm32")]
+            browser: Default::default(),
             entity_vertices: Vec::new(),
             see_through_vertices: Vec::new(),
             health_hud: hud_layout::HealthHud::default(),
@@ -10406,7 +10649,13 @@ pub fn run() -> Result<()> {
     if let Some(d) = options.distance_override {
         settings.render_distance = d;
     }
-    let mut game = Game::new(&resources, pack, atlas, options, settings, audio)?;
+    // The browser event loop outlives this function. Collision and movement
+    // tables borrow these immutable resources for the lifetime of the page.
+    #[cfg(target_arch = "wasm32")]
+    let resources: &'static Arc<Resources> = Box::leak(Box::new(resources));
+    #[cfg(not(target_arch = "wasm32"))]
+    let resources = &resources;
+    let mut game = Game::new(resources, pack, atlas, options, settings, audio)?;
     game.ui.vanilla_root = vanilla_root;
     if let Some(error) = pack_error {
         game.open_options_at(true, horizon_client::options_ui::Page::Packs);
@@ -10500,23 +10749,32 @@ pub fn run() -> Result<()> {
     ) {
         return game.run_command_harness(script.as_ref(), output.as_ref());
     }
-    EventLoop::new()?.run_app(&mut game)?;
-    if let Some(path) = &game.options.report {
-        let report = serde_json::json!({
-            "frames": game.frames,
-            "elapsed_seconds": game.started.elapsed().as_secs_f64(),
-            "chunks": game.world.chunks.len(),
-            "generated": game.streaming.generated_total,
-            "meshed_sections": game.streaming.meshed_total,
-            "player": game.player.as_ref().map(|p| [p.position.x, p.position.y, p.position.z]),
-            "error": game.error.as_ref().map(|e| e.to_string()),
-        });
-        std::fs::write(path, serde_json::to_vec_pretty(&report)?)?;
+    #[cfg(target_arch = "wasm32")]
+    {
+        use winit::platform::web::EventLoopExtWebSys;
+        EventLoop::new()?.spawn_app(game);
+        Ok(())
     }
-    if let Some(e) = game.error {
-        return Err(e);
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        EventLoop::new()?.run_app(&mut game)?;
+        if let Some(path) = &game.options.report {
+            let report = serde_json::json!({
+                "frames": game.frames,
+                "elapsed_seconds": game.started.elapsed().as_secs_f64(),
+                "chunks": game.world.chunks.len(),
+                "generated": game.streaming.generated_total,
+                "meshed_sections": game.streaming.meshed_total,
+                "player": game.player.as_ref().map(|p| [p.position.x, p.position.y, p.position.z]),
+                "error": game.error.as_ref().map(|e| e.to_string()),
+            });
+            std::fs::write(path, serde_json::to_vec_pretty(&report)?)?;
+        }
+        if let Some(e) = game.error {
+            return Err(e);
+        }
+        Ok(())
     }
-    Ok(())
 }
 
 fn reset_world_progress(adv: &mut advancements::AdvState, stats: &mut stats::Stats) {

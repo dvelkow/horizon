@@ -6,6 +6,10 @@ use crate::{
     save::Level,
     text::{Text, format_translation},
 };
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
+#[allow(unused_imports)]
+use horizon_platform::PathExt;
 use std::path::{Path, PathBuf};
 use std::{
     cell::{Cell, RefCell},
@@ -568,7 +572,7 @@ impl Title {
         // FileUtil.findAvailableName: append (n) until unused.
         let mut folder = base.clone();
         let mut n = 1;
-        while self.saves.join(&folder).exists() {
+        while self.saves.join(&folder).platform_exists() {
             folder = format!("{base} ({n})");
             n += 1;
         }
@@ -678,7 +682,10 @@ impl Title {
                         top + 64.0,
                         200.0,
                         &lang::get_or("selectWorld.edit.resetIcon", "Reset Icon"),
-                        self.saves.join(&world.folder).join("icon.png").is_file(),
+                        self.saves
+                            .join(&world.folder)
+                            .join("icon.png")
+                            .platform_is_file(),
                         30,
                     ),
                     b(
@@ -897,7 +904,8 @@ impl Title {
                         );
                     }
                     batch.text(atlas, &world.name, x + 35.0, y + 1.0, u32::MAX, true);
-                    let date: chrono::DateTime<chrono::Local> = world.modified.into();
+                    let date: chrono::DateTime<chrono::Local> =
+                        horizon_platform::system_time(world.modified).into();
                     let line = format!("{} ({})", world.folder, date.format("%d/%m/%Y, %H:%M"));
                     batch.text(
                         atlas,

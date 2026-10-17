@@ -9,6 +9,8 @@ use crate::{
     object_open_set::{ObjectKey, ObjectOpenSet},
     stored_effect_attributes::{self as stored, AttributeAccess},
 };
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 use std::{convert::Infallible, sync::Arc};
 
 #[derive(Clone)]

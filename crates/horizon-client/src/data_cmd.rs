@@ -7,6 +7,8 @@ use crate::{
     snbt::to_snbt,
     text::Text,
 };
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 use horizon_world::nbt::{Compound, Tag};
 
 /// `CompoundTag.merge`: compounds merge recursively, anything else replaces.

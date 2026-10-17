@@ -6,6 +6,8 @@ use horizon_client::{
     text::{self, Text},
     ui,
 };
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 
 /// PauseScreen buttons: (x, y, width, label key, action id, active).
 /// https://mcsrc.dev/2/26.3/net/minecraft/client/gui/screens/PauseScreen

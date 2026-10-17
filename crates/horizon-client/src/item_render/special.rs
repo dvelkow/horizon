@@ -7,6 +7,8 @@ use super::{Foil, ItemQuad, ItemRenderer, ItemSink, SpecialHost, argb};
 use crate::{block_entity_render::ModelPart, hud::Rect};
 use glam::{Mat4, Quat, Vec3};
 use horizon_assets::item_model::{SpecialKind, SpecialModel};
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 use serde_json::Value;
 use std::{collections::HashMap, f32::consts::PI, path::Path};
 

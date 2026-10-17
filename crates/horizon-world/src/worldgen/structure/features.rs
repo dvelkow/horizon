@@ -14,6 +14,8 @@ use crate::{
     },
 };
 use horizon_core::random::RandomSource;
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 use serde_json::{Value, value::RawValue};
 use std::sync::Arc;
 

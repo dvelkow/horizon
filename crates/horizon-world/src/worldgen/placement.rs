@@ -1,5 +1,7 @@
 //! Placement modifiers that depend on random state and generation bounds.
 //! Block-query modifiers and actual configured features remain separate work.
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 mod chain;
 mod layer;
 use super::block_predicate::{BlockPredicate, PredicateBlockResolver};

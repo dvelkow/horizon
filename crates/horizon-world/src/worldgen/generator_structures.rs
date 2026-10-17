@@ -12,6 +12,8 @@ use super::{
     },
 };
 use horizon_core::{density::Beardifier, position::ChunkPos};
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 use serde_json::Value;
 use std::collections::BTreeMap;
 use std::{

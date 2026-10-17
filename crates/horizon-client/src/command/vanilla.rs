@@ -6,6 +6,8 @@ use super::{
     args::{ArgType, GameMode, Resource, integer},
 };
 use crate::gamerules::{RULES, Value};
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 
 /// Permission levels (Commands.LEVEL_*).
 pub const ALL: u8 = 0;

@@ -7,6 +7,10 @@
 //! tags and to the convention tags (`c`, which NeoForge and Fabric mods share). Paths are plain, files and totals are capped, and vanilla ids
 //! cannot be redefined.
 use crate::manifest::{Capability, MANIFEST, Manifest};
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
+#[allow(unused_imports)]
+use horizon_platform::PathExt;
 use serde::Deserialize;
 use std::{
     collections::BTreeSet,
@@ -146,7 +150,7 @@ pub struct Content {
 impl Content {
     /// The content of the mod at `path` (a `.hmod` or a mod folder).
     pub fn read(path: &Path, manifest: &Manifest) -> Result<Content, String> {
-        let (source, sized) = if path.is_dir() {
+        let (source, sized) = if path.platform_is_dir() {
             let mut out = Vec::new();
             for top in ["assets", "data"] {
                 walk(path, &path.join(top), &mut out)?;

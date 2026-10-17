@@ -9,6 +9,8 @@ use crate::{
     registry::{BlockRegistry, BlockStateId},
 };
 use horizon_core::geometry::{Direction, ShapeError, ShapeOp, VoxelShape};
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 use std::{
     collections::{BTreeMap, HashMap},
     io,

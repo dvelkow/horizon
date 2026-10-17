@@ -1,5 +1,7 @@
 use super::*;
 use crate::{font::Font, hud::Rect};
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 use std::{collections::HashMap, path::Path};
 
 fn font() -> Font {

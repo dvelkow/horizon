@@ -12,6 +12,8 @@ use crate::{
     fluid::{FluidBlockBindings, FluidKind, FluidState},
     registry::BlockStateId,
 };
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 use std::{collections::BTreeSet, sync::Arc};
 #[derive(Clone, Debug)]
 pub struct SpringFeature {

@@ -9,6 +9,8 @@ use horizon_core::{
     },
     geometry::Axis,
 };
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 use std::{collections::BTreeSet, sync::Arc};
 
 pub(super) fn identifier(name: &str) -> Result<String, DecodeError> {

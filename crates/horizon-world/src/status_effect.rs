@@ -1,5 +1,7 @@
 //! Shared status-effect instances. Cloning retains identity; copy_instance
 //! implements the native copy constructor, excluding hidden effects and blend.
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 use std::{
     cell::{Ref, RefCell, RefMut},
     rc::Rc,

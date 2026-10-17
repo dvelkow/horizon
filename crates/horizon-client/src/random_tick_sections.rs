@@ -4,6 +4,10 @@ use crate::{
     chunk::{Chunk, MIN_Y, SECTIONS},
     fast_hash::FxHashMap,
 };
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
+#[allow(unused_imports)]
+use horizon_platform::PathExt;
 use horizon_world::registry::BlockStateId;
 use std::sync::{Arc, Weak};
 
@@ -210,14 +214,14 @@ mod tick_parity {
             .unwrap_or_else(|| {
                 let manifest = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
                 let local = manifest.join("../../.local/horizon-client/26.3");
-                if local.join("gameplay-facts.json").exists() {
+                if local.join("gameplay-facts.json").platform_exists() {
                     local
                 } else {
                     // The branch worktree lives below the main checkout.
                     manifest.join("../../../../.local/horizon-client/26.3")
                 }
             });
-        if !root.join("gameplay-facts.json").exists() {
+        if !root.join("gameplay-facts.json").platform_exists() {
             eprintln!(
                 "skipping resource-backed random-tick parity: {}",
                 root.display()

@@ -8,6 +8,8 @@
 use super::{Game, lan::LanSettings};
 use horizon_client::{Result, front::FriendsView, text::Text};
 use horizon_friends::{Host, HostConfig, HostEvent, PathMode, host::DEFAULT_PORT, reach, stun};
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 use horizon_protocol::{GAME_VERSION, PROTOCOL_VERSION};
 use std::time::{Duration, Instant};
 

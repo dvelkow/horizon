@@ -8,6 +8,7 @@ rust-version = "1.90"
 description = "Horizon native development client"
 
 [dependencies]
+horizon-platform = { path = "../horizon-platform" }
 horizon-assets = { path = "../horizon-assets" }
 horizon-core = { path = "../horizon-core" }
 horizon-world = { path = "../horizon-world" }
@@ -16,7 +17,7 @@ horizon-protocol = { path = "../horizon-protocol" }
 horizon-server-files = { path = "../horizon-server-files" }
 horizon-friends = { path = "../horizon-friends" }
 # Horizon mods: sandboxed WebAssembly components, off unless installed and turned on (docs/mods.md).
-horizon-mods = { path = "../horizon-mods" }
+horizon-mods = { path = "../horizon-mods", default-features = false }
 wgpu = { version = "30.0.1", default-features = false, features = ["std", "parking_lot", "wgsl"] }
 winit = "0.30.13"
 pollster = "0.4"
@@ -42,19 +43,28 @@ horizon-theme = { path = "../horizon-theme" }
 # Opt-in data collection: the game keeps, the launcher sends (docs/telemetry.md).
 horizon-telemetry = { path = "../horizon-telemetry", default-features = false }
 horizon-bench = { path = "../horizon-bench" }
-arboard = { version = "3.6.1", default-features = false, features = ["wayland-data-control"] }
 zip = { version = "2", default-features = false, features = ["deflate"] }
 # Controllers (evdev + libudev on Linux, IOKit on macOS, Windows.Gaming.Input).
 gilrs = "0.11"
 # The DualSense's rumble, adaptive triggers and lights over HID (gilrs only reads it).
 horizon-dualsense = { path = "../horizon-dualsense" }
 # HTTPS to the Minecraft services (online-mode session join).
-ureq = { version = "2", default-features = false, features = ["tls"] }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+arboard = { version = "3.6.1", default-features = false, features = ["wayland-data-control"] }
+ureq = { version = "2", default-features = false, features = ["tls"] }
+horizon-mods = { path = "../horizon-mods", features = ["runtime"] }
 wgpu = { version = "30.0.1", default-features = false, features = ["vulkan", "metal"] }
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
+chrono = { version = "0.4.42", default-features = false, features = ["clock", "std", "wasmbind"] }
+wasm-bindgen = "0.2.129"
+wasm-bindgen-futures = "0.4"
+js-sys = "0.3"
+console_error_panic_hook = "0.1"
+console_log = "1"
+cpal = { version = "0.16", features = ["wasm-bindgen"] }
+web-sys = { version = "0.3", features = ["Window", "Document", "Element", "HtmlElement", "HtmlCanvasElement", "Node", "Location", "Storage", "WebSocket", "BinaryType", "MessageEvent", "CloseEvent", "Event", "EventTarget", "Navigator", "Request", "RequestInit", "RequestMode", "RequestCredentials", "RequestRedirect", "Response", "Headers", "Url", "AbortController", "AbortSignal", "ReadableStream", "ReadableStreamDefaultReader", "Clipboard", "ClipboardEvent", "DataTransfer", "AudioContext", "AudioContextState", "Performance"] }
 # Phase 0: select the browser GPU backend. This is necessary, but the native
 # dependencies and application startup still need porting; see docs/browser-spike.md.
 wgpu = { version = "30.0.1", default-features = false, features = ["webgpu"] }

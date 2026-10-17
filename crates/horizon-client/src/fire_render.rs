@@ -1,5 +1,7 @@
 //! Animated burning-entity flames; the first-person overlay uses screen_effects.
 use crate::{hud::Rect, mesher::Vertex};
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 use std::collections::HashMap;
 
 #[allow(clippy::too_many_arguments)]

@@ -10,6 +10,8 @@
 use super::pack_stages::FrameUniform;
 use crate::java_pack::{JavaFolder, JavaPasses};
 use glam::{Mat3, Mat4, Vec3, Vec4};
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 use horizon_shaderpack::pipeline::TargetSettings;
 use horizon_shaderpack::pipeline::{Program, target_index};
 use std::collections::{BTreeMap, BTreeSet};

@@ -3,6 +3,8 @@
 //! `FramerateLimiter`, the vsync present-mode choice and the fullscreen
 //! request/state pair.
 
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 /// `Window.calculateScale`: the largest scale that leaves at least 320x240
 /// GUI pixels, capped by `max_scale` (0 = automatic); an odd result is bumped
 /// to even when unicode is enforced.

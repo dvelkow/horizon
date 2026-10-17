@@ -3,6 +3,8 @@
 //! `MoveToTargetSink`.
 use super::{Mob, goals::Cx};
 use horizon_core::random::RandomSource;
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 
 /// A memory with an expiry (`Brain.setMemoryWithExpiry`): present for the
 /// tick it was set and `ttl` more ticks. `Ttl::default()` is absent.

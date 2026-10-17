@@ -7,6 +7,8 @@ use crate::{
     living_health::{self, HealthWorld},
     synced_floats::{DataError, Observer, SyncedFloats},
 };
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 use std::{fmt, io};
 pub trait PlayerHealthWorld: HealthWorld {
     fn entity_data(&mut self) -> Result<Self::Data, Self::Error>;

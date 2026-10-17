@@ -2,6 +2,8 @@
 //!
 //! This worker owns its condition caches so they cannot be reused accidentally
 //! against a different column context.
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 mod codec;
 mod density;
 mod library;

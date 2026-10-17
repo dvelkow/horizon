@@ -1,5 +1,9 @@
 //! Loading and calling mods with wasmtime's component model.
 use crate::manifest::{Manifest, Package, Side};
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
+#[allow(unused_imports)]
+use horizon_platform::PathExt;
 use std::{
     path::{Path, PathBuf},
     sync::Arc,
@@ -120,7 +124,7 @@ pub fn find(dir: &Path) -> Vec<PathBuf> {
         .map(|e| e.path())
         .filter(|p| {
             p.extension().is_some_and(|e| e == "hmod")
-                || p.join(crate::manifest::MANIFEST).is_file()
+                || p.join(crate::manifest::MANIFEST).platform_is_file()
         })
         .collect();
     found.sort();

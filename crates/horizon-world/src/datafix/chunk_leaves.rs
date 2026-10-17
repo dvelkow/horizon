@@ -4,6 +4,8 @@
 //! `LeavesFix` visits blocks in the iteration order of fastutil hash sets, and the
 //! order decides in which order its new palette entries appear: the sets are
 //! emulated here (`IntOpenHashSet` and the key order of an `Int2ObjectOpenHashMap`).
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 use std::collections::{HashMap, HashSet};
 
 use super::dynamic::{as_int, as_long_stream, as_str, ceillog2, set};

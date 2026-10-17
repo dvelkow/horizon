@@ -13,6 +13,10 @@ use crate::{
         self as t, BODY, CONTROL, CONTROL_LARGE, Face, Kind, SIDEBAR, SMALL, Ui, color, id,
     },
 };
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
+#[allow(unused_imports)]
+use horizon_platform::PathExt;
 use std::time::Instant;
 
 const NAV: u64 = id("title.nav", 0);
@@ -1527,12 +1531,12 @@ mod tests {
         assert!(matches!(&title.mode, Mode::Delete { world } if world.folder == "B"));
         press(&mut title, &atlas, BACK);
         assert_eq!(selected(&title).as_deref(), Some("B"));
-        assert!(saves.join("B/level.dat").is_file());
+        assert!(saves.join("B/level.dat").platform_is_file());
 
         // Deleting selects the world that moved up into the row.
         press(&mut title, &atlas, DELETE_WORLD);
         press(&mut title, &atlas, CONFIRM_DELETE);
-        assert!(!saves.join("B").exists());
+        assert!(!saves.join("B").platform_exists());
         assert_eq!(selected(&title).as_deref(), Some("C"));
 
         // A world open elsewhere is refused on a Horizon page; Back returns

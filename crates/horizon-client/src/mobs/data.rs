@@ -6,6 +6,8 @@
 use super::keyframes::Animation;
 use super::path::PathType;
 use crate::blocks::{BlockFacts, Fluid};
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 use serde_json::Value;
 use std::{collections::HashMap, fs, path::Path};
 

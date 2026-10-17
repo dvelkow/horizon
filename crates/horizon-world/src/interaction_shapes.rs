@@ -6,6 +6,8 @@ use crate::{
     registry::{BlockRegistry, BlockStateId},
 };
 use horizon_core::geometry::VoxelShape;
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 use std::io;
 /// The pinned implementation audit establishes that every interaction shape is
 /// static per state. The import retains native alias/canonical shape identity.

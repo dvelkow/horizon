@@ -12,6 +12,8 @@ use horizon_core::{
     geometry::VoxelShape,
     position::{BlockPos, ChunkPos},
 };
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 
 /// A collision world's resident chunk access. State IDs must belong to the
 /// binding's registry. Handles remain valid for the

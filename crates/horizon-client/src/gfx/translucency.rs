@@ -1,6 +1,8 @@
 //! Vanilla 26.3 MeshData.SortState / VertexSorting.byDistance.
 //! Keep vertex order intact; only the quad indices change as the camera moves.
 
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 /// MeshData.decodeQuadCentroids uses the opposite corners, not all four vertices.
 pub fn quad_center(a: [f32; 3], b: [f32; 3]) -> [f32; 3] {
     std::array::from_fn(|i| (a[i] + b[i]) / 2.0)

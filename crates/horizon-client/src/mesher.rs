@@ -3,6 +3,8 @@
 //! `ModelBlockRenderer`/`BlockModelLighter` (smooth light, ambient occlusion,
 //! cardinal shading, tint sources, block offsets; see `lighting`). Fluids
 //! follow `FluidRenderer` (see `fluid`).
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 mod facing;
 mod fluid;
 mod lighting;

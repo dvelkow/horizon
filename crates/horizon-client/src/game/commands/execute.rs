@@ -7,6 +7,8 @@ use horizon_client::{
     nbt_path::NbtPath,
     text::Text,
 };
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 use horizon_world::nbt::Tag;
 
 /// `CommandSourceStack` fields Horizon models: the executing entity (None for

@@ -14,6 +14,8 @@ use horizon_core::{
     geometry::{Vec3, trig::Mth},
     random::{LegacyRandom, RandomSource},
 };
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 use std::{collections::HashMap, f32::consts::PI};
 
 pub const EMERGE_DURATION: i64 = warden_brain::EMERGE_DURATION as i64;

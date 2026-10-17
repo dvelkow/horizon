@@ -6,6 +6,8 @@
 //! The float arithmetic follows vanilla and JOML's default (non-FMA,
 //! non-fast-math) code paths operation by operation.
 use horizon_core::geometry::trig;
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 
 /// `(float) Math.PI`.
 const PI: f32 = std::f32::consts::PI;

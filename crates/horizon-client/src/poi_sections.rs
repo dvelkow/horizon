@@ -8,6 +8,8 @@
 //! a weak reference tells an edited or replaced section from the one the list
 //! was built from (see `random_tick_sections`), without keeping its blocks.
 use crate::{chunk::Section, fast_hash::FxHashMap};
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 use std::sync::{Arc, Mutex, Weak};
 
 /// A section's POIs: the block index in the section (`y << 8 | z << 4 | x`)

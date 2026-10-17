@@ -4,6 +4,8 @@
 //! a player can attach, and, with consent, what the telemetry upload sends ([`Report::for_upload`]).
 //! It holds summaries and fixed-edge histogram counts, never raw frame streams.
 
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 use std::collections::BTreeMap;
 use std::io;
 use std::path::{Path, PathBuf};

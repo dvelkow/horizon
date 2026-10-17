@@ -3,6 +3,8 @@
 //! mob, and still meets them in snapshot order.
 use crate::fast_hash::FxHashMap;
 use horizon_core::geometry::{Aabb, Axis};
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 
 /// Width of a grid column, in blocks.
 const CELL: f64 = 4.0;

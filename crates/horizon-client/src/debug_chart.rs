@@ -8,6 +8,8 @@ use crate::{
     hud_layout::{GuiDraw, argb, fill},
     text::Text,
 };
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 use std::{
     collections::VecDeque,
     time::{Duration, Instant},

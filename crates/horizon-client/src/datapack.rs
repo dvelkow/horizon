@@ -2,6 +2,10 @@
 //! the parts of them commands use: `.mcfunction` functions (with macros and
 //! line continuation), function tags and predicates.
 use crate::zip::Zip;
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
+#[allow(unused_imports)]
+use horizon_platform::PathExt;
 use horizon_world::nbt::Tag;
 use std::{
     collections::BTreeMap,
@@ -81,7 +85,7 @@ fn walk(root: &Path, dir: &Path, out: &mut Vec<String>) {
     entries.sort_by_key(std::fs::DirEntry::file_name);
     for e in entries {
         let p = e.path();
-        if p.is_dir() {
+        if p.platform_is_dir() {
             walk(root, &p, out);
         } else if let Ok(rel) = p.strip_prefix(root) {
             out.push(rel.to_string_lossy().replace('\\', "/"));
@@ -106,7 +110,7 @@ pub fn discover(world: &Path) -> Vec<DataPack> {
     for e in entries.flatten() {
         let name = e.file_name().to_string_lossy().into_owned();
         let path = e.path();
-        if path.is_dir() && path.join("pack.mcmeta").exists() {
+        if path.platform_is_dir() && path.join("pack.mcmeta").platform_exists() {
             packs.push(DataPack {
                 id: format!("file/{name}"),
                 source: Source::Dir(path),

@@ -11,6 +11,8 @@ use horizon_core::geometry::{
     Direction,
     trig::{self, Mth},
 };
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 use horizon_world::{
     block_render::FaceVisibility,
     registry::{BlockRegistry, BlockStateId},

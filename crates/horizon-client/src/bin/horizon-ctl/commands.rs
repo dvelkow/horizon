@@ -1,6 +1,8 @@
 //! Every command horizon-ctl knows: its usage, help, examples and arguments.
 //! The same table prints `help`, checks `COMMAND --help` and describes the
 //! MCP tools, so the CLI and the MCP server always offer the same commands.
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 use serde_json::{Map, Value, json};
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]

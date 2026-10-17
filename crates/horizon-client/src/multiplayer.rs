@@ -6,6 +6,8 @@ use crate::hud::{HudAtlas, HudBatch, rgba};
 use crate::lan::discovery::Scanner;
 use crate::text::{DARK_GRAY, GRAY, Text, format_translation};
 use crate::title::confirm_top;
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 use horizon_protocol::servers::{self, ServerEntry};
 use std::{
     collections::HashMap,

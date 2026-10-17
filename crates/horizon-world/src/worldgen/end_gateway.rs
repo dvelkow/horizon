@@ -8,6 +8,8 @@ use super::{
     required,
 };
 use crate::registry::BlockStateId;
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 use serde_json::value::RawValue;
 
 #[derive(Clone, Debug)]

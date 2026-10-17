@@ -2,6 +2,8 @@
 //! where the player fell from, turned into the vanilla death message.
 use super::{Game, chat::PLAYER_NAME};
 use horizon_client::{health::HealthEvent, motion::MotionEvent, text::Text};
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 
 struct Entry {
     damage_type: String,

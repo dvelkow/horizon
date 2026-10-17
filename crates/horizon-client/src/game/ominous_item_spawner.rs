@@ -13,6 +13,8 @@ use horizon_client::{
     particles::{ParticleOptions, ParticleType},
 };
 use horizon_core::{geometry::Vec3, random::RandomSource};
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 
 /// `TICKS_BEFORE_ABOUT_TO_SPAWN_SOUND`.
 const ABOUT_TO_SPAWN: i64 = 36;

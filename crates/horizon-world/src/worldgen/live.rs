@@ -17,6 +17,8 @@ use super::{
 };
 use crate::block_placement::BlockPlacementBindings;
 use horizon_core::random::RandomSource;
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 use serde_json::Value;
 use std::{
     collections::{BTreeSet, HashMap},

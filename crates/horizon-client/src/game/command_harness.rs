@@ -7,6 +7,8 @@
 //! waits until the terrain around the player is loaded.
 use super::Game;
 use horizon_client::{Result, text::Text};
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 use serde_json::{Value, json};
 use std::{
     path::Path,

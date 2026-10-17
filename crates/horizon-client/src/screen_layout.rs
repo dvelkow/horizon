@@ -5,6 +5,8 @@
 //! redstone arrow. Computed without drawing so `tools/test_screen_layout_parity.py`
 //! can compare them with the vanilla client; the game paints the same calls.
 use crate::banner::{self, BannerLayer, Banners};
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 use std::sync::Arc;
 
 /// One call a screen makes.

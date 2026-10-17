@@ -4,6 +4,8 @@ use horizon_core::{
     biome::BiomeZoom,
     position::{BlockPos, ChunkPos},
 };
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 use std::collections::{BTreeMap, BTreeSet};
 
 #[derive(Clone, Debug)]

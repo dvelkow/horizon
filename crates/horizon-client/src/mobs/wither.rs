@@ -15,6 +15,8 @@ use super::{
 use crate::projectiles::{Projectile, ProjectileKind};
 use horizon_core::geometry::trig::Mth;
 use horizon_core::{geometry::Vec3, random::RandomSource};
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 
 // Wither state: `counter` the invulnerable ticks, `counter2` the block
 // breaking clock, `point` the main target's position. `ints`: the side

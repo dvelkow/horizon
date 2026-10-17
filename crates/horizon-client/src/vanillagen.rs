@@ -11,6 +11,10 @@ use horizon_core::{
     position::ChunkPos,
     ticks::{ProtoChunkTicks, SavedTick, TickTypeId},
 };
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
+#[allow(unused_imports)]
+use horizon_platform::PathExt;
 use horizon_world::{
     heightmap::HeightmapType,
     nbt::Tag,
@@ -71,7 +75,7 @@ impl VanillaTerrain {
                 "Horizon: {} placed features cannot run and will be skipped",
                 unsupported.len()
             );
-            if !dir.join("blocks/block-properties.nbt").exists() {
+            if !dir.join("blocks/block-properties.nbt").platform_exists() {
                 log::warn!(
                     "Horizon: the worldgen bundle lacks the block behavior exports (worldgen/blocks/*.nbt); \
                      prepare again (the launcher, or horizon-prepare --prepare) to add them"

@@ -16,6 +16,10 @@
 //! content mod the root is the base root itself.
 use crate::{Result, blocks::MAP_COLORS};
 use horizon_mods::content::{Block, Content, Rarity};
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
+#[allow(unused_imports)]
+use horizon_platform::PathExt;
 use horizon_world::nbt::{self, JavaString, Limits, Tag};
 use serde::{Deserialize, Serialize, de};
 use std::{
@@ -739,7 +743,7 @@ fn link(target: &Path, at: &Path) -> std::io::Result<()> {
 }
 #[cfg(not(unix))]
 fn link(target: &Path, at: &Path) -> std::io::Result<()> {
-    if target.is_dir() {
+    if target.platform_is_dir() {
         fs::create_dir_all(at)?;
         for entry in fs::read_dir(target)?.flatten() {
             link(&entry.path(), &at.join(entry.file_name()))?;
@@ -832,7 +836,7 @@ pub fn build(base: &Path, mods: &[ContentMod], out: &Path) -> Result<()> {
     let overlay = Overlay::new(base, out)?;
     for name in JSON_TABLES {
         let path = base.join(name);
-        if !path.exists() {
+        if !path.platform_exists() {
             continue;
         }
         let mut doc = read_json(&path)?;
@@ -842,7 +846,7 @@ pub fn build(base: &Path, mods: &[ContentMod], out: &Path) -> Result<()> {
     }
     for name in NBT_TABLES {
         let path = base.join(name);
-        if !path.exists() {
+        if !path.platform_exists() {
             continue;
         }
         let (mut named, _) = nbt::read_named(&fs::read(&path)?, Limits::tables())
@@ -888,7 +892,7 @@ pub fn build(base: &Path, mods: &[ContentMod], out: &Path) -> Result<()> {
     }
     let mut bundles: Vec<(&str, J)> = Vec::new();
     for name in TAG_BUNDLES {
-        if base.join(name).exists() {
+        if base.join(name).platform_exists() {
             bundles.push((name, read_json(&base.join(name))?));
         }
     }

@@ -4,6 +4,8 @@
 //! motion, metadata, equipment and removal packets that bring it up to date,
 //! at the entity type's update interval (`tracking`).
 use super::tracking;
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 use horizon_protocol::{
     buf::pack_degrees,
     entity_data::Value,

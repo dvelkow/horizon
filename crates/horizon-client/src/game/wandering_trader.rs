@@ -7,6 +7,8 @@ use horizon_client::{
     save::{read_dat, write_dat},
 };
 use horizon_core::random::RandomSource;
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 use horizon_world::nbt::Tag;
 
 const TICK_DELAY: i32 = 1200;

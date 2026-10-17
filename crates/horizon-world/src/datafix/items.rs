@@ -6,6 +6,8 @@ use super::dynamic::{
 };
 use super::json;
 use crate::nbt::{JavaString, Tag};
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 
 /// `V704.ITEM_TO_BLOCKENTITY`.
 const ITEM_TO_BLOCK_ENTITY: &[(&str, &str)] = &[

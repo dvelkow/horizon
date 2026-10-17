@@ -6,6 +6,8 @@ use crate::{
     registry::{BlockRegistry, BlockStateId},
 };
 use horizon_core::{geometry::Aabb, position::BlockPos};
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 use std::{fmt, io};
 
 pub struct FluidPresence<'r> {

@@ -1,5 +1,7 @@
 //! Resident chunk membership, with a token for consumers that cache its keys.
 use crate::{chunk::Chunk, fast_hash::FxHashMap};
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 use std::{
     collections::hash_map::{Iter, ValuesMut},
     ops::Deref,

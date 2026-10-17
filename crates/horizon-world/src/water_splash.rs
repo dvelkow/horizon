@@ -1,5 +1,7 @@
 //! Water-entry sound, particles and game event, with native random draw order.
 use horizon_core::geometry::Vec3;
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 use std::fmt;
 #[derive(Clone, Copy, Debug)]
 pub enum SplashParticle {

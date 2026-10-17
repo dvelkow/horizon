@@ -9,6 +9,8 @@ use super::{
 };
 use crate::heightmap::HeightmapType;
 use horizon_core::{geometry::Direction, random::RandomSource};
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 use std::sync::{Arc, Mutex};
 
 fn empty_processors() -> Arc<ProcessorList> {

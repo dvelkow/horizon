@@ -2,6 +2,8 @@
 //! the user folder's name in paths, the user name, e-mail and IP addresses, UUIDs (accounts),
 //! and the terms the caller knows are private (world names, server addresses, account names).
 
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 /// What replaces each kind of match.
 pub const USER: &str = "<user>";
 pub const EMAIL: &str = "<email>";

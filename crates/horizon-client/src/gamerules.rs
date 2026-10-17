@@ -1,6 +1,8 @@
 //! Game rules (26.3 `GameRules`): the registered rules with their category,
 //! type, default and bounds, a value map, and persistence in the world's
 //! `data/minecraft/game_rules.dat` saved-data file.
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 use horizon_world::{
     DATA_VERSION,
     compression::Compression,

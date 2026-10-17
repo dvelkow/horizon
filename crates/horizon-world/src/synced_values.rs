@@ -1,6 +1,8 @@
 //! Synchronized typed values with native callback/dirty ordering.
 //! Serializer codecs and complete entity schemas are separate.
 use crate::compression::invalid;
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 use std::{fmt, io};
 #[derive(Clone, Copy, Debug)]
 pub struct DataValue<T> {

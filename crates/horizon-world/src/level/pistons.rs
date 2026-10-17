@@ -15,6 +15,8 @@ use crate::{
     registry::BlockStateId,
 };
 use horizon_core::{geometry::Direction, position::BlockPos, random::RandomSource};
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 use std::cmp::Ordering;
 
 /// `PistonMovingBlockEntity` state, owned by [`Ticks::moving_pistons`].

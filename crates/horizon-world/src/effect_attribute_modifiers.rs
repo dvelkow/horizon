@@ -4,6 +4,8 @@ use crate::{
     object_open_map::{ObjectOpenMap, TraversalError},
     object_open_set::{CursorError, ObjectKey},
 };
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 use std::io;
 
 /// A validated modifier definition. Each creation produces a fresh identity.

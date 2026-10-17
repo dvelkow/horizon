@@ -2,6 +2,8 @@
 //!
 //! A covered projection rectangle proves that an entire bounding box is hidden.
 //! Testing a few rays would miss openings between those rays.
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 use std::cell::Cell;
 
 const EPSILON: f64 = 1.0e-5;

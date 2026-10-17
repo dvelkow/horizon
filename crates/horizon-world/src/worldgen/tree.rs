@@ -3,6 +3,8 @@
 //! leaf-distance pass. Native HashSet iteration order is reproduced wherever it
 //! feeds random draws. Neighbor shape updates at the tree's outer faces are
 //! delegated to `PlacementContext::update_shape_at_face`.
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 mod decorator;
 mod fallen;
 mod foliage;

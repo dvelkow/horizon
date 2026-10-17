@@ -2,6 +2,8 @@
 //! Controls, Key Binds, Mouse Settings, Chat Settings, Accessibility,
 //! Language and Resource Packs, laid out like vanilla's HeaderAndFooter /
 //! OptionsList screens and drawn with the shared widgets.
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 use std::time::Instant;
 
 use crate::{

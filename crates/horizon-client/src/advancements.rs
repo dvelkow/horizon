@@ -2,6 +2,10 @@
 //! progress (`PlayerAdvancements`) and the predicates criteria test
 //! (`EntityPredicate`, `ItemPredicate`, `LocationPredicate`, the loot
 //! conditions advancements use).
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
+#[allow(unused_imports)]
+use horizon_platform::PathExt;
 use serde_json::Value;
 use std::{
     collections::{BTreeMap, HashMap},
@@ -105,7 +109,7 @@ fn collect(root: &Path, dir: &Path, ns: &str, out: &mut Vec<(String, std::path::
     };
     for e in entries.flatten() {
         let p = e.path();
-        if p.is_dir() {
+        if p.platform_is_dir() {
             collect(root, &p, ns, out);
         } else if p.extension().is_some_and(|x| x == "json") {
             let rel = p.strip_prefix(root).unwrap_or(&p).with_extension("");

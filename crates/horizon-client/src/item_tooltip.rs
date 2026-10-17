@@ -4,6 +4,8 @@ use crate::{
     hud::rgba,
     items::{ItemInfo, ItemStack},
 };
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 
 /// `EquipmentSlotGroup` in declaration order, the order tooltips list them in.
 const SLOT_GROUPS: [&str; 11] = [

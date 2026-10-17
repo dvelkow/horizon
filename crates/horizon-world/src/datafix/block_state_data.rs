@@ -7,6 +7,8 @@
 //! `ChunkPalettedStorageFix` compares them by identity, so a state is an
 //! *instance* here: `register` calls make instances, ids without a call share
 //! the instance of the first call for their block.
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 use std::collections::HashMap;
 use std::sync::OnceLock;
 

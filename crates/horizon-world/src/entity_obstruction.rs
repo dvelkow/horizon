@@ -1,6 +1,8 @@
 //! Entity obstruction against a voxel shape. Entity storage, lifecycle and
 //! vehicle-tree maintenance supply the immutable candidate snapshots here.
 use horizon_core::geometry::{Aabb, ShapeError, ShapeOp, VoxelShape};
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 
 /// Object identity within the caller's entity snapshot, including its generation.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

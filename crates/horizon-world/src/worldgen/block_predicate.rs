@@ -7,6 +7,8 @@ use crate::{
     registry::BlockStateId,
 };
 use horizon_core::geometry::Direction;
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 use serde_json::value::RawValue;
 use std::{collections::BTreeSet, sync::Arc};
 

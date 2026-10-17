@@ -1,6 +1,10 @@
 //! Which of the installed Horizon mods are on (`docs/mods.md`), kept in
 //! `horizon-mods.txt` beside `options.txt` as `mod.<id>:true` lines. Every
 //! mod is off until the player turns it on in Options > Mods.
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
+#[allow(unused_imports)]
+use horizon_platform::PathExt;
 use std::{collections::BTreeSet, fs, path::Path};
 
 pub const FILE: &str = "horizon-mods.txt";
@@ -55,7 +59,7 @@ impl ModList {
     }
     pub fn save(&self, dir: &Path) {
         let path = dir.join(FILE);
-        if self.enabled.is_empty() && !path.exists() {
+        if self.enabled.is_empty() && !path.platform_exists() {
             return;
         }
         let _ = fs::write(path, self.serialize());

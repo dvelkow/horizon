@@ -5,6 +5,8 @@ use crate::{
     hud::{HudAtlas, HudBatch, rgba},
     text::Text,
 };
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 use std::collections::VecDeque;
 
 const HISTORY: usize = 160;

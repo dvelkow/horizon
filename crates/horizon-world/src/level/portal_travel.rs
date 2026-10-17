@@ -11,6 +11,8 @@ use horizon_core::{
     geometry::{Aabb, Axis, Direction, ShapeOp, Vec3, VoxelShape},
     position::BlockPos,
 };
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 use std::cmp::Ordering;
 
 /// `BlockUtil.FoundRectangle`: the low corner and the sizes along the two axes.

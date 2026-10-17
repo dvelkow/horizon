@@ -10,6 +10,8 @@ use horizon_client::{
     raid::{self, RaiderType},
 };
 use horizon_core::random::RandomSource;
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 
 /// `EnchantmentsByCostWithDifficulty` of `mob_spawn_equipment`.
 const MIN_COST: i32 = 5;

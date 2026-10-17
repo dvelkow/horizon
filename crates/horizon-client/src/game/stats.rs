@@ -5,6 +5,8 @@
 use super::{Dim, Game};
 use horizon_core::geometry::Vec3;
 use horizon_core::random::RandomSource;
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 use std::{
     collections::{BTreeMap, BTreeSet},
     path::{Path, PathBuf},

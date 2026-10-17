@@ -4,6 +4,8 @@ use super::packrat::{
     Grammar, Reason, Rule, State, Sugg, Term, Value, alt, ch, chs, look, opt, seq,
 };
 use super::{CmdResult, CommandError, Reader, SuggestionsBuilder};
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 use horizon_world::nbt::{Compound, JavaString, Tag};
 use std::rc::Rc;
 

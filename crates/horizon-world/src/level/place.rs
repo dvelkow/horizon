@@ -15,6 +15,8 @@ use horizon_core::{
     position::BlockPos,
     random::RandomSource,
 };
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 
 /// A player's use-item-on-block action (`UseOnContext` inputs).
 #[derive(Clone, Debug)]

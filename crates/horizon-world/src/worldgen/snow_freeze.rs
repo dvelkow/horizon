@@ -6,6 +6,8 @@ use super::{
     placement::{PlacementContext, PlacementQueryError},
 };
 use crate::{heightmap::HeightmapType, registry::BlockStateId};
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 use std::{collections::BTreeMap, sync::Arc};
 #[derive(Clone, Debug)]
 pub struct SnowAndFreezeFeature {

@@ -4,6 +4,9 @@
 //! types, damage types ...) are numbered in the order the server sends them
 //! during configuration.
 use crate::{Error, Result, packets::configuration::RegistryData};
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
+use horizon_platform::PathExt;
 use horizon_world::nbt::{JavaString, Tag};
 use std::{collections::HashMap, path::Path};
 
@@ -81,7 +84,7 @@ impl Builtin {
             resources.join("../../datagen/out/reports/registries.json"),
             resources.join("../datagen/out/reports/registries.json"),
         ];
-        candidates.into_iter().find(|p| p.is_file())
+        candidates.into_iter().find(|p| p.platform_is_file())
     }
 }
 

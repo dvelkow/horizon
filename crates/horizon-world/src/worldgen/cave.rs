@@ -21,6 +21,8 @@ use horizon_core::{
     noise::{Noise, NormalNoise},
     random::{LegacyRandom, RandomSource},
 };
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 use std::{collections::BTreeSet, sync::Arc};
 
 fn query<E>(error: PlacementQueryError) -> FeatureExecutionError<E> {

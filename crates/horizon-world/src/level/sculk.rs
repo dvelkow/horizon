@@ -8,6 +8,8 @@ use super::{
 };
 use crate::{fluid::FluidState, registry::BlockStateId};
 use horizon_core::{geometry::Direction, position::BlockPos, random::RandomSource};
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 
 /// `SculkSensorBlock.ACTIVE_TICKS` (calibrated sensors use 10).
 pub const SENSOR_ACTIVE_TICKS: i32 = 30;

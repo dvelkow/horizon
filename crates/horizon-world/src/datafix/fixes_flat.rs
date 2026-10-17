@@ -1,6 +1,8 @@
 //! Fixes of 1.12.2 to 1.13.2 (keys 1450 to 1624, DataVersion 1343 to 1631): the
 //! flattening and what came with it. The options fixes of this range (1344, 1446)
 //! are client settings, not world data.
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 use std::collections::HashMap;
 use std::sync::OnceLock;
 

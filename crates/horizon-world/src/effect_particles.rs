@@ -1,5 +1,7 @@
 //! Pinned registered MobEffect particle factories and native option identity.
 use crate::{DATA_VERSION, compression::invalid, synced_values::SyncedValue};
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 use serde_json::Value;
 use std::{collections::BTreeMap, io, sync::Arc};
 

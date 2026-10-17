@@ -2,6 +2,10 @@
 //! network order, with their data for clients that do not know the vanilla
 //! pack) and the tags of every registry, loaded from the prepared resources
 //! (`data/minecraft/...`) and the registries report.
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
+#[allow(unused_imports)]
+use horizon_platform::PathExt;
 use horizon_protocol::{
     packets::configuration::{RegistryData, RegistryEntry, RegistryTags, TagEntry, UpdateTags},
     registry::{Builtin, Dynamic},
@@ -79,7 +83,7 @@ fn walk(dir: &Path, prefix: &str, out: &mut BTreeMap<String, Value>) {
     for entry in read.flatten() {
         let path = entry.path();
         let name = entry.file_name().to_string_lossy().into_owned();
-        if path.is_dir() {
+        if path.platform_is_dir() {
             walk(&path, &format!("{prefix}{name}/"), out);
         } else if let Some(stem) = name.strip_suffix(".json")
             && let Ok(text) = std::fs::read_to_string(&path)
@@ -231,7 +235,7 @@ impl SyncData {
         keys.sort();
         for key in keys {
             let dir = tag_root.join(key.trim_start_matches("minecraft:"));
-            if !dir.is_dir() {
+            if !dir.platform_is_dir() {
                 continue;
             }
             let mut files = BTreeMap::new();

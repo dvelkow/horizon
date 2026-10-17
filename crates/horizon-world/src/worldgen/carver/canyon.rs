@@ -1,5 +1,7 @@
 use super::*;
 use crate::worldgen::int_range;
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 
 #[derive(Clone, Debug)]
 pub struct CanyonShape {

@@ -1,5 +1,7 @@
 //! Command execution (the `execute` side of each vanilla command class):
 //! entity selectors resolved against the game, vanilla feedback and errors.
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 pub(super) mod compute;
 mod data;
 mod effects;

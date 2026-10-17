@@ -2,6 +2,8 @@
 use super::{Game, Screen};
 use horizon_client::{Result, items::ItemStack};
 use horizon_core::geometry::Vec3;
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 use serde_json::{Value, json};
 use std::{
     sync::mpsc::Sender,

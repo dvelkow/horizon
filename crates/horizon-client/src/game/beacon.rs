@@ -15,6 +15,8 @@ use horizon_client::{
     mesher::Vertex,
     mobs::render::{DYE, DYE_NAMES},
 };
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 
 /// The beacon screen is 54 px wider than the 176-px menus it shares an origin with.
 pub(super) const SHIFT: f32 = -27.0;

@@ -8,6 +8,8 @@ use horizon_core::{
     random::{LegacyRandom, RandomSource},
     ticks::{ScheduleResult, TickPriority},
 };
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 
 /// `NeighborUpdater.UPDATE_ORDER`.
 pub(crate) const UPDATE_ORDER: [Direction; 6] = [

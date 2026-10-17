@@ -1,5 +1,7 @@
 //! `RandomSequences`: the named random streams `/random` draws from.
 use horizon_core::random::{XoroshiroRandom, mix_stafford13, seed_from_hash};
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 use std::collections::BTreeMap;
 
 const GOLDEN_RATIO: u64 = 0x9e37_79b9_7f4a_7c15;

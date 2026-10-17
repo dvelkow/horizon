@@ -9,6 +9,8 @@ use super::{
     density::identifier,
 };
 use horizon_core::density::{SampleError, SamplerContext};
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 
 /// Identity within an immutable biome registry snapshot.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]

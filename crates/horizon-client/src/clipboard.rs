@@ -5,6 +5,10 @@
 
 use winit::keyboard::{Key, KeyCode, PhysicalKey};
 
+#[cfg(target_arch = "wasm32")]
+#[path = "clipboard_web.rs"]
+mod browser;
+
 /// A text-editing shortcut (`InputWithModifiers.isSelectAll`, `isCopy`,
 /// `isPaste`, `isCut`).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -112,7 +116,10 @@ pub trait Clipboard {
 /// game can still be pasted in the game.
 #[derive(Default)]
 pub struct SystemClipboard {
+    #[cfg(not(target_arch = "wasm32"))]
     system: Option<arboard::Clipboard>,
+    #[cfg(target_arch = "wasm32")]
+    system: browser::ClipboardCache,
     /// The text Horizon last copied (`horizon-ctl status`).
     copied: Option<String>,
 }
@@ -122,6 +129,18 @@ impl SystemClipboard {
     pub fn copied(&self) -> Option<&str> {
         self.copied.as_deref()
     }
+    /// Await the current browser clipboard for an event-driven paste handler.
+    /// The returned future owns its cache handle and does not borrow the UI.
+    #[cfg(target_arch = "wasm32")]
+    pub fn read_async(&self) -> impl std::future::Future<Output = String> + 'static {
+        self.system.read_async()
+    }
+    /// Install an awaited read before replaying the original paste shortcut.
+    #[cfg(target_arch = "wasm32")]
+    pub fn accept_read(&mut self, text: String) {
+        self.system.accept_read(text);
+    }
+    #[cfg(not(target_arch = "wasm32"))]
     fn system(&mut self) -> Option<&mut arboard::Clipboard> {
         if self.system.is_none() {
             self.system = arboard::Clipboard::new().ok();
@@ -131,6 +150,7 @@ impl SystemClipboard {
 }
 
 impl Clipboard for SystemClipboard {
+    #[cfg(not(target_arch = "wasm32"))]
     fn get(&mut self) -> String {
         let Some(system) = self.system() else {
             return self.copied.clone().unwrap_or_default();
@@ -145,11 +165,19 @@ impl Clipboard for SystemClipboard {
             }
         }
     }
+    #[cfg(target_arch = "wasm32")]
+    fn get(&mut self) -> String {
+        self.system.refresh();
+        self.system.text()
+    }
     fn set(&mut self, text: &str) {
         if text.is_empty() {
             return;
         }
         self.copied = Some(text.to_owned());
+        #[cfg(target_arch = "wasm32")]
+        self.system.write(text);
+        #[cfg(not(target_arch = "wasm32"))]
         if let Some(system) = self.system()
             && system.set_text(text.to_owned()).is_err()
         {

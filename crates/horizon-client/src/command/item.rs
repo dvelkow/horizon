@@ -7,6 +7,8 @@ use super::args::{
 use super::codec::{either, is_number, not_map, snbt};
 use super::packrat::{Grammar, Reason, State, Sugg, Term, Value, alt, ch, opt, seq};
 use super::{CmdResult, CommandError, Reader, SuggestionsBuilder};
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 use horizon_world::nbt::Tag;
 use std::rc::Rc;
 

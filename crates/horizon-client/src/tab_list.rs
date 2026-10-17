@@ -12,6 +12,8 @@ use crate::{
     scoreboard::{Comp, NumberFormat, Objective, RenderType, Scoreboard, comp_text},
     text::Text,
 };
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 use std::{borrow::Cow, cmp::Ordering, collections::HashMap};
 
 /// `GameType.SPECTATOR` id.

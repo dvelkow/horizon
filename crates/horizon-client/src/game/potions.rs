@@ -11,6 +11,8 @@ use horizon_client::{
     items::ItemStack,
 };
 use horizon_core::{geometry::Vec3, random::RandomSource};
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 
 /// A thrown splash or lingering potion in flight.
 #[derive(Clone, Debug)]

@@ -9,6 +9,8 @@ use chacha20poly1305::{
     aead::{Aead, Payload},
 };
 use hkdf::Hkdf;
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 use sha2::Sha256;
 use spake2::{Ed25519Group, Identity, Password, Spake2};
 use std::io::{self, Read, Write};

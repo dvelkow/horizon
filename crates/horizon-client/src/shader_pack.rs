@@ -3,6 +3,10 @@
 //! player's option values, puts the prelude before each stage's source and
 //! has naga parse and validate it, so a broken pack is reported (file, line,
 //! column) and never reaches the GPU.
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
+#[allow(unused_imports)]
+use horizon_platform::PathExt;
 use serde::Deserialize;
 use std::{
     collections::BTreeMap,
@@ -158,7 +162,7 @@ pub fn list(dir: &Path) -> Vec<(String, Result<Info, String>)> {
         .filter_map(|e| {
             let id = e.file_name().to_string_lossy().into_owned();
             let path = e.path();
-            if path.join("pack.toml").is_file() {
+            if path.join("pack.toml").platform_is_file() {
                 Some((id, manifest(&path).map(|m| m.pack)))
             } else if crate::java_pack::is_java_pack(&path) {
                 Some((id.clone(), Ok(java_info(id))))
@@ -266,7 +270,7 @@ impl ShaderPack {
         vendor: &str,
         renderer: &str,
     ) -> Result<Self, String> {
-        if path.join("pack.toml").is_file() || !crate::java_pack::is_java_pack(path) {
+        if path.join("pack.toml").platform_is_file() || !crate::java_pack::is_java_pack(path) {
             return Self::load(path, values);
         }
         let stamp = Stamp::of(path);

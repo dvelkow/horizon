@@ -4,6 +4,8 @@ use crate::{
     extras::{Corner, FpsReading},
     hud::{HudAtlas, HudBatch, Rect, rgba},
 };
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 
 /// The gap between an overlay and the screen edge or the next overlay.
 const MARGIN: f32 = 2.0;

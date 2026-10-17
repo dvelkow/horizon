@@ -6,6 +6,8 @@
 //! connection. Items are small summaries (percentiles and histogram buckets, never raw streams),
 //! dated to the day, with no account, world, server or address in them ([`scrub`]); they leave
 //! in zstd batches ([`batch`]). `docs/telemetry.md` lists every field.
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 

@@ -1,5 +1,7 @@
 //! Runtime block-state IDs imported from a version-pinned registry data export.
 //! This supplies identities and default properties, not block behavior.
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 mod json;
 use crate::{DATA_VERSION, chunk::BlockState, compression::invalid, nbt::Tag};
 pub use json::BlockStateJsonCodec;

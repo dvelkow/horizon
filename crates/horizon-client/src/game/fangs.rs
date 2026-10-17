@@ -3,6 +3,8 @@
 use super::Game;
 use horizon_client::mobs::{Part, Species, anim::Poses};
 use horizon_core::geometry::Vec3;
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 use std::sync::Arc;
 
 #[derive(Clone, Debug)]

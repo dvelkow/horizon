@@ -18,6 +18,8 @@ use super::{
     weighted::OptionalWeightedList,
 };
 use horizon_core::random::{InvalidBound, RandomSource};
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 use serde_json::value::RawValue;
 use std::{cell::Cell, collections::BTreeSet};
 

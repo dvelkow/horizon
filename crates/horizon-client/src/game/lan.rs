@@ -18,6 +18,8 @@ use horizon_client::{
     text::Text,
 };
 use horizon_core::geometry::Vec3;
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 use horizon_protocol::{
     crypto::offline_uuid,
     entity_data::{Value, serializer},
@@ -754,6 +756,7 @@ impl Game<'_> {
         let Some(mut host) = self.lan.take() else {
             return;
         };
+        let mut mod_chat = Vec::new();
         // What the tick sends a guest goes to its connection at the end.
         let holding = lan::Holding::start();
         let state = self.lan_host_state(&host);
@@ -843,6 +846,7 @@ impl Game<'_> {
                     // MinecraftServer.logChatMessage of an unsigned message.
                     HostEvent::Chat(line) if self.options.dedicated.is_some() => {
                         super::dedicated::log("INFO", &format!("[Not Secure] {line}"));
+                        mod_chat.push(line);
                     }
                     HostEvent::Chat(line) => self.system_message(Text::literal(line)),
                     HostEvent::Packet(conn, packet) => {
@@ -862,6 +866,10 @@ impl Game<'_> {
             g.sender.flush();
         }
         self.lan = Some(host);
+        // Mod replies need the hub back in place to reach connected players.
+        for line in mod_chat {
+            self.mods_chat(&line);
+        }
     }
 
     fn lan_guest_joined(

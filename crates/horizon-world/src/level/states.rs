@@ -10,6 +10,8 @@ use crate::{
     registry::{BlockRegistry, BlockStateId},
 };
 use horizon_core::geometry::{Axis, Direction};
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 use std::{collections::HashMap, io};
 
 /// Registry-order block index; equals vanilla's `Block` registry ID.

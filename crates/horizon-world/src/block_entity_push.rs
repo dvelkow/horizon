@@ -4,6 +4,8 @@ use horizon_core::{
     geometry::{Aabb, Axis, ShapeError, ShapeOp, Vec3, VoxelShape},
     position::BlockPos,
 };
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 
 pub trait BlockPushWorld {
     type Error;

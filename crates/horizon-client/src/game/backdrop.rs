@@ -15,6 +15,8 @@ use horizon_client::{
     world::{Weather, World},
 };
 use horizon_core::biome::{BiomeZoom, obfuscate_seed};
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 use std::{
     sync::{Arc, Mutex},
     time::Instant,

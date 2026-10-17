@@ -288,27 +288,38 @@ impl Downloader {
             return *state;
         }
         self.states.insert(key.clone(), Download::Pending);
-        let digest: String = skin_location(&key.1)["skins/".len()..].to_owned();
-        let file = self
-            .root
-            .join(if digest.len() > 2 { &digest[..2] } else { "xx" })
-            .join(&digest);
-        let (url, send) = (url.to_owned(), self.send.clone());
-        std::thread::spawn(move || {
-            let bytes = std::fs::read(&file).ok().or_else(|| {
-                let body = http_get(&url)?;
-                let _ = std::fs::create_dir_all(file.parent()?);
-                let _ = std::fs::write(&file, &body);
-                Some(body)
-            });
-            let image = bytes
-                .and_then(|b| crate::hud::decode_bytes(&b).ok())
-                .and_then(|(w, h, rgba)| match kind {
-                    Kind::Skin => process_legacy_skin(w, h, &rgba),
-                    _ => Some(rgba),
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            let digest: String = skin_location(&key.1)["skins/".len()..].to_owned();
+            let file = self
+                .root
+                .join(if digest.len() > 2 { &digest[..2] } else { "xx" })
+                .join(&digest);
+            let (url, send) = (url.to_owned(), self.send.clone());
+            std::thread::spawn(move || {
+                let bytes = std::fs::read(&file).ok().or_else(|| {
+                    let body = http_get(&url)?;
+                    let _ = std::fs::create_dir_all(file.parent()?);
+                    let _ = std::fs::write(&file, &body);
+                    Some(body)
                 });
-            let _ = send.send((key, image));
-        });
+                let image = bytes
+                    .and_then(|b| crate::hud::decode_bytes(&b).ok())
+                    .and_then(|(w, h, rgba)| match kind {
+                        Kind::Skin => process_legacy_skin(w, h, &rgba),
+                        _ => Some(rgba),
+                    });
+                let _ = send.send((key, image));
+            });
+        }
+        #[cfg(target_arch = "wasm32")]
+        {
+            let (url, send) = (url.to_owned(), self.send.clone());
+            wasm_bindgen_futures::spawn_local(async move {
+                let image = browser_download(kind, &url).await;
+                let _ = send.send((key, image));
+            });
+        }
         Download::Pending
     }
     /// Skins that finished since the last call: texture id and 64x64 RGBA.
@@ -319,6 +330,7 @@ impl Downloader {
 
 /// A GET over HTTP or HTTPS (textures.minecraft.net serves both; vanilla
 /// uses https): the body of a 2xx answer, 16 MiB at most, after redirects.
+#[cfg(not(target_arch = "wasm32"))]
 fn http_get(url: &str) -> Option<Vec<u8>> {
     use std::io::Read;
     let response = ureq::AgentBuilder::new()
@@ -335,6 +347,35 @@ fn http_get(url: &str) -> Option<Vec<u8>> {
         .read_to_end(&mut body)
         .ok()?;
     Some(body)
+}
+
+#[cfg(target_arch = "wasm32")]
+async fn browser_download(kind: Kind, address: &str) -> Option<Vec<u8>> {
+    let url = web_sys::Url::new(address).ok()?;
+    // Upgrade vanilla's HTTP texture URLs so HTTPS games never use mixed content.
+    if url.hostname() != "textures.minecraft.net"
+        || !matches!(url.protocol().as_str(), "http:" | "https:")
+        || !url.username().is_empty()
+        || !url.password().is_empty()
+    {
+        return None;
+    }
+    url.set_protocol("https:");
+    let bytes = crate::auth::browser::get_bytes(&url.href(), 16 << 20).await?;
+    // Bound PNG dimensions before the decoder allocates its output buffer.
+    if bytes.get(..8)? != b"\x89PNG\r\n\x1a\n" {
+        return None;
+    }
+    let width = u32::from_be_bytes(bytes.get(16..20)?.try_into().ok()?);
+    let height = u32::from_be_bytes(bytes.get(20..24)?.try_into().ok()?);
+    if width == 0 || height == 0 || width > 1024 || height > 1024 {
+        return None;
+    }
+    let (width, height, rgba) = crate::hud::decode_bytes(&bytes).ok()?;
+    match kind {
+        Kind::Skin => process_legacy_skin(width, height, &rgba),
+        _ => Some(rgba),
+    }
 }
 
 /// SHA-1 (FIPS 180-4).

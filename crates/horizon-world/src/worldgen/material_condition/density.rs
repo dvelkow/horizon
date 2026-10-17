@@ -6,6 +6,8 @@ use horizon_core::{
     noise::{DensityVolume, Noise},
     position::BlockPos,
 };
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 use std::{collections::BTreeSet, sync::Arc};
 
 /// A lazy unit-spaced XZ plane and scalar fallback for preliminary heights.

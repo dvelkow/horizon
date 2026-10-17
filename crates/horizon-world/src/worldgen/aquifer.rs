@@ -1,4 +1,6 @@
 //! Global fluid selection and the 26.3 aquifer terrain paths.
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 mod config;
 mod noise_based;
 use crate::registry::BlockStateId;

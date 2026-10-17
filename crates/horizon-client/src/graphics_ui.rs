@@ -10,6 +10,8 @@ use crate::{
     text::Text,
     ui,
 };
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Level {

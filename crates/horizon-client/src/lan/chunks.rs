@@ -5,6 +5,8 @@ use crate::{
     chunk::{Chunk, Light, MIN_Y, SECTIONS, Section},
     containers::BlockEntity,
 };
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 use horizon_protocol::{
     buf::set_bit,
     chunk::{BIOMES, BLOCKS, BlockEntityInfo, ChunkData, LightData, Paletted, Strategy},

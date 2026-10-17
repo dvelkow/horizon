@@ -4,6 +4,8 @@
 use super::Game;
 use horizon_client::{containers::BlockEntity, items::ItemStack, mobs::Species};
 use horizon_core::random::RandomSource;
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 
 impl Game<'_> {
     pub(super) fn tick_allays(&mut self) {

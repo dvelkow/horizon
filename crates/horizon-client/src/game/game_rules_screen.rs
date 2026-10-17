@@ -10,6 +10,8 @@ use horizon_client::{
     text::{Style, Text, named_color},
     ui::{self, EditBox},
 };
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 
 /// HeaderAndFooterLayout(12 + 9 + 15, 33): the title over the search box.
 const HEADER: f32 = 36.0;

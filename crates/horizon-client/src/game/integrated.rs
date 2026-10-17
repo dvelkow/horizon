@@ -21,6 +21,8 @@ use horizon_client::{
     settings::Settings,
     title::WorldOptions,
 };
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 use horizon_protocol::connection::Pipe;
 use horizon_protocol::{crypto::offline_uuid, text::translatable};
 use std::{
@@ -136,7 +138,17 @@ struct Launch {
 
 /// Whether this world opens on a server thread: asked for.
 pub(super) fn wanted(options: &Options, _world: &Path) -> bool {
-    options.server_thread && options.dedicated.is_none()
+    #[cfg(target_arch = "wasm32")]
+    {
+        // The native integrated-server handshake waits synchronously for a
+        // worker. Browsers use the hosted server or the local frame-loop world.
+        let _ = options;
+        false
+    }
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        options.server_thread && options.dedicated.is_none()
+    }
 }
 
 impl Game<'_> {

@@ -29,6 +29,8 @@
 //! overlap), so a chunk may be decorated as soon as no lower-ranked chunk
 //! within two of it is still waiting: [`DecorationOrder::blocked`]. Chunks
 //! further apart still decorate in parallel.
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 use std::collections::HashMap;
 
 #[derive(Default)]

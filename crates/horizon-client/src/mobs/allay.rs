@@ -9,6 +9,8 @@ use super::{
     nav::NavKind,
 };
 use horizon_core::geometry::trig::Mth;
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 
 // Allay state: `main_hand` the held item, `ints[1]` how many it carries,
 // `tame` a liked player, `point` the wanted item (set by the game),

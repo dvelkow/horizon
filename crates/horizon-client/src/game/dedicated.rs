@@ -21,6 +21,10 @@ use horizon_client::{
     },
     text::Text,
 };
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
+#[allow(unused_imports)]
+use horizon_platform::PathExt;
 use horizon_protocol::text::translatable;
 use horizon_world::nbt::{JavaString, Tag};
 use std::{
@@ -221,7 +225,7 @@ impl Lists {
         warn("operators list", l.ops.load());
         warn("white-list", l.white.load());
         let _ = l.ops.save();
-        if !l.white.file.exists() {
+        if !l.white.file.platform_exists() {
             let _ = l.white.save();
         }
         l
@@ -405,7 +409,7 @@ impl Game<'_> {
         log("INFO", &format!("Preparing level \"{level_name}\""));
         let world_dir = std::env::current_dir()?.join(&universe).join(&level_name);
         let folder = world_dir.to_string_lossy().into_owned();
-        let new_world = !world_dir.join("level.dat").exists();
+        let new_world = !world_dir.join("level.dat").platform_exists();
         self.open_world(
             &folder,
             Some(&level_name),

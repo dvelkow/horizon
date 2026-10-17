@@ -2,6 +2,8 @@
 //! template containers): turned into client containers, with loot tables
 //! unpacked as `RandomizableContainer.unpackLootTable` would on first open.
 use crate::{containers::BlockEntity, items::ItemStack};
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 use horizon_world::{
     loot::LootData,
     nbt::{Compound, JavaString, Tag},

@@ -1,6 +1,8 @@
 //! Axolotl-specific damage, animation and prey rules; activities live in animal_brain.
 use super::{Mob, MobEvent, MobWorld, Species, Who, animal_brain, keyframes::AnimationState};
 use horizon_core::random::RandomSource;
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 pub const PLAY_DEAD_TICKS: i32 = 200;
 pub const HUNTING_COOLDOWN: i64 = 2400;
 

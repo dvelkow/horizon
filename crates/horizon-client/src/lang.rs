@@ -2,6 +2,10 @@
 //! resource root and enabled packs layered over `en_us`, the language list
 //! from `pack.mcmeta` `language` sections, and a process-wide current
 //! language used by every screen.
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
+#[allow(unused_imports)]
+use horizon_platform::PathExt;
 use std::{
     collections::{BTreeMap, HashMap},
     sync::{Arc, RwLock},
@@ -46,7 +50,7 @@ impl ResourceSource for std::path::PathBuf {
             .into_iter()
             .flatten()
             .flatten()
-            .filter(|e| e.path().is_dir())
+            .filter(|e| e.path().platform_is_dir())
             .filter_map(|e| e.file_name().to_str().map(str::to_owned))
             .collect()
     }

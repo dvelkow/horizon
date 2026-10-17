@@ -7,6 +7,8 @@ use crate::{
     },
     living_health::{self, HealthWorld, SyncedFloat},
 };
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 use std::fmt;
 
 #[derive(Debug)]

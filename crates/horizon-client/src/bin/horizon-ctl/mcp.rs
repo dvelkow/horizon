@@ -3,6 +3,8 @@
 //! agents can play Horizon. Each tool is a horizon-ctl command from the
 //! shared table, run through the same `Session` as the CLI.
 use crate::{Session, commands};
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 use serde_json::{Value, json};
 use std::io::{BufRead, Write};
 

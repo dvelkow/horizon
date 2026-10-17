@@ -2,6 +2,8 @@
 //! control socket: a script clicks a button by its label (`horizon-ctl
 //! click-button Respawn`) or any widget by its id in [`tree`] (`horizon-ctl
 //! click done`), whatever screen or menu style drew it.
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 use std::cell::RefCell;
 
 /// A labelled widget in GUI pixels (the coordinates screens take input in).

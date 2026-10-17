@@ -2,6 +2,10 @@
 //! settings, kept in `horizon-extras.txt` next to `options.txt` so that file
 //! stays exactly vanilla's, and the logic behind them. Every extra is off by
 //! default; see `docs/extras.md`.
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
+#[allow(unused_imports)]
+use horizon_platform::PathExt;
 use std::{collections::VecDeque, fs, path::Path};
 
 pub const FILE: &str = "horizon-extras.txt";
@@ -245,7 +249,7 @@ impl Extras {
     /// setup gains no file.
     pub fn save(&self, dir: &Path) {
         let path = dir.join(FILE);
-        if *self == Self::default() && !path.exists() {
+        if *self == Self::default() && !path.platform_exists() {
             return;
         }
         let _ = fs::write(path, self.serialize());

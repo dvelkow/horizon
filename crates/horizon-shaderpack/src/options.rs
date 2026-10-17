@@ -9,6 +9,8 @@
 //! - `const int|float|bool NAME = VALUE; // [A B C]`: only for the constants
 //!   Iris lets players configure ([`CONST_OPTIONS`]).
 
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 use std::collections::{BTreeMap, BTreeSet};
 
 /// The `const` names Iris configures (`VALID_CONST_OPTION_NAMES`), apart from

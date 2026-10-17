@@ -7,6 +7,8 @@ use crate::{
     world_movement::{CollisionCheckRequest, EntityMovementWorld, no_world_collision},
 };
 use horizon_core::geometry::Vec3;
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 use std::fmt;
 #[derive(Debug)]
 pub enum FreeSpaceError<E> {

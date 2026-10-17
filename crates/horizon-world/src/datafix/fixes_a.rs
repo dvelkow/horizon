@@ -7,6 +7,8 @@ use super::json;
 use super::schema::{Key, Ty, key};
 use super::{Cx, FixFn, id_is, items, renamer, reread};
 use crate::nbt::Tag;
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 
 pub(super) fn register(out: &mut Vec<(Key, FixFn)>) {
     out.push((key(3564, 0), |cx| {

@@ -9,6 +9,8 @@ use super::{
 };
 use crate::block_properties::{BlockPropertiesRegistry, BlockProperty, BoundBlockProperty};
 use crate::registry::{BlockRegistry, BlockStateId, BlockStateJsonCodec};
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 use std::{
     collections::{BTreeMap, BTreeSet},
     sync::Arc,

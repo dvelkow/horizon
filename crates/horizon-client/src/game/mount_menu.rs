@@ -8,6 +8,8 @@ use horizon_client::{
     items::ItemStack,
     mobs::{Mob, Species, equine},
 };
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 
 /// Menu slot ids: the saddle, the body armour and the chest from 710.
 pub(super) const SADDLE: usize = 700;

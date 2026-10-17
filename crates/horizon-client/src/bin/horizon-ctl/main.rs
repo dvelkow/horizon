@@ -1,6 +1,8 @@
 //! horizon-ctl: play and script a running Horizon client through its control
 //! socket, from a shell, a script or an AI agent (`horizon-ctl mcp`).
 #![forbid(unsafe_code)]
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 mod commands;
 mod launch;
 mod mcp;

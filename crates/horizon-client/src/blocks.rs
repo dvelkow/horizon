@@ -1,5 +1,7 @@
 //! Per-state gameplay facts exported from vanilla's own block-state accessors
 //! (`gameplay-facts.json`), indexed by registry state ID.
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 mod decode;
 use crate::Result;
 use horizon_world::{

@@ -2,6 +2,10 @@
 //! textures, and a batch of textured quads in GUI pixels (vanilla's automatic
 //! GUI scale is applied when drawing).
 use crate::Result;
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
+#[allow(unused_imports)]
+use horizon_platform::PathExt;
 use std::{
     collections::HashMap,
     fs,
@@ -66,7 +70,7 @@ fn walk(dir: &Path, out: &mut Vec<PathBuf>) {
     };
     for entry in entries.flatten() {
         let path = entry.path();
-        if path.is_dir() {
+        if path.platform_is_dir() {
             walk(&path, out);
         } else if path.extension().is_some_and(|e| e == "png") {
             out.push(path);

@@ -16,6 +16,8 @@ use crate::{
     items::ItemStack,
     world::World,
 };
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 use horizon_protocol::ids::play::clientbound as ids;
 use horizon_protocol::{
     entity_data::{Value, serializer},

@@ -14,6 +14,8 @@ use horizon_client::{
     items::ItemStack,
     mesher::Vertex,
 };
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 use serde_json::Value;
 
 /// The game's answers to what the resolver cannot read from the stack.

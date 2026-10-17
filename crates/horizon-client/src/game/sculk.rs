@@ -11,6 +11,8 @@ use horizon_client::{
     sculk::{self, Context, Info, SculkEntity, SculkKind, WardenSpawnTracker},
 };
 use horizon_core::{geometry::Direction, position::BlockPos, random::RandomSource};
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 use horizon_world::registry::BlockStateId;
 use std::collections::{HashMap, HashSet};
 use winit::keyboard::KeyCode;

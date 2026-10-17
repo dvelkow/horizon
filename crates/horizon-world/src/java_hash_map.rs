@@ -1,6 +1,8 @@
 //! Java HashMap traversal for non-null keys with pure hash/equality/order
 //! operations. Tree bins preserve native linked iteration order.
 //! This is the storage/iterator subset needed by simulation callback lifecycles.
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 use std::{cmp::Ordering, sync::Arc};
 pub trait JavaKey: Eq {
     fn java_hash(&self) -> i32;

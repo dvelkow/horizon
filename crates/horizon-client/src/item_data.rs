@@ -2,6 +2,8 @@
 //! (book) enchantments, `repair_cost`, `custom_name`, `potion_contents` and
 //! `trim`, with their NBT form in vanilla's `components` compound.
 use crate::items::ItemStack;
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 use horizon_world::nbt::{JavaString, Tag};
 use std::sync::Arc;
 

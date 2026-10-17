@@ -1,6 +1,8 @@
 //! NBT paths (`NbtPathArgument`): `foo.bar[0]`, `[]`, `list[{id:1}]`,
 //! `{root:match}`, with get, set, insert and remove on a tag tree, and the
 //! partial NBT comparison (`NbtUtils.compareNbt`) selectors and conditions use.
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 use horizon_world::nbt::{Compound, JavaString, Tag, parse_snbt};
 
 /// An error carrying the translation key and its arguments.

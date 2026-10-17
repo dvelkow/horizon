@@ -7,6 +7,8 @@ use horizon_client::{
     scoreboard_cmd::{Holder, Tracker},
     text::Text,
 };
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 use horizon_world::nbt::Tag;
 
 /// One addressable slot.

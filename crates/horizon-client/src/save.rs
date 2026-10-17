@@ -24,6 +24,10 @@ use horizon_core::{
     position::{BlockPos, ChunkPos},
     ticks::{SavedTick, TickPriority, TickTypeId},
 };
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
+#[allow(unused_imports)]
+use horizon_platform::PathExt;
 use horizon_world::{
     DATA_VERSION,
     chunk::BlockState,
@@ -217,12 +221,12 @@ pub fn migrate_legacy(world: &Path) -> Result<()> {
         let to = dimension_dir(world, dimension);
         for folder in ["region", "entities", "poi"] {
             let (src, dst) = (from.join(folder), to.join(folder));
-            if src.is_dir() && !dst.exists() {
+            if src.platform_is_dir() && !dst.platform_exists() {
                 fs::create_dir_all(&to)?;
                 fs::rename(&src, &dst)?;
             }
         }
-        if !old.is_empty() && from.is_dir() && fs::read_dir(&from)?.next().is_none() {
+        if !old.is_empty() && from.platform_is_dir() && fs::read_dir(&from)?.next().is_none() {
             let _ = fs::remove_dir(&from);
         }
     }
@@ -1759,7 +1763,7 @@ pub fn write_dat(path: &Path, tag: Tag) -> Result<()> {
         .unwrap_or("data.dat");
     let temporary = path.with_file_name(format!("{file}_new"));
     fs::write(&temporary, compressed)?;
-    if path.exists() {
+    if path.platform_exists() {
         let old = match file.strip_suffix(".dat") {
             Some(stem) => path.with_file_name(format!("{stem}.dat_old")),
             None => path.with_file_name(format!("{file}_old")),
@@ -2739,10 +2743,10 @@ impl Level {
                 .or_insert_with(|| Tag::compound([("total_ticks", Tag::Long(self.time))]));
         }
         write_saved_data(dir, "world_clocks", clocks)?;
-        if legacy || !saved_data_path(dir, "world_gen_settings").exists() {
+        if legacy || !saved_data_path(dir, "world_gen_settings").platform_exists() {
             write_world_gen_settings(dir, self.seed, WorldGen::default())?;
         }
-        if !saved_data_path(dir, "game_rules").exists() || !self.game_rules.is_empty() {
+        if !saved_data_path(dir, "game_rules").platform_exists() || !self.game_rules.is_empty() {
             // Only rules vanilla knows: an unknown key makes it reject the file.
             let mut rules = Tag::Compound(Compound::new());
             for (name, default) in GAME_RULES {
@@ -3204,7 +3208,10 @@ mod tests {
             third.ender_items[3].as_ref().map(|s| (&*s.item, s.count)),
             Some(("minecraft:diamond", 2))
         );
-        assert!(dir.join("data/minecraft/world_gen_settings.dat").exists());
+        assert!(
+            dir.join("data/minecraft/world_gen_settings.dat")
+                .platform_exists()
+        );
         let _ = fs::remove_dir_all(&dir);
     }
 

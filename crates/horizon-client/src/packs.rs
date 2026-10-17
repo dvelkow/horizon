@@ -3,6 +3,10 @@
 //! and High Contrast packs, `pack.mcmeta` metadata and format compatibility,
 //! and an overlay resource root that layers the enabled packs over the
 //! vanilla resources (later packs win), so every loader sees one tree.
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
+#[allow(unused_imports)]
+use horizon_platform::PathExt;
 mod cache;
 pub mod pattern;
 use crate::text::Style;
@@ -270,7 +274,7 @@ fn pack(id: String, title: Text, source: Source) -> Option<Pack> {
     let meta = read_meta(&source)?;
     let (raw_description, description_style) = component_root(&meta["pack"]["description"]);
     let icon = match &source {
-        Source::Dir(d) => d.join("pack.png").is_file(),
+        Source::Dir(d) => d.join("pack.png").platform_is_file(),
         Source::Zip(z) => Zip::open(z).is_ok_and(|z| z.read("pack.png").is_ok()),
     };
     Some(Pack {
@@ -296,7 +300,7 @@ pub fn discover(resources: &Path, packs_dir: &Path) -> Vec<Pack> {
         ("high_contrast", "resourcePack.high_contrast.name"),
     ] {
         let z = resources.join(format!("assets/minecraft/resourcepacks/{id}.zip"));
-        if z.exists()
+        if z.platform_exists()
             && let Some(p) = pack(id.into(), Text::translate(key, &[]), Source::Zip(z))
         {
             out.push(p);
@@ -309,7 +313,7 @@ pub fn discover(resources: &Path, packs_dir: &Path) -> Vec<Pack> {
         .filter_map(|e| {
             let path = e.path();
             let name = e.file_name().to_string_lossy().into_owned();
-            let source = if path.is_dir() {
+            let source = if path.platform_is_dir() {
                 Source::Dir(path)
             } else if name.ends_with(".zip") {
                 Source::Zip(path)
@@ -343,7 +347,7 @@ fn pack_files(pack: &Pack) -> io::Result<BTreeMap<String, Provided>> {
                     };
                     for e in entries.flatten() {
                         let p = e.path();
-                        if p.is_dir() {
+                        if p.platform_is_dir() {
                             stack.push(p);
                         } else if let Ok(rel) = p.strip_prefix(&base) {
                             let rel = rel.to_string_lossy().replace('\\', "/");
@@ -374,7 +378,7 @@ fn link(target: &Path, at: &Path) -> io::Result<()> {
 }
 #[cfg(not(unix))]
 fn link(target: &Path, at: &Path) -> io::Result<()> {
-    if target.is_dir() {
+    if target.platform_is_dir() {
         Ok(())
     } else {
         fs::copy(target, at).map(|_| ())
@@ -392,7 +396,7 @@ fn build_overlay_uncached(
     out: &Path,
     dependencies: &mut cache::Dependencies,
 ) -> io::Result<()> {
-    if out.exists() {
+    if out.platform_exists() {
         fs::remove_dir_all(out)?;
     }
     fs::create_dir_all(out)?;
@@ -514,7 +518,7 @@ fn build_overlay_uncached(
                     }
                 }
             } else if touched.contains(&child)
-                || (vanilla.join(&child).is_dir() && !filters.is_empty())
+                || (vanilla.join(&child).platform_is_dir() && !filters.is_empty())
             {
                 mirror(
                     &child,
@@ -531,7 +535,7 @@ fn build_overlay_uncached(
                 // Hidden by a pack's filter.
             } else {
                 #[cfg(not(unix))]
-                if vanilla.join(&child).is_file() {
+                if vanilla.join(&child).platform_is_file() {
                     dependencies.file(&vanilla.join(&child));
                 }
                 link(&vanilla.join(&child), &out.join(&child))?;
@@ -1038,7 +1042,7 @@ mod tests {
         );
         assert!(
             !out.join("assets/minecraft/textures/block/dirt.png")
-                .exists()
+                .platform_exists()
         );
         let _ = fs::remove_dir_all(base);
     }

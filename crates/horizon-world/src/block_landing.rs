@@ -6,6 +6,8 @@ use crate::{
     registry::BlockStateId,
 };
 use horizon_core::position::BlockPos;
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 use std::{collections::BTreeMap, fmt, io};
 #[derive(Clone, Debug)]
 pub enum FallDefinition {

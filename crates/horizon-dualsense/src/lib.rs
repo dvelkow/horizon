@@ -6,6 +6,7 @@
 //! `SDL_hidapi_ps5.c`: a 47-byte block shared by both transports, sent as report 0x02 over USB
 //! and as report 0x31 over Bluetooth, where a sequence tag leads it and a CRC-32 (seeded with
 //! the byte 0xA2) closes it.
+#[cfg_attr(target_arch = "wasm32", path = "device_web.rs")]
 pub mod device;
 pub mod haptics;
 pub mod trigger;

@@ -1,6 +1,8 @@
 //! Vanilla 26.3's CubeMapTexture and CubeMap, separate from the pixel-filtered GUI atlas.
 use crate::{Result, hud::decode};
 use glam::Mat4;
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 use std::path::Path;
 use wgpu::util::DeviceExt;
 

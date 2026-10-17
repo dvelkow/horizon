@@ -1,5 +1,7 @@
 //! FlatLevelSource: superflat worlds (`minecraft:flat` generator).
 use crate::{chunk::Chunk, streaming::ChunkGenerator};
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 use horizon_world::{nbt::Tag, registry::BlockRegistry};
 
 /// The layers of a flat generator, bottom up from the world's minimum Y.

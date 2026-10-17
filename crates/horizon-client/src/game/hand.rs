@@ -10,6 +10,8 @@ use horizon_client::{
     first_person::{Hand, HandWorld, Hit, SwingAnimation, UseResult, swing_duration},
     items::ItemStack,
 };
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 
 /// The off hand's place in `visible_hands` (the main hand uses its hotbar slot).
 const OFFHAND: usize = usize::MAX;

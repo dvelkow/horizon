@@ -2,6 +2,8 @@
 //! multicast group 224.0.2.60:4445 every 1.5 seconds as
 //! `[MOTD]text[/MOTD][AD]port[/AD]`, and LanServerDetection collects those
 //! announcements for the multiplayer screen.
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 use std::{
     io,
     net::{Ipv4Addr, SocketAddr, SocketAddrV4, UdpSocket},

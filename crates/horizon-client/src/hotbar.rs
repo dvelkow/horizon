@@ -2,6 +2,8 @@
 //! `Hotbar`): nine saved rows of nine stacks, read through the `HOTBAR`
 //! data fixers when the file is from an older version.
 use crate::{items::ItemStack, save};
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 use horizon_world::nbt::{JavaString, Tag};
 use std::path::Path;
 

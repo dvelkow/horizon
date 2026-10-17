@@ -1,4 +1,6 @@
 //! Deterministic feature ordering across biome generation steps.
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 use std::collections::{BTreeMap, BTreeSet};
 
 /// A placed-feature object identity, assigned by the owning registry snapshot.

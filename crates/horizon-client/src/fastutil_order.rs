@@ -4,6 +4,8 @@
 //! the load factor) and `java.util.HashSet<String>` (chained buckets split on
 //! resize). Commands list, and `scoreboard.dat` saves, in these orders.
 
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 /// The keys of a fastutil open hash map in their table slots.
 #[derive(Clone, Debug, PartialEq)]
 pub struct OpenOrder {

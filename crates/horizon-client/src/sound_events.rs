@@ -5,6 +5,10 @@
 //! `WeighedSoundEvents.getSound` drawing `nextInt(totalWeight)` from the sound
 //! instance's random.
 use horizon_core::random::RandomSource;
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
+#[allow(unused_imports)]
+use horizon_platform::PathExt;
 use serde_json::Value;
 use std::{collections::HashMap, fs, path::Path};
 
@@ -241,7 +245,7 @@ impl SoundRegistry {
             let Ok(text) = fs::read(assets.join(&namespace).join("sounds.json")) else {
                 continue;
             };
-            let exists = |ns: &str, path: &str| assets.join(ns).join(path).is_file();
+            let exists = |ns: &str, path: &str| assets.join(ns).join(path).platform_is_file();
             registry.add_file(&namespace, &text, &exists);
         }
         registry

@@ -4,6 +4,8 @@
 //! Smite, Bane of Arthropods, Fire Aspect, Knockback, Power, Punch, Flame,
 //! Quick Charge and the protections).
 use super::{DamageKind, Mob, Species};
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 use std::sync::Arc;
 
 /// Equipment slots in the order `Extra` keeps them.

@@ -10,6 +10,8 @@ use horizon_client::{
     save::{ChunkExtras, random_uuid},
 };
 use horizon_core::{geometry::Vec3, position::ChunkPos, random::RandomSource, ticks::ChunkTicks};
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 use horizon_world::{chunk::BlockState, nbt::Tag, registry::BlockStateId};
 use std::{
     collections::{HashMap, HashSet},

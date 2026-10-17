@@ -8,6 +8,8 @@
 //! node's children; the tree keeps vanilla's registration order
 //! (`command_order`).
 use super::{command_order::ORDER, command_suggestions::SUGGESTIONS};
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 use horizon_protocol::{
     buf::Writer,
     packets::play::{CommandNode, Commands},

@@ -1,6 +1,8 @@
 //! BlockModelFeatureRenderer breaking quads and SheetedDecalTextureGenerator UVs.
 use crate::{camera::joml, mesher::Vertex, models::catalog::BakedModel};
 use horizon_assets::model::Direction;
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 use std::f32::consts::{FRAC_PI_2, PI};
 
 /// Project in model space: the inverse decal pose cancels the block translation/offset.

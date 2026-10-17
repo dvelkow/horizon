@@ -21,6 +21,8 @@ use horizon_core::{
     position::{BlockPos, ChunkPos},
     random::{LegacyRandom, RandomSource, position_seed},
 };
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 use std::sync::{Arc, Mutex};
 
 pub type Result<T> = std::result::Result<T, PlacementQueryError>;

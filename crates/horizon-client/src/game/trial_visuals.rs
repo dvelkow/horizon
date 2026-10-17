@@ -10,6 +10,8 @@ use horizon_client::{
     particles::{ParticleOptions, ParticleType as T},
 };
 use horizon_core::random::{LegacyRandom, RandomSource};
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 
 type Pos = (i32, i32, i32);
 

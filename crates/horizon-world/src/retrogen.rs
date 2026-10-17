@@ -1,6 +1,8 @@
 //! Below-zero upgrade metadata and resident block transformations.
 //! Generation scheduling remains owned by the caller.
 use crate::{chunk_status::ChunkStatus, compression::invalid, nbt::Tag};
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 use std::io;
 
 #[derive(Clone, Debug, PartialEq, Eq)]

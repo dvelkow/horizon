@@ -8,6 +8,8 @@ use horizon_client::{
     options_ui::{Event, Page},
     window::{FrameContext, InactivityFpsLimit, framerate_limit},
 };
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 use serde_json::{Value, json};
 use winit::{event::MouseButton, keyboard::KeyCode, window::Fullscreen};
 

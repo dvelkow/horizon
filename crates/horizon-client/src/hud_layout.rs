@@ -6,6 +6,8 @@
 //! drawing so the parity fixture can compare them with the vanilla client.
 use crate::{font::Font, text::Text};
 use horizon_core::random::{LegacyRandom, RandomSource};
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 use std::borrow::Cow;
 
 /// A `Matrix3x2fStack` operation applied to a copy of the current pose.

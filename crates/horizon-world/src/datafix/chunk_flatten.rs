@@ -6,6 +6,8 @@
 //! Vanilla compares block states by identity (`CrudeIncrementalIntIdentityHashBiMap`
 //! and an identity set): states are instances here, numbered in one space with the
 //! instances of the `BlockStateData` table.
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 use std::collections::{HashMap, HashSet};
 use std::sync::OnceLock;
 

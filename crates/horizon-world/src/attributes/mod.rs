@@ -1,5 +1,7 @@
 //! Ordered attribute modifiers, native cache invalidation and permanent state.
 use crate::compression::invalid;
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 use std::{fmt, io, sync::Arc};
 pub mod entity;
 pub mod live;

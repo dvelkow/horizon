@@ -9,6 +9,8 @@ use super::{
 };
 use crate::projectiles::{Projectile, ProjectileKind};
 use horizon_core::{geometry::Vec3, random::RandomSource};
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 
 pub fn register(m: &mut Mob) {
     use Species as S;

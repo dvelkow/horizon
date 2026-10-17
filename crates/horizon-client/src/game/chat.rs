@@ -9,6 +9,10 @@ use horizon_client::{
     screen_draw::Measure,
     text::{ClickEvent, Style, Text},
 };
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
+#[allow(unused_imports)]
+use horizon_platform::PathExt;
 use std::collections::BTreeMap;
 use winit::{
     event::KeyEvent,
@@ -123,7 +127,7 @@ impl Game<'_> {
                     };
                     for e in entries.flatten() {
                         let p = e.path();
-                        if p.is_dir() {
+                        if p.platform_is_dir() {
                             stack.push(p);
                         } else if p.extension().and_then(|x| x.to_str()) == Some("json")
                             && let Ok(rel) = p.strip_prefix(&root)
@@ -151,7 +155,7 @@ impl Game<'_> {
                     };
                     for e in entries.flatten() {
                         let p = e.path();
-                        if p.is_dir() {
+                        if p.platform_is_dir() {
                             stack.push(p);
                         } else if p.extension().and_then(|x| x.to_str()) == Some("nbt")
                             && let Ok(rel) = p.strip_prefix(&root)
@@ -788,6 +792,9 @@ impl Game<'_> {
     }
     /// F2: ScreenShot.grab into `screenshots/` with vanilla's file name.
     pub(super) fn take_screenshot(&mut self) {
+        if self.ui.screenshot_message.is_some() {
+            return;
+        }
         let dir = std::env::current_dir()
             .unwrap_or_default()
             .join("screenshots");
@@ -857,7 +864,7 @@ pub fn screenshot_name(dir: &std::path::Path) -> String {
         } else {
             format!("{base}_{n}.png")
         };
-        if !dir.join(&name).exists() {
+        if !dir.join(&name).platform_exists() {
             return name;
         }
         n += 1;

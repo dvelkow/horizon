@@ -3,6 +3,8 @@ use super::{
     anim::Poses,
     render::{PROFESSIONS, VILLAGER_TYPES},
 };
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 use std::{collections::HashMap, fs, path::Path};
 
 #[derive(Clone, Copy, Default, PartialEq, Eq, Debug)]

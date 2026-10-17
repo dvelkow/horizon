@@ -17,6 +17,8 @@ use super::{
     path::PathType,
 };
 use horizon_core::random::{LegacyRandom, RandomSource};
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 use std::collections::HashMap;
 
 const FLAG_ROLL: u8 = 2;

@@ -1,4 +1,6 @@
 use crate::Result;
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 use horizon_world::{
     DATA_VERSION,
     heightmap::HeightmapState,

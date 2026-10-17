@@ -1,11 +1,15 @@
 use super::*;
 use horizon_assets::model::Direction as ModelDirection;
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
+#[allow(unused_imports)]
+use horizon_platform::PathExt;
 
 #[test]
 fn leaf_culling_removes_only_internal_leaf_and_root_faces() {
     let root =
         std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../.local/horizon-client/26.3");
-    if !root.join("horizon-resources.json").exists() {
+    if !root.join("horizon-resources.json").platform_exists() {
         return;
     }
     let assets = Assets::load(&root).unwrap();

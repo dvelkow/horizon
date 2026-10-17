@@ -7,6 +7,8 @@ use super::{
     properties::parse_uuid,
 };
 use horizon_core::random::java_string_hash;
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 use horizon_protocol::crypto::uuid_string;
 use horizon_world::java_hash_map::{JavaHashMap, JavaKey};
 use std::{cmp::Ordering, path::PathBuf};

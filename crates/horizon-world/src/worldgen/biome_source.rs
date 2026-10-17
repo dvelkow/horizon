@@ -1,4 +1,6 @@
 //! Fixed, checkerboard and End biome-source queries. Registry codecs are separate.
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 mod codec;
 mod runtime;
 pub use codec::{BiomeSet, BiomeSourceCatalog, BiomeSourceDefinition};

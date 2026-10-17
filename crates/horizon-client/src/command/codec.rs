@@ -3,6 +3,8 @@
 //! providers, dialogs), reproducing the codec error messages vanilla reports.
 use super::args::{Registries, is_id_char, parse_identifier};
 use super::{CmdResult, CommandError, Reader};
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 use horizon_world::nbt::{Compound, JavaString, Tag};
 
 pub fn snbt(t: &Tag) -> String {

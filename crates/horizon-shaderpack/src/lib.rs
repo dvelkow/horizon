@@ -5,6 +5,8 @@
 //! option values written into the source, Iris's macros expanded), read its
 //! `shaders.properties`, and translate programs to WGSL.
 
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 pub mod include;
 pub mod options;
 pub mod pipeline;

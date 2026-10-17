@@ -1,5 +1,7 @@
 //! Player crouching edge backoff and its lazy collision-free probes.
 use horizon_core::geometry::{Aabb, Vec3};
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 
 pub trait EdgeBackoffWorld {
     type Error;

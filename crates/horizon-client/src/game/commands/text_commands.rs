@@ -1,6 +1,8 @@
 //! `/tellraw` (TellRawCommand) and `/title` (TitleCommand).
 use super::{Arg, Context, Game, R, Target, err};
 use horizon_client::text::Text;
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 
 impl Game<'_> {
     /// ComponentArgument with selectors resolved for the source

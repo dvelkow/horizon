@@ -16,6 +16,8 @@ use horizon_core::{
     geometry::trig::{self, Mth},
     random::{LegacyRandom, RandomSource},
 };
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 use std::collections::HashMap;
 
 /// `Direction` names by `get3DDataValue`.

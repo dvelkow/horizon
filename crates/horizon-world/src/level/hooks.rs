@@ -8,6 +8,8 @@ use super::{
 };
 use crate::registry::BlockStateId;
 use horizon_core::{geometry::Direction, position::BlockPos, random::RandomSource};
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 
 impl<L: LevelAccess + ?Sized> Sim<'_, L> {
     /// `BlockState.handleNeighborChanged`.

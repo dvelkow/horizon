@@ -2,6 +2,8 @@
 //! remembers about each player, how it fades by the day, how it spreads from
 //! villager to villager and the reputation it adds up to.
 use horizon_core::random::{LegacyRandom, RandomSource};
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 use horizon_world::nbt::Tag;
 use std::collections::BTreeMap;
 

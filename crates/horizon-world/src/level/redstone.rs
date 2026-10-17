@@ -13,6 +13,8 @@ use crate::registry::BlockStateId;
 use horizon_core::{
     geometry::Direction, position::BlockPos, random::RandomSource, ticks::TickPriority,
 };
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 
 const SIGNAL_ORDER: [Direction; 6] = [
     Direction::Down,

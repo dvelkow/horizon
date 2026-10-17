@@ -11,6 +11,10 @@ use crate::{
     nbt::{self, Limits, Tag},
     registry::BlockRegistry,
 };
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
+#[allow(unused_imports)]
+use horizon_platform::PathExt;
 use serde_json::Value;
 use std::{
     collections::{BTreeMap, BTreeSet},
@@ -99,7 +103,7 @@ impl BlockBehavior {
         tags: &BTreeMap<String, Vec<String>>,
         fluid_tags: &BTreeMap<String, Vec<String>>,
     ) -> Result<Option<Self>, GeneratorError> {
-        if !dir.join("block-properties.nbt").exists() {
+        if !dir.join("block-properties.nbt").platform_exists() {
             return Ok(None);
         }
         let read = |name: &str| -> Result<Tag, GeneratorError> {

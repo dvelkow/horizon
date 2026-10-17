@@ -1,6 +1,8 @@
 //! The host's public IPv4 address, from a STUN Binding request (RFC 8489)
 //! to public STUN servers. Only the address is used: the port a STUN server
 //! sees is a UDP mapping, while the game listens on TCP.
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 use std::{
     io,
     net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr, ToSocketAddrs, UdpSocket},

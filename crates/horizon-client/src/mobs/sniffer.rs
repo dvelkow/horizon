@@ -7,6 +7,8 @@ use super::{
     anim::{Poses, State},
     keyframes::Animation,
 };
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 use std::collections::HashMap;
 
 // Sniffer state: `variant` the state (below), `scratch[0]` the state the

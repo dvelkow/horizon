@@ -5,6 +5,8 @@
 //! frame's own (gamma) values, as vanilla's main target does, and needs a
 //! swapchain that can be copied from.
 
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 /// `blur.json`: the passes' directions, ping-ponging between the copied
 /// frame and a swap texture; the last one writes the frame.
 const PASSES: [[f32; 2]; 6] = [

@@ -15,6 +15,8 @@ use horizon_core::{
     geometry::{Vec3, VoxelShape},
     position::BlockPos,
 };
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 use std::{collections::BTreeSet, fmt, io};
 #[derive(Clone, Copy)]
 struct State {

@@ -12,6 +12,8 @@ use horizon_client::{
     text::{self, Text},
 };
 use horizon_mods::{Clock, Mods, Output, Player, Snapshot, Status};
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 use std::{
     path::PathBuf,
     time::{Duration, Instant},

@@ -15,6 +15,8 @@ use horizon_client::{
     screen_effects::{ScreenInputs, ScreenQuad, lightmap_brightness},
 };
 use horizon_core::random::{LegacyRandom, RandomSource};
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 
 /// The first motion-blocking block at or below `from` (Heightmap MOTION_BLOCKING), plus one.
 fn motion_blocking(world: &World, facts: &BlockFacts, x: i32, z: i32, from: i32) -> i32 {

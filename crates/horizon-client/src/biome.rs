@@ -2,6 +2,8 @@
 //! (`Biome.getGrassColor`/`getFoliageColor`/..., `BlockTintSources`).
 use crate::Result;
 use horizon_core::{noise::SimplexNoise, random::LegacyRandom};
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 use serde_json::Value;
 use std::{collections::HashMap, fs, path::Path};
 

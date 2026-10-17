@@ -3,6 +3,8 @@
 use super::Game;
 use horizon_client::{Result, items::ItemStack, vanillagen};
 use horizon_core::{geometry::Direction, position::BlockPos};
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 use horizon_world::worldgen::live::LiveFeatures;
 use std::sync::Arc;
 

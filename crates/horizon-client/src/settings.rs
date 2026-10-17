@@ -3,6 +3,8 @@
 //! The option screens live in `options_ui`.
 use crate::keybinds::KeyBinds;
 use crate::options_file::{OptionsFile, V};
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 use std::{fs, path::Path};
 
 /// SoundSource names in vanilla order.

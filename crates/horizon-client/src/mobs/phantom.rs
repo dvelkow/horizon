@@ -7,6 +7,8 @@ use super::{
 };
 use horizon_core::geometry::trig::Mth;
 use horizon_core::{geometry::Vec3, random::RandomSource};
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 
 /// Phantom state in `Extra`: `flag` swooping, `home` the anchor,
 /// `vector` the move target, `attrs.speed` the move control's speed.

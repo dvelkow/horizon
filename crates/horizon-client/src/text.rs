@@ -2,6 +2,8 @@
 //! and decorations, translatable messages formatted like
 //! `TranslatableContents` (`%s`, `%1$s`, `%%`), and legacy `§` codes.
 use crate::lang;
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 use serde_json::{Map, Value, json};
 
 /// ChatFormatting colours by legacy code index 0..=15.

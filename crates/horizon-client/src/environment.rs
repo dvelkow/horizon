@@ -2,6 +2,8 @@
 //! (`KeyframeTrackSampler`, `EasingType`): sky/fog colours, sky light factor,
 //! celestial angles and star brightness for the overworld day cycle.
 use crate::Result;
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 use serde_json::Value;
 use std::{collections::HashMap, fs, path::Path};
 

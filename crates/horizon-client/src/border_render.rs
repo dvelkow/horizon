@@ -4,6 +4,8 @@
 //! and which walls are drawn. Kept free of GPU types so the parity fixture
 //! can compare every value with vanilla's renderer.
 use crate::worldborder::{WorldBorder, jclamp, jmax, jmin, status_color};
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 
 /// `WorldBorderRenderer.RENDERING_OFFSET`.
 const OFFSET: f64 = 0.01;

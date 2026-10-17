@@ -3,6 +3,8 @@
 //! the vanilla dispense behaviours Horizon has entities for, and container
 //! comparator signals (`AbstractContainerMenu.getRedstoneSignalFromContainer`).
 use super::Game;
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 
 mod crafter;
 use horizon_client::{

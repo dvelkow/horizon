@@ -3,6 +3,8 @@
 //! identity detection and quaternion basis normalization error.
 use super::sin_cos;
 use crate::model::Direction;
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 use std::sync::OnceLock;
 
 #[derive(Clone, Copy, Debug)]

@@ -6,6 +6,8 @@ use super::args::{
     read_identifier, read_int_bounds, suggest_resources,
 };
 use super::{CmdResult, CommandError, Reader, SuggestionsBuilder};
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 
 /// The option names in vanilla's registration order.
 const OPTIONS: [&str; 21] = [

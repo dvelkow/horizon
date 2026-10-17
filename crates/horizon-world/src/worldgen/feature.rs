@@ -3,6 +3,8 @@
 use super::{DecodeError, Object, density::identifier, required};
 use crate::registry::{BlockRegistry, BlockStateId};
 use horizon_core::random::{InvalidBound, RandomSource};
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 #[derive(Clone, Copy, Debug)]
 pub struct FeatureBlocks {
     pub air: BlockStateId,

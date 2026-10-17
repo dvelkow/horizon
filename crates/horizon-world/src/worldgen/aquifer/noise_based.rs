@@ -7,6 +7,8 @@ use horizon_core::{
     position::{BlockPos, ChunkPos},
     random::{PositionalRandom, RandomSource},
 };
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 use std::collections::HashMap;
 
 const WAY_BELOW_MIN_Y: i32 = -32512;

@@ -6,6 +6,8 @@
 //! and the special model renderers submit, in pose space. A sink then draws
 //! them: [`gui`] into the HUD batch with the GUI item lighting, [`WorldSink`]
 //! into entity vertices with the level's lighting.
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 pub mod gui;
 mod special;
 

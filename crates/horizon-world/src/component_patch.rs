@@ -1,6 +1,8 @@
 //! Shared immutable prototypes with ordered, copy-on-write component patches.
 //! Keys stand for stable component-type identities. Callers supply prototype
 //! iteration order and values whose equality matches their native component.
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 use std::{fmt, sync::Arc};
 #[derive(Clone, Debug)]
 pub struct Prototype<K, V>(Arc<Vec<(K, V)>>);

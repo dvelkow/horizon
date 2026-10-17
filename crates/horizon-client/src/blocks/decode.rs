@@ -1,6 +1,8 @@
 //! Typed projection of gameplay facts. Scalar conversions deliberately retain Value's
 //! permissive defaults; maps retain its last-key-wins behavior. Repeated geometry stays
 //! borrowed until it is interned, rather than allocating a JSON tree for every state.
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 use serde::{
     Deserialize, Deserializer,
     de::{MapAccess, SeqAccess, Visitor},

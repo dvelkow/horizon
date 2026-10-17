@@ -6,6 +6,8 @@
 use super::{Game, Screen};
 use horizon_client::{Result, block_entity_anim::Ticker, items::ItemStack, widgets};
 use horizon_core::geometry::Vec3;
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 use horizon_world::registry::BlockStateId;
 use serde_json::{Value, json};
 use std::{

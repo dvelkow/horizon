@@ -14,6 +14,8 @@ use crate::{
     crafting::{Ingredient, Placement},
     items::ItemStack,
 };
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 use std::{collections::HashMap, sync::Arc};
 
 /// `StackedContents<Holder<Item>>`: item counts in an iteration order.

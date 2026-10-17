@@ -5,6 +5,8 @@
 //! submission order so banner/shield pattern layers still paint bottom first.
 use super::super::ItemQuad;
 use glam::{Vec3, Vec4};
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 
 #[derive(Clone, Copy)]
 pub(super) struct Corner {

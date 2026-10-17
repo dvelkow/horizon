@@ -9,6 +9,8 @@ use horizon_core::{
     geometry::{Axis, Direction, VoxelShape, trig},
     position::BlockPos,
 };
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 use horizon_world::{
     fluid::{FluidKind, FluidState},
     fluid_flow::{FluidFlowWorld, flow_at},

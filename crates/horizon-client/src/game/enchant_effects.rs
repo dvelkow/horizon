@@ -7,6 +7,8 @@
 use super::Game;
 use horizon_client::{enchant::EffectContext, items::ItemStack};
 use horizon_core::{geometry::Vec3, random::RandomSource};
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 
 impl Game<'_> {
     /// `Player.getDestroySpeed` after the tool speed: mining efficiency, haste

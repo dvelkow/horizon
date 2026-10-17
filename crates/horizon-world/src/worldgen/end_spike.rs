@@ -12,6 +12,8 @@ use super::{
 };
 use crate::registry::BlockStateId;
 use horizon_core::random::{LegacyRandom, RandomSource};
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 use std::sync::Arc;
 
 fn query<E>(error: PlacementQueryError) -> FeatureExecutionError<E> {

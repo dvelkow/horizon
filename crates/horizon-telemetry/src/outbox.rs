@@ -2,6 +2,10 @@
 //! and the launcher, sent and removed by the launcher's [`crate::upload::flush`]. Only kinds the
 //! player allows get in, each within its daily cap, and the folder never holds more than
 //! [`MAX_FILES`] items or [`MAX_BYTES`].
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
+#[allow(unused_imports)]
+use horizon_platform::PathExt;
 use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
@@ -162,7 +166,7 @@ mod tests {
         );
         assert!(!push(&home, &crash()).unwrap());
         assert!(pending(&home).is_empty());
-        assert!(!dir(&home).exists());
+        assert!(!dir(&home).platform_exists());
         allow(
             &home,
             Choices {
@@ -206,7 +210,7 @@ mod tests {
         assert!(push(&home, &crash()).unwrap());
         let files = files(&dir);
         assert_eq!(files.len(), MAX_FILES);
-        assert!(!dir.join("000001-crash-0000.json").exists());
+        assert!(!dir.join("000001-crash-0000.json").platform_exists());
         assert!(
             files
                 .last()

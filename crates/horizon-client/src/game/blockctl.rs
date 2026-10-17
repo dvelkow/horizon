@@ -2,6 +2,8 @@
 //! `getblock` and `container` (list or put items in a block entity).
 use super::Game;
 use horizon_client::{Result, containers::BlockEntity, items::ItemStack};
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 use horizon_world::{chunk::BlockState, registry::BlockStateId};
 use serde_json::{Value, json};
 use std::collections::BTreeMap;

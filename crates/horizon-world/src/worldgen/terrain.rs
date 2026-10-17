@@ -15,6 +15,8 @@ use horizon_core::{
     random::PositionalRandom,
     ticks::ProtoChunkTicks,
 };
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 use std::io;
 
 /// Behavior and resolved tags for every state in the chunk's immutable registry.

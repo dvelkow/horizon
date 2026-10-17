@@ -7,10 +7,15 @@
 //! [`Mods`] makes no engine and every hook returns at once.
 pub mod content;
 pub mod manifest;
-#[cfg(feature = "runtime")]
+#[cfg(all(feature = "runtime", not(target_arch = "wasm32")))]
 mod runtime;
 
 pub use content::Content;
 pub use manifest::{Capability, Manifest, Package, Side};
-#[cfg(feature = "runtime")]
+#[cfg(all(feature = "runtime", not(target_arch = "wasm32")))]
 pub use runtime::*;
+
+#[cfg(target_arch = "wasm32")]
+mod browser;
+#[cfg(target_arch = "wasm32")]
+pub use browser::*;

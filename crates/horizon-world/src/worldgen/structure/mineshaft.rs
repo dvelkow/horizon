@@ -6,6 +6,8 @@ use super::{
 use crate::nbt::Tag;
 use crate::worldgen::biome::BiomeId;
 use horizon_core::{geometry::Direction, random::RandomSource};
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 use std::{
     collections::BTreeSet,
     sync::{Arc, Mutex},

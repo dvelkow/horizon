@@ -8,6 +8,8 @@ use horizon_core::{
     position::ChunkPos,
     random::{LegacyRandom, RandomSource},
 };
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 use std::{collections::BTreeMap, sync::Arc};
 
 #[derive(Clone, Debug)]

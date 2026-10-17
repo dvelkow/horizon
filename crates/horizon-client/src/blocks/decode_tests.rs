@@ -1,4 +1,6 @@
 use super::*;
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 
 #[test]
 fn shape_identity_and_geometry_match_the_value_loader() -> crate::Result<()> {

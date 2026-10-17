@@ -6,6 +6,8 @@ use crate::{
     text::Text,
     ui,
 };
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 
 /// MenuTabBar.HEIGHT: the header above the tab area.
 const TAB_BAR: f32 = 24.0;

@@ -6,6 +6,8 @@ use crate::{
     compression::invalid,
     worldgen::tags::{TagDefinitions, identifier},
 };
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 use serde_json::Value;
 use std::{
     collections::{BTreeMap, BTreeSet},

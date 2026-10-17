@@ -14,6 +14,10 @@ use horizon_client::{
     scoreboard::bracketed,
     text::{self, Text},
 };
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
+#[allow(unused_imports)]
+use horizon_platform::PathExt;
 use horizon_world::nbt::Tag;
 use std::collections::BTreeSet;
 
@@ -196,7 +200,7 @@ impl Game<'_> {
                 ])
             })
             .collect();
-        if events.is_empty() && !self.schedule_path().exists() {
+        if events.is_empty() && !self.schedule_path().platform_exists() {
             return;
         }
         let _ = save::write_dat(

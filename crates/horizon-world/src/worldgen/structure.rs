@@ -1,5 +1,7 @@
 //! Structure templates, processors and placement shared by template features
 //! and structure pieces.
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 pub mod end_city;
 pub mod features;
 pub mod fortress;

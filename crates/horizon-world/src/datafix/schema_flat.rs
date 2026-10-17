@@ -3,6 +3,8 @@
 //! shape differs from the general code of [`super`]; the other types fall through.
 use super::{Key, Ty, Walker, as_str, key, namespaced};
 use crate::nbt::Tag;
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 use std::cell::Cell;
 use std::collections::HashSet;
 use std::sync::OnceLock;

@@ -1,5 +1,7 @@
 //! Immutable biome identities and resolved holder sets for world predicates.
 use super::{DecodeError, biome::BiomeId, density::identifier};
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 use std::{
     collections::{BTreeMap, BTreeSet},
     sync::Arc,

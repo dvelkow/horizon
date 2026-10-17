@@ -6,6 +6,8 @@
 //! (Crypt.decryptUsingKey). Modular exponentiation uses Montgomery
 //! multiplication on 32-bit limbs; RSA moduli are always odd.
 use crate::{Error, Result};
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 
 /// A non-negative integer, little-endian 32-bit limbs.
 #[derive(Clone, Debug, PartialEq, Eq)]

@@ -10,6 +10,8 @@ use super::{
 };
 use crate::block_placement::{BlockPlacement, BlockPlacementBindings, BlockPlacementError};
 use horizon_core::random::RandomSource;
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 use std::sync::Arc;
 
 /// Immutable state providers and placement transitions share one registry.

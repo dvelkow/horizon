@@ -7,6 +7,8 @@
 //! refused with "You logged in from another location". The generated name is
 //! kept in `horizon-player.txt` next to `options.txt` so the same player gets
 //! the same offline UUID (and inventory on a friend's world) every time.
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 use std::{fs, path::Path};
 
 pub const FILE: &str = "horizon-player.txt";

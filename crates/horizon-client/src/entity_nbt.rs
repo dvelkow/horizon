@@ -15,6 +15,10 @@ use crate::{
     },
 };
 use horizon_core::geometry::Vec3;
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
+#[allow(unused_imports)]
+use horizon_platform::PathExt;
 use horizon_world::nbt::{Compound, Tag};
 use std::{collections::HashMap, sync::Arc};
 
@@ -1745,7 +1749,7 @@ mod axolotl_nbt_tests {
     fn bucket_cooldown_and_brain_memories_survive_and_expired_cooldown_is_removed() {
         let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
             .join("../../.local/horizon-client/26.3");
-        if !root.join("items.json").exists() {
+        if !root.join("items.json").platform_exists() {
             return;
         }
         let data = crate::mobs::MobTypes::load(&root).unwrap();

@@ -11,6 +11,8 @@
 //! backend through `stopped`.
 use crate::sound_events::{INTENTIONALLY_EMPTY, Sentinel, Sound, SoundRegistry};
 use horizon_core::random::LegacyRandom;
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 use std::collections::HashMap;
 
 /// `SoundSource` indices (vanilla order).

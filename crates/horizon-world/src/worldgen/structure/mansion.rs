@@ -8,6 +8,8 @@ use super::{
     processor::ProcessorList,
 };
 use horizon_core::{geometry::Direction, random::RandomSource};
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 use std::sync::Arc;
 
 const CORRIDOR_FLAG: i32 = 8_388_608;

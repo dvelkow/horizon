@@ -1,5 +1,7 @@
 //! One vertex buffer for every terrain section: sections own ranges of it, so
 //! a frame binds it once and draws every section with indirect multi-draw.
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 use std::collections::BTreeMap;
 
 /// Ranges are rounded up to this many vertices to limit fragmentation.

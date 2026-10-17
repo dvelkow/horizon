@@ -8,6 +8,8 @@ use super::{
     keyframes::Animation,
 };
 use horizon_core::random::RandomSource;
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 use std::collections::HashMap;
 
 // Copper golem state: `variant` the weathering (0 unaffected .. 3 oxidized),

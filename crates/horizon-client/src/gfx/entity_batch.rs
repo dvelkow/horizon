@@ -1,5 +1,7 @@
 //! Stable entity material grouping with renderer-owned, reusable CPU scratch.
 use super::Vertex;
+#[cfg(all(target_arch = "wasm32", test))]
+use horizon_platform as std;
 
 #[derive(Default)]
 pub(super) struct EntityBatch {

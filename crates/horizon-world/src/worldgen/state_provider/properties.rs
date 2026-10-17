@@ -1,5 +1,7 @@
 //! Compact property transitions derived from the pinned Cartesian state tables.
 use crate::registry::{BlockRegistry, BlockStateId};
+#[cfg(target_arch = "wasm32")]
+use horizon_platform as std;
 use std::collections::{BTreeMap, BTreeSet};
 #[derive(Clone, Copy, Debug)]
 struct Address {
