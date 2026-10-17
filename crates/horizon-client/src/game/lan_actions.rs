@@ -55,6 +55,8 @@ pub(super) struct GuestPlay {
     potions: super::potions::BodyPotions,
     /// `ServerPlayer.getStats` and the inventory `inventory_changed` last saw.
     pub(super) stats: super::stats::Stats,
+    /// The guest's CombatTracker: what hurt them, for their death message.
+    combat: super::combat::CombatTracker,
     last_inventory: u64,
 }
 
@@ -177,6 +179,7 @@ impl Game<'_> {
         std::mem::swap(&mut self.adv.unlocked, &mut g.recipes_unlocked);
         std::mem::swap(&mut self.level.recipe_book, &mut g.recipe_book);
         std::mem::swap(&mut self.stats, &mut play.stats);
+        std::mem::swap(&mut self.combat, &mut play.combat);
         let adv_loaded = std::mem::replace(&mut self.adv.loaded, true);
         let last_inventory = std::mem::replace(&mut self.adv.last_inventory, play.last_inventory);
         self.lan_acting = Some(conn);
@@ -219,6 +222,7 @@ impl Game<'_> {
         std::mem::swap(&mut self.adv.unlocked, &mut g.recipes_unlocked);
         std::mem::swap(&mut self.level.recipe_book, &mut g.recipe_book);
         std::mem::swap(&mut self.stats, &mut play.stats);
+        std::mem::swap(&mut self.combat, &mut play.combat);
         self.adv.loaded = adv_loaded;
         play.last_inventory = std::mem::replace(&mut self.adv.last_inventory, last_inventory);
         let stat_events = std::mem::take(&mut play.stats.events);
@@ -774,7 +778,8 @@ impl Game<'_> {
             return;
         }
         if let Some(victim) = Self::pvp_victim(host, conn, id) {
-            if let Some(Some(strike)) = self.as_guest(host, conn, |g| g.pvp_strike()) {
+            if let Some(Some(mut strike)) = self.as_guest(host, conn, |g| g.pvp_strike()) {
+                strike.attacker = Some(host.hub.guests[gi].name.clone());
                 self.pvp_land(host, victim, &strike);
             }
             return;
@@ -1038,11 +1043,36 @@ impl Game<'_> {
                     total: g.xp_total,
                 }
                 .death_reward(self.ui.rules.bool("keep_inventory") || g.game_mode == SPECTATOR);
-                let message = literal(&format!("{} died", g.name));
+                // CombatTracker.getDeathMessage under the guest's name, on the
+                // death screen and (show_death_messages) in everyone's chat.
+                let name = g.name.clone();
+                let below_world = at[1] < f64::from(horizon_client::chunk::MIN_Y - 64);
+                let text = self
+                    .as_guest(host, conn, |g| {
+                        let me = horizon_client::text::Text::literal(name.clone());
+                        if below_world {
+                            horizon_client::text::Text::translate("death.attack.outOfWorld", &[me])
+                        } else {
+                            g.combat_death_message_as(me)
+                        }
+                    })
+                    .unwrap_or_else(|| {
+                        horizon_client::text::Text::translate(
+                            "death.attack.generic",
+                            &[horizon_client::text::Text::literal(name)],
+                        )
+                    });
+                let message = horizon_client::lan::data::component_nbt(&text.component());
                 host.hub.send_to(
                     conn,
-                    &C::PlayerCombatKill(play::PlayerCombatKill { id, message }),
+                    &C::PlayerCombatKill(play::PlayerCombatKill {
+                        id,
+                        message: message.clone(),
+                    }),
                 );
+                if self.ui.rules.bool("show_death_messages") {
+                    host.hub.system_message(message);
+                }
                 // LivingEntity.die: the death animation, the dying player included.
                 host.hub.entity_event(id, 3, at);
                 self.spawn_orbs(at, reward);
@@ -1147,6 +1177,8 @@ impl Game<'_> {
             let _ = player.peaceful_regeneration(rules);
             let _ = player.food_tick(health, rules);
             events.append(&mut player.events);
+            // CombatTracker.recordDamage, for the death message.
+            game.record_combat(&events);
             events
                 .into_iter()
                 .filter_map(|e| match e {

@@ -3648,6 +3648,40 @@ impl Game<'_> {
     }
     /// Chat (ChatComponent), the chat input line and the action bar.
     pub(super) fn remote_hud(&self, batch: &mut HudBatch) {
+        /// ComponentRenderUtils.wrapComponents: words onto lines no wider
+        /// than `max`, a word longer than a line split where it must be.
+        fn wrap_chat(
+            atlas: &horizon_client::hud::HudAtlas,
+            text: &str,
+            max: f32,
+        ) -> Vec<String> {
+            let mut lines = Vec::new();
+            let mut line = String::new();
+            for word in text.split(' ') {
+                let candidate = if line.is_empty() {
+                    word.to_owned()
+                } else {
+                    format!("{line} {word}")
+                };
+                if HudBatch::text_width(atlas, &candidate) <= max {
+                    line = candidate;
+                    continue;
+                }
+                if !line.is_empty() {
+                    lines.push(std::mem::take(&mut line));
+                }
+                for c in word.chars() {
+                    line.push(c);
+                    if HudBatch::text_width(atlas, &line) > max && line.chars().count() > 1 {
+                        line.pop();
+                        lines.push(std::mem::take(&mut line));
+                        line.push(c);
+                    }
+                }
+            }
+            lines.push(line);
+            lines
+        }
         let Some(r) = &self.remote else { return };
         let atlas = &self.atlas;
         let (w, h) = (batch.width, batch.height);
@@ -3660,7 +3694,11 @@ impl Game<'_> {
         } else {
             0
         };
-        for (text, at) in r.chat.iter().rev().take(shown) {
+        // ChatComponent: messages wrap to the chat's width (320, or the
+        // screen's if narrower) and the line count is what is limited.
+        let width = 320f32.min(w - 4.0);
+        let mut lines_left = shown;
+        'messages: for (text, at) in r.chat.iter().rev() {
             let age = now.duration_since(*at);
             // Lines fade out after ten seconds unless the chat is open.
             let alpha = if open {
@@ -3672,26 +3710,39 @@ impl Game<'_> {
                 break;
             }
             let a = (alpha * 255.0) as u8;
-            batch.fill(
-                atlas,
-                2.0,
-                y - 1.0,
-                320.0,
-                9.0,
-                rgba(0, 0, 0, (alpha * 128.0) as u8),
-            );
-            batch.text(atlas, text, 4.0, y, rgba(255, 255, 255, a), true);
-            y -= 9.0;
+            for line in wrap_chat(atlas, text, width - 4.0).iter().rev() {
+                if lines_left == 0 {
+                    break 'messages;
+                }
+                lines_left -= 1;
+                batch.fill(
+                    atlas,
+                    2.0,
+                    y - 1.0,
+                    width,
+                    9.0,
+                    rgba(0, 0, 0, (alpha * 128.0) as u8),
+                );
+                batch.text(atlas, line, 4.0, y, rgba(255, 255, 255, a), true);
+                y -= 9.0;
+            }
         }
         if let Some(input) = &r.chat_input {
             batch.fill(atlas, 2.0, h - 14.0, w - 4.0, 12.0, rgba(0, 0, 0, 128));
             let blink = (self.started.elapsed().as_millis() / 300).is_multiple_of(2);
-            let shown = if blink {
+            let typed = if blink {
                 format!("{input}_")
             } else {
                 input.clone()
             };
-            batch.text(atlas, &shown, 4.0, h - 12.0, rgba(224, 224, 224, 255), true);
+            // EditBox scrolls: the end of a long message stays in view.
+            let mut shown = typed.as_str();
+            while HudBatch::text_width(atlas, shown) > w - 8.0
+                && let Some((i, _)) = shown.char_indices().nth(1)
+            {
+                shown = &shown[i..];
+            }
+            batch.text(atlas, shown, 4.0, h - 12.0, rgba(224, 224, 224, 255), true);
         }
         if let Some((text, at)) = &r.action_bar
             && now.duration_since(*at) < Duration::from_secs(3)

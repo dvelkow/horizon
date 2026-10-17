@@ -87,7 +87,25 @@ impl SpawnLevel for GameLevel<'_, '_> {
         self.w.world_seed
     }
     fn player_near(&self, x: f64, y: f64, z: f64, distance: f64) -> bool {
-        self.w.player_near(x, y, z, distance)
+        self.w.player_near(x, y, z, distance) || self.guest_near(x, y, z, distance)
+    }
+}
+impl GameLevel<'_, '_> {
+    /// A connected player (not in spectator mode) within `range`; a negative
+    /// range is any distance.
+    fn guest_near(&self, x: f64, y: f64, z: f64, range: f64) -> bool {
+        let Some(host) = self.game.lan.as_ref() else {
+            return false;
+        };
+        host.hub.guests.iter().any(|g| {
+            let p = g.position;
+            let d = (p[0] - x).powi(2) + (p[1] - y).powi(2) + (p[2] - z).powi(2);
+            g.placed
+                && g.loaded
+                && !g.dead
+                && g.game_mode != horizon_client::lan::guest::SPECTATOR
+                && (range < 0.0 || d < range * range)
+        })
     }
 }
 impl NaturalLevel for GameLevel<'_, '_> {
@@ -140,12 +158,12 @@ impl NaturalLevel for GameLevel<'_, '_> {
         StructureSpawns::shared(&self.game.options.resources)
     }
     fn nearest_player_distance_sqr(&self, x: f64, y: f64, z: f64) -> Option<f64> {
-        let p = self.game.player.as_ref()?;
-        if self.game.spectator() {
-            return None;
-        }
-        let d = [p.position.x - x, p.position.y - y, p.position.z - z];
-        Some(d[0] * d[0] + d[1] * d[1] + d[2] * d[2])
+        self.game
+            .spawn_players()
+            .into_iter()
+            .filter(|(_, spectator)| !spectator)
+            .map(|(p, _)| (p[0] - x).powi(2) + (p[1] - y).powi(2) + (p[2] - z).powi(2))
+            .reduce(f64::min)
     }
     fn respawn(&self) -> Option<[i32; 3]> {
         // The world spawn point lives in the overworld.
@@ -220,6 +238,10 @@ impl NaturalLevel for GameLevel<'_, '_> {
 }
 impl horizon_client::mobs::spawner::SpawnerLevel for GameLevel<'_, '_> {
     fn alive_player_near(&self, x: f64, y: f64, z: f64, range: f64) -> bool {
+        // BaseSpawner.isNearPlayer: connected players count as well.
+        if self.guest_near(x, y, z, range) {
+            return true;
+        }
         let Some(p) = self.game.player_view() else {
             return false;
         };
@@ -255,6 +277,20 @@ impl horizon_client::mobs::spawner::SpawnerLevel for GameLevel<'_, '_> {
     }
 }
 impl<'a> Game<'a> {
+    /// The players mobs spawn around: the host's own, then every connected
+    /// player (a dedicated server has only those), with their spectator mode.
+    pub(super) fn spawn_players(&self) -> Vec<([f64; 3], bool)> {
+        let mut out = Vec::new();
+        if let Some(p) = self.player.as_ref() {
+            out.push(([p.position.x, p.position.y, p.position.z], self.spectator()));
+        }
+        if let Some(host) = self.lan.as_ref() {
+            for g in host.hub.guests.iter().filter(|g| g.placed && g.loaded && !g.dead) {
+                out.push((g.position, g.game_mode == horizon_client::lan::guest::SPECTATOR));
+            }
+        }
+        out
+    }
     pub(super) fn natural_level(&self) -> GameLevel<'_, 'a> {
         GameLevel {
             game: self,
@@ -302,20 +338,35 @@ impl<'a> Game<'a> {
     /// then `spawnForChunk` in the shuffled chunks within 128 blocks of the
     /// player.
     pub(super) fn spawn_natural(&mut self) {
-        let Some(p) = self.player.as_ref().map(|p| p.position) else {
+        let around = self.spawn_players();
+        if around.is_empty() {
             return;
-        };
-        let (pcx, pcz) = (p.x.floor() as i32 >> 4, p.z.floor() as i32 >> 4);
+        }
         // ChunkMap.collectSpawningChunks: tracked chunks whose centre is
-        // within 128 blocks of a non-spectator.
-        let spectator = self.spectator();
-        let mut chunks: Vec<(i32, i32)> = (-8..=8)
-            .flat_map(|dx| (-8..=8).map(move |dz| (pcx + dx, pcz + dz)))
-            .filter(|&(cx, cz)| {
-                let (x, z) = (f64::from(cx * 16 + 8) - p.x, f64::from(cz * 16 + 8) - p.z);
-                !spectator && x * x + z * z < 16384.0 && self.world.chunks.contains_key(&(cx, cz))
-            })
-            .collect();
+        // within 128 blocks of a non-spectator, each once.
+        let mut chunks: Vec<(i32, i32)> = Vec::new();
+        for &(p, spectator) in &around {
+            if spectator {
+                continue;
+            }
+            let (pcx, pcz) = (p[0].floor() as i32 >> 4, p[2].floor() as i32 >> 4);
+            for (cx, cz) in (-8..=8).flat_map(|dx| (-8..=8).map(move |dz| (pcx + dx, pcz + dz))) {
+                let (x, z) = (f64::from(cx * 16 + 8) - p[0], f64::from(cz * 16 + 8) - p[2]);
+                if x * x + z * z < 16384.0
+                    && self.world.chunks.contains_key(&(cx, cz))
+                    && !chunks.contains(&(cx, cz))
+                {
+                    chunks.push((cx, cz));
+                }
+            }
+        }
+        // One player's tracker covers 17 x 17 chunks; with guests, the chunks
+        // all of them reach (the global caps scale with them).
+        let spawnable = if around.len() == 1 && self.player.is_some() {
+            289
+        } else {
+            chunks.len() as i32
+        };
         let spawn_mobs = self.ui.rules.bool("spawn_mobs");
         let spawn_enemies = self.ui.rules.bool("spawn_monsters");
         let mut random = std::mem::replace(&mut self.world.random, LegacyRandom::new(0));
@@ -337,12 +388,14 @@ impl<'a> Game<'a> {
                     persistent: m.persistent,
                 })
                 .collect();
-            let players = vec![SpawnPlayer {
-                position: [p.x, p.y, p.z],
-                spectator,
-            }];
-            // A single player's natural spawn chunk tracker covers 17 x 17 chunks.
-            let mut state = SpawnState::new(&level, 289, players, &counted, |cx, cz| {
+            let players = around
+                .iter()
+                .map(|&(position, spectator)| SpawnPlayer {
+                    position,
+                    spectator,
+                })
+                .collect();
+            let mut state = SpawnState::new(&level, spawnable, players, &counted, |cx, cz| {
                 self.world.chunks.contains_key(&(cx, cz))
             });
             let categories = if spawn_mobs {

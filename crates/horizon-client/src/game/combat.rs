@@ -48,6 +48,13 @@ impl Game<'_> {
         let ((id, _), at) = self.combat.last_hurt_by.as_ref()?;
         (self.world.game_time - at <= 100).then_some((horizon_client::mobs::Who::Mob(*id), *at))
     }
+    /// Remember that another player named `name` deals the next
+    /// `damage_type` damage (an online player's attacker, not a mob).
+    pub(super) fn note_player_attacker(&mut self, damage_type: &str, name: &str) {
+        self.combat
+            .pending
+            .push((damage_type.to_owned(), (u32::MAX, Text::literal(name.to_owned()))));
+    }
     /// Remember who deals the next `damage_type` damage to the player.
     pub(super) fn note_attacker(&mut self, damage_type: &str, mob: u32) {
         if let Some(name) = self.mob_display_name(mob) {
@@ -190,8 +197,11 @@ impl Game<'_> {
     }
     /// `CombatTracker.getDeathMessage`.
     pub(super) fn combat_death_message(&mut self) -> Text {
+        self.combat_death_message_as(Text::literal(PLAYER_NAME))
+    }
+    /// `CombatTracker.getDeathMessage` naming the dying player `me`.
+    pub(super) fn combat_death_message_as(&mut self, me: Text) -> Text {
         self.recheck_combat();
-        let me = Text::literal(PLAYER_NAME);
         let entries = std::mem::take(&mut self.combat.entries);
         self.combat.in_combat = false;
         let Some(killing) = entries.last() else {

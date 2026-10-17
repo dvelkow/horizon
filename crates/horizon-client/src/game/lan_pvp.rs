@@ -20,6 +20,8 @@ pub(super) struct Strike {
     crit: bool,
     from: [f64; 3],
     sweep: Option<[f64; 3]>,
+    /// The attacking player's name, credited in the victim's death message.
+    pub(super) attacker: Option<String>,
 }
 
 impl Game<'_> {
@@ -49,7 +51,8 @@ impl Game<'_> {
         let Some(mut host) = self.lan.take() else {
             return false;
         };
-        if let Some(strike) = self.pvp_strike() {
+        if let Some(mut strike) = self.pvp_strike() {
+            strike.attacker = Some(host.host_name.clone());
             self.pvp_land(&mut host, Victim::Guest(conn), &strike);
         }
         self.lan = Some(host);
@@ -88,6 +91,7 @@ impl Game<'_> {
             crit,
             from,
             sweep,
+            attacker: None,
         })
     }
 
@@ -98,6 +102,9 @@ impl Game<'_> {
                 Victim::Host => self.mob_hits_player(s.amount, s.from, "minecraft:player_attack"),
                 Victim::Guest(conn) => self
                     .guest_hit_by(host, conn, |g| {
+                        if let Some(name) = &s.attacker {
+                            g.note_player_attacker("minecraft:player_attack", name);
+                        }
                         g.mob_hits_player(s.amount, s.from, "minecraft:player_attack")
                     })
                     .unwrap_or(false),
