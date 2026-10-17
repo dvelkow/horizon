@@ -59,6 +59,114 @@ async function fixture(t, overrides = {}) {
   return { root, config, gateway, request, login, upload, approve, websocket };
 }
 
+async function apiKey(f, owner, label = 'Build agent') {
+  const response = await f.request('/api/admin/mod-api-tokens', {method:'POST', headers:{Cookie:owner.cookie, 'X-CSRF-Token':owner.csrf, 'Content-Type':'application/json'}, body:JSON.stringify({label})});
+  assert.equal(response.status, 201); return response.json();
+}
+const apiPayload = (content = {}) => ({packageBase64:Buffer.from(JSON.stringify(content)).toString('base64'), notes:'Read-only HUD. Tested startup and toggling. No resources granted.', files:[{path:'src/lib.rs',content:'// test source <script>alert(1)</script>'}]});
+const apiHeaders = token => ({Authorization:`Bearer ${token}`, Origin:'', 'Content-Type':'application/json'});
+
+test('agents submit code without browser sessions, poll their own status, and cannot approve or read private data', async t => {
+  const f = await fixture(t), owner = await f.login(true), key = await apiKey(f, owner), second = await apiKey(f, owner, 'Other agent');
+  const guide = await (await f.request('/api/v1/mods/guide')).json();
+  assert.equal(guide.rules.length, 2); assert.deepEqual(guide.rules.map(r=>r.id), ['non-game-breaking','no-free-resources']);
+  const response = await f.request('/api/v1/mods/submissions', {method:'POST', headers:apiHeaders(key.token), body:JSON.stringify(apiPayload())});
+  assert.equal(response.status, 202); const submitted = await response.json();
+  assert.equal(submitted.status, 'pending'); assert.equal(submitted.uploader, 'Build agent'); assert.equal(submitted.sourceFiles, 1);
+  assert.equal(f.gateway.store.index.revision, 0);
+  const url = new URL(submitted.statusUrl).pathname;
+  assert.equal(response.headers.get('location'), submitted.statusUrl);
+  assert.equal((await f.request(url, {headers:apiHeaders(key.token)})).status, 200);
+  assert.equal((await f.request(url, {headers:apiHeaders(second.token)})).status, 404);
+  assert.deepEqual((await (await f.request('/api/v1/mods/submissions', {headers:apiHeaders(second.token)})).json()).submissions, []);
+  for (const path of ['/api/mods/pending','/api/mods/submissions',submitted.sourceUrl,'/mods/index.json','/api/admin/mod-api-tokens']) {
+    assert.equal((await f.request(path, {headers:apiHeaders(key.token)})).status, 401, path);
+  }
+  for (const action of ['approve','reject','revoke']) {
+    assert.equal((await f.request(`/api/mods/${submitted.sha256}/${action}`, {method:'POST',headers:apiHeaders(key.token),body:JSON.stringify({sha256:submitted.sha256})})).status,401);
+  }
+  assert.equal((await f.request('/api/v1/mods/submissions?token='+key.token)).status, 401);
+  assert.equal((await f.request(url,{headers:{...apiHeaders(key.token),Origin:'https://evil.test'}})).status,403);
+  const source = await (await f.request(submitted.sourceUrl,{headers:{Cookie:owner.cookie}})).json();
+  assert.equal(source.packageSha256,submitted.sha256); assert.equal(source.files[0].content,apiPayload().files[0].content);
+  assert.equal((await f.approve(owner,submitted.sha256)).status,200);
+  assert.equal((await (await f.request(url,{headers:apiHeaders(key.token)})).json()).status,'published');
+  const disk=await fs.readFile(join(f.root,'private','mod-api-tokens.json'),'utf8');
+  assert.equal(disk.includes(key.token),false); assert.equal((await fs.stat(join(f.root,'private','mod-api-tokens.json'))).mode&0o777,0o600);
+  const listed=await (await f.request('/api/admin/mod-api-tokens',{headers:{Cookie:owner.cookie}})).json();
+  assert.equal(JSON.stringify(listed).includes(key.token),false); assert.equal(JSON.stringify(listed).includes('digest'),false);
+});
+
+test('identical API retries are idempotent and source cannot be replaced or claimed by another key', async t => {
+  const f=await fixture(t),owner=await f.login(true),key=await apiKey(f,owner),other=await apiKey(f,owner,'Other');
+  const submit=(token,payload)=>f.request('/api/v1/mods/submissions',{method:'POST',headers:apiHeaders(token),body:JSON.stringify(payload)});
+  const first=await (await submit(key.token,apiPayload())).json();
+  assert.equal((await submit(key.token,apiPayload())).status,200);
+  assert.equal((await submit(other.token,apiPayload())).status,409);
+  assert.equal((await submit(key.token,{...apiPayload(),notes:'different story'})).status,409);
+  assert.equal((await submit(key.token,{...apiPayload(),files:[{path:'src/lib.rs',content:'different code'}]})).status,409);
+  assert.equal((await f.gateway.store.history()).length,1);
+  assert.equal((await f.gateway.store.readSource(first.sha256)).notes,apiPayload().notes);
+  const revoke=await f.request(`/api/admin/mod-api-tokens/${key.id}/revoke`,{method:'POST',headers:{Cookie:owner.cookie,'X-CSRF-Token':owner.csrf}});
+  assert.equal(revoke.status,200);
+  assert.equal((await f.request('/api/v1/mods/submissions',{headers:apiHeaders(key.token)})).status,401);
+});
+
+test('all-submissions review retains rejected, superseded, revoked and source history', async t => {
+  const f=await fixture(t),owner=await f.login(true),key=await apiKey(f,owner);
+  const submit=async content=>{
+    const response=await f.request('/api/v1/mods/submissions',{method:'POST',headers:apiHeaders(key.token),body:JSON.stringify(apiPayload(content))});
+    return {status:response.status,...await response.json()};
+  };
+  const old=await submit({version:'1'}); await f.approve(owner,old.sha256);
+  const current=await submit({version:'2'}); await f.approve(owner,current.sha256);
+  const superseded=await (await f.request(`/api/v1/mods/submissions/${old.sha256}`,{headers:apiHeaders(key.token)})).json();
+  assert.equal(superseded.status,'superseded');
+  const rejected=await submit({reject:true}); assert.equal(rejected.status,'rejected');
+  const headers={Cookie:owner.cookie,'X-CSRF-Token':owner.csrf,'Content-Type':'application/json'};
+  assert.equal((await f.request(`/api/mods/${current.sha256}/revoke`,{method:'POST',headers,body:JSON.stringify({sha256:current.sha256})})).status,200);
+  const all=await (await f.request('/api/mods/submissions',{headers})).json();
+  assert.equal(all.submissions.length,3);
+  assert.equal(all.submissions.find(s=>s.sha256===current.sha256).status,'revoked');
+  assert.equal(all.submissions.find(s=>s.sha256===rejected.sha256).status,'rejected');
+  assert.equal((await f.gateway.store.readSource(old.sha256)).files.length,1);
+  assert.equal((await f.gateway.store.readSource(rejected.sha256)).files.length,1);
+  // Only review text is retained after rejection, never a rejected executable.
+  assert.deepEqual((await fs.readdir(join(f.root,'private','candidates',rejected.sha256))).sort(),['candidate.json','source.json']);
+});
+
+test('API submission enforces JSON/source/package bounds and returns a retry hint',async t=>{
+  const f=await fixture(t,{maxUploadBytes:1024}),owner=await f.login(true),key=await apiKey(f,owner);
+  const post=payload=>f.request('/api/v1/mods/submissions',{method:'POST',headers:apiHeaders(key.token),body:JSON.stringify(payload)});
+  for(const payload of [{...apiPayload(),packageBase64:'!!!'}, {...apiPayload(),files:[{path:'../secret',content:'bad'}]}, {...apiPayload(),files:[{path:'src/lib.rs',content:'x'.repeat(512*1024+1)}]}, {...apiPayload(),packageBase64:Buffer.alloc(1025).toString('base64')}, {...apiPayload(),notes:''}, {...apiPayload(),files:[]}]) {
+    assert.equal((await post(payload)).status,400);
+  }
+  const limited=await post(apiPayload()); assert.equal(limited.status,429); assert.equal(limited.headers.get('retry-after'),'60');
+  assert.equal((await f.gateway.store.history()).length,0);
+});
+
+test('API key issuance requires owner CSRF, and a full archive cannot accept more submissions',async t=>{
+  const f=await fixture(t,{maxSubmissionHistory:1}),owner=await f.login(true),friend=await f.login(),key=await apiKey(f,owner);
+  for(const headers of [{Cookie:friend.cookie,'X-CSRF-Token':friend.csrf},{Cookie:owner.cookie}]) {
+    const response=await f.request('/api/admin/mod-api-tokens',{method:'POST',headers:{...headers,'Content-Type':'application/json'},body:JSON.stringify({label:'unauthorized'})});
+    assert.ok([401,403].includes(response.status));
+  }
+  const post=content=>f.request('/api/v1/mods/submissions',{method:'POST',headers:apiHeaders(key.token),body:JSON.stringify(apiPayload(content))});
+  assert.equal((await post({reject:true})).status,422);
+  assert.equal((await post({id:'next'})).status,409);
+  assert.equal((await f.gateway.store.history()).length,1);
+});
+
+test('modified review source blocks both source access and publication',async t=>{
+  const f=await fixture(t),owner=await f.login(true),key=await apiKey(f,owner);
+  const response=await f.request('/api/v1/mods/submissions',{method:'POST',headers:apiHeaders(key.token),body:JSON.stringify(apiPayload())});
+  const candidate=await response.json();
+  await fs.writeFile(join(f.root,'private','candidates',candidate.sha256,'source.json'),JSON.stringify({packageSha256:candidate.sha256,files:[]}));
+  assert.equal((await f.request(candidate.sourceUrl,{headers:{Cookie:owner.cookie}})).status,500);
+  assert.equal((await f.approve(owner,candidate.sha256)).status,409);
+  assert.equal(f.gateway.store.index.revision,0);
+});
+
 test('authentication, origin, CSRF and static roots enforce separate boundaries', async t => {
   const f = await fixture(t);
   const page = await f.request('/');

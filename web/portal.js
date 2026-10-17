@@ -2,6 +2,7 @@ const $ = id => document.getElementById(id);
 let friend = {authenticated: false};
 let owner = {authenticated: false};
 let loading = false;
+let submissions = [];
 function status(id, message, error = false) { const node = $(id); node.textContent = message; node.classList.toggle("error", error); }
 async function request(path, options = {}) {
   const response = await fetch(path, {credentials: "same-origin", cache: "no-store", redirect: "error", ...options});
@@ -23,7 +24,8 @@ function modRow(item, active = false) {
   const manifest = item.manifest ?? item;
   const row = element("li", undefined, "mod-item"); const top = element("div", undefined, "mod-top");
   const heading = element("h3", manifest.name ?? manifest.id ?? "Uploaded mod"); heading.append(element("span", manifest.version ?? "", "mod-version"));
-  top.append(heading, element("span", active ? "Live" : (item.status ?? "pending"), `badge ${active ? "approved" : item.status ?? "pending"}`)); row.append(top);
+  const labels = {pending: "Awaiting review", published: "Live", rejected: "Rejected", superseded: "Older version", revoked: "Removed"};
+  top.append(heading, element("span", active ? "Live" : labels[item.status] ?? "Awaiting review", `badge ${active ? "approved" : item.status ?? "pending"}`)); row.append(top);
   if (manifest.description) row.append(element("p", manifest.description));
   const side = manifest.side ?? "client";
   row.append(element("p", `${side === "both" ? "Players and server" : side === "server" ? "Server" : "Players"}${item.uploader ? ` · Uploaded by ${item.uploader}` : ""}`));
@@ -37,6 +39,24 @@ function modRow(item, active = false) {
     row.append(checks);
   }
   if (item.error) row.append(element("p", item.error, "error"));
+  if (item.created) row.append(element("p", `${item.submittedVia === "api" ? "Agent submission" : "Workshop upload"} · ${new Date(item.created).toLocaleString()}`));
+  if (item.notes) row.append(element("p", item.notes, "submission-notes"));
+  if (item.sourceSha256 && /^[a-f0-9]{64}$/.test(item.sha256)) {
+    const source = element("details"); source.append(element("summary", `Review source code (${item.sourceFiles} ${item.sourceFiles === 1 ? "file" : "files"})`));
+    const body = element("div"); source.append(body); let loaded = false, pending = false;
+    source.addEventListener("toggle", async () => {
+      if (!source.open || loaded || pending) return;
+      pending = true; body.replaceChildren(element("p", "Loading source…"));
+      try {
+        const bundle = await request(`/api/mods/submissions/${item.sha256}/source`);
+        body.replaceChildren(element("p", "The source is attached to this exact mod file for review. Its correspondence to the compiled mod has not been independently verified.", "owner-note"));
+        for (const file of bundle.files) { const details = element("details"); details.append(element("summary", file.path), element("pre", file.content)); body.append(details); }
+        loaded = true;
+      } catch (error) { body.replaceChildren(element("p", error.message, "error")); }
+      finally { pending = false; }
+    });
+    row.append(source);
+  }
   if (item.liveReload === false) row.append(element("p", "This changes world content and needs a coordinated server restart. It cannot be approved as a live update.", "owner-note"));
   row.append(element("div", "File fingerprint (SHA-256)", "hash-label"), element("code", item.sha256, "sha"));
   const details = element("details"); details.append(element("summary", "View manifest and checks"), element("pre", JSON.stringify({manifest, checks: item.checks ?? null}, null, 2))); row.append(details);
@@ -65,11 +85,16 @@ async function decide(item, decision, row) {
 async function refresh() {
   if (loading) return; loading = true; $("refresh").disabled = true;
   try {
-    const [pending, active] = await Promise.all([owner.authenticated ? request("/api/mods/pending") : null, friend.authenticated && !friend.needsProfile ? request("/mods/index.json") : null]);
-    if (pending) { const rows = [...pending.candidates].reverse(); $("pending-list").replaceChildren(...rows.map(row => modRow(row))); if (!rows.length) $("pending-list").append(element("li", "No uploads yet. Share a .hmod file to start a review.", "empty")); }
+    const [history, active] = await Promise.all([owner.authenticated ? request("/api/mods/submissions") : null, friend.authenticated && !friend.needsProfile ? request("/mods/index.json") : null]);
+    if (history) { submissions = [...history.submissions].reverse(); showSubmissions(); }
     if (active) { $("active-list").replaceChildren(...active.mods.map(row => modRow(row, true))); if (!active.mods.length) $("active-list").append(element("li", "No approved mods yet.", "empty")); }
   } catch (error) { status("review-status", error.message, true); }
   finally { loading = false; $("refresh").disabled = false; }
+}
+function showSubmissions() {
+  const filter = $("submission-filter").value, rows = submissions.filter(row => filter === "all" || row.status === filter);
+  $("pending-list").replaceChildren(...rows.map(row => modRow(row)));
+  if (!rows.length) $("pending-list").append(element("li", "No submissions in this view yet.", "empty"));
 }
 $("upload-form").addEventListener("submit", async event => {
   event.preventDefault(); const file = $("mod-file").files[0];
@@ -89,9 +114,13 @@ $("owner-form").addEventListener("submit", async event => {
   finally { button.disabled = false; }
 });
 $("owner-logout").addEventListener("click", async () => {
-  try { await request("/api/admin/logout", {method: "POST", headers: {"x-csrf-token": owner.csrf}}); owner = {authenticated: false}; $("pending-list").replaceChildren(); showSessions(); await refresh(); }
+  try { await request("/api/admin/logout", {method: "POST", headers: {"x-csrf-token": owner.csrf}}); owner = {authenticated: false}; submissions = []; $("pending-list").replaceChildren(); showSessions(); await refresh(); }
   catch (error) { status("owner-status", error.message, true); }
 });
 $("refresh").addEventListener("click", refresh);
+$("submission-filter").addEventListener("change", showSubmissions);
+request("/api/mods/rules").then(({rules}) => $("mod-rules").replaceChildren(...rules.map(rule => {
+  const row = element("li"); row.append(element("strong", rule.text), element("span", ` ${rule.detail}`)); return row;
+}))).catch(() => $("mod-rules").replaceChildren(element("li", "Don't break the game."), element("li", "No free resources.")));
 try { [friend, owner] = await Promise.all([request("/api/session"), request("/api/admin/session")]); showSessions(); await refresh(); }
 catch (error) { status("friend-status", "Could not reach the workshop."); status("owner-status", error.message, true); }
