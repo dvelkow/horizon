@@ -1,7 +1,7 @@
 //! Loads real mods built with the SDK: the coords-hud example and a guest
 //! that misbehaves on command. Needs `rustup target add wasm32-unknown-unknown`.
 use horizon_mods::{
-    Clock, Corner, Mods, Output, Package, Player, Snapshot, Status, manifest::componentize,
+    Clock, Corner, Mods, Motion, Output, Package, Player, Snapshot, Status, manifest::componentize,
 };
 use std::{
     path::{Path, PathBuf},
@@ -32,6 +32,8 @@ fn mods_dir() -> &'static Path {
                 "coords-hud",
                 "-p",
                 "horizon-mods-test-guest",
+                "-p",
+                "double-jump",
                 "--target-dir",
             ])
             .arg(&target)
@@ -45,9 +47,11 @@ fn mods_dir() -> &'static Path {
         let dir = target.join("mods");
         std::fs::create_dir_all(&dir).unwrap();
         let example = root.join("crates/horizon-mod-sdk/examples/coords-hud/horizon-mod.toml");
+        let jump = root.join("crates/horizon-mod-sdk/examples/double-jump/horizon-mod.toml");
         let mods = [
             ("coords_hud", std::fs::read_to_string(example).unwrap()),
             ("horizon_mods_test_guest", GUEST_MANIFEST.to_string()),
+            ("double_jump", std::fs::read_to_string(jump).unwrap()),
         ];
         for (name, manifest) in mods {
             let core = std::fs::read(built.join(format!("{name}.wasm"))).unwrap();
@@ -78,6 +82,7 @@ fn player() -> Snapshot {
             game_time: 100,
             day_time: 24000 + 6000,
         }),
+        motion: None,
     }
 }
 
@@ -307,6 +312,7 @@ fn server_mods_tick_and_each_side_selects_its_own_code() {
             game_time: 40,
             day_time: 6000,
         }),
+        motion: None,
     });
     server.tick(40);
     assert!(server.command("hello server"));
@@ -397,4 +403,53 @@ fn approved_server_updates_keep_last_good_and_reconcile_additions_and_removals()
     assert!(server.sync_server_directory(&dir, |_| false).unwrap());
     assert!(!server.is_running());
     assert!(!server.command("hello removed"));
+}
+
+#[test]
+fn double_jump_nudges_through_the_movement_capability() {
+    let mut mods = load("double_jump.hmod");
+    assert!(mods.is_running(), "{:?}", mods.entries()[0].status);
+    let mut at = |on_ground, jumping| {
+        mods.set_snapshot(Snapshot {
+            player: None,
+            clock: None,
+            motion: Some(Motion {
+                vx: 0.3,
+                vy: 0.0,
+                vz: 0.0,
+                on_ground,
+                jumping,
+                steerable: true,
+                lift_left: 16,
+            }),
+        });
+        mods.tick(0);
+        mods.take_nudge()
+    };
+    // Jumping from the ground and holding it: the game's own jump.
+    assert!(at(true, true).is_empty());
+    assert!(at(false, true).is_empty());
+    assert!(at(false, false).is_empty());
+    // A fresh press in the air: the catch brakes against the run-up...
+    let catch = at(false, true);
+    assert_eq!(catch.vertical, Some(0.03));
+    assert!(catch.push[0] < 0.0);
+    // ...then the burst and the float, and nothing after.
+    let mut rise = 0.03;
+    let mut ticks = 1;
+    while let Some(vy) = at(false, false).vertical {
+        rise += vy;
+        ticks += 1;
+    }
+    assert_eq!(ticks, 11);
+    assert!((1.5..1.65).contains(&rise), "rise {rise}");
+    assert!(at(false, true).is_empty(), "once per airtime");
+    assert!(mods.command("doublejump"));
+    assert_eq!(
+        mods.drain(),
+        [Output::Feedback {
+            text: "Double jump off".into(),
+            error: false
+        }]
+    );
 }

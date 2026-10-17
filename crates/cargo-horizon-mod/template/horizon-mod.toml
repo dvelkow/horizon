@@ -8,5 +8,6 @@ api = "0.1"
 # client: runs in the player's game.
 side = "client"
 # What the mod may do, shown to players before they turn it on:
-# game-read (position, health, time), chat (show messages), hud (draw text).
+# game-read (position, health, time), chat (show messages), hud (draw text),
+# movement (read the player's motion and nudge it in the air).
 capabilities = ["chat"]

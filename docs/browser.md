@@ -102,7 +102,9 @@ Each browser mod has at most 64 MiB of core memory and 10,000 table entries;
 at most eight client/both mods may be active. A Worker deadline terminates runaway
 execution. This is wall-clock isolation, not the native instruction-fuel model.
 
-API 0.1 supports game snapshots, HUD, chat and registered commands. New block or
+API 0.1 supports game snapshots, HUD, chat and registered commands; 0.1.1 adds
+bounded `movement` nudges, which Workers return with each hook's result and the
+game applies before the next movement step (one tick after the hook). New block or
 item registries and baked resource/content changes require a coordinated release;
 the live portal rejects their activation explicitly. This deployment does not
 claim arbitrary Java/Fabric mods or new game-engine hooks can be hot-loaded.

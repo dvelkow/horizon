@@ -1,0 +1,8 @@
+id = "double_jump"
+name = "Double Jump"
+version = "0.1.0"
+description = "Press jump again in the air for a second jump: a short catch, a burst upward, then a floaty hang before you drop. Once per airtime, never above 3 blocks on flat ground (no fall damage from the jump itself). /doublejump turns it off or on."
+authors = ["Dobromir Velkov"]
+api = "0.1"
+side = "client"
+capabilities = ["movement"]

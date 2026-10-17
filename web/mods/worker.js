@@ -2,18 +2,21 @@
 let events;
 let manifest;
 let hooks;
-let snapshot = {player: null, clock: null};
+let snapshot = {player: null, clock: null, motion: null};
 let panel = null;
 let output = [];
+let nudge = null;
 let chatCount = 0;
 let logCount = 0;
 let initialized = false;
 const corners = new Set(["top-left", "top-right", "bottom-left", "bottom-right"]);
 const clip = (value, maximum = 256) => Array.from(String(value).slice(0, maximum * 2)).slice(0, maximum).join("");
 const finite = value => Number.isFinite(Number(value)) ? Number(value) : 0;
+/* The bounds of crates/horizon-mods/src/nudge.rs; the game bounds nudges again. */
+const MAX_RISE = 0.6, MAX_DROP = 3.92, MAX_PUSH = 0.1;
 function beginCall(nextSnapshot) {
   if (nextSnapshot) snapshot = nextSnapshot;
-  output = []; chatCount = 0; logCount = 0;
+  output = []; chatCount = 0; logCount = 0; nudge = null;
 }
 function player() {
   const value = snapshot.player;
@@ -21,6 +24,20 @@ function player() {
   return {x: finite(value.x), y: finite(value.y), z: finite(value.z), yaw: finite(value.yaw), pitch: finite(value.pitch),
     health: finite(value.health), food: Math.max(0, Math.min(0xffffffff, finite(value.food))) >>> 0,
     dimension: clip(value.dimension, 128)};
+}
+function motion() {
+  const value = snapshot.motion;
+  if (!value) return undefined;
+  return {vx: finite(value.vx), vy: finite(value.vy), vz: finite(value.vz), onGround: value.on_ground === true,
+    jumping: value.jumping === true, steerable: value.steerable === true,
+    liftLeft: Math.max(0, Math.min(0xffffffff, finite(value.lift_left))) >>> 0};
+}
+function pushNudge(dx, dz) {
+  if (!Number.isFinite(dx) || !Number.isFinite(dz)) return;
+  nudge ??= {vertical: null, push: [0, 0]};
+  let x = nudge.push[0] + dx, z = nudge.push[1] + dz; const length = Math.hypot(x, z);
+  if (length > MAX_PUSH) { x *= MAX_PUSH / length; z *= MAX_PUSH / length; }
+  nudge.push = [x, z];
 }
 function clock() {
   if (!snapshot.clock) return undefined;
@@ -31,7 +48,9 @@ function importsFor(capabilities) {
   const imports = Object.create(null);
   const add = (name, functions) => {
     const instance = Object.freeze(functions);
+    // Mods built for 0.1.0 and 0.1.1 link the same functions.
     imports[`horizon:mods/${name}@0.1.0`] = instance;
+    imports[`horizon:mods/${name}@0.1.1`] = instance;
     imports[`horizon:mods/${name}`] = instance;
   };
   add("log", {write(level, message) {
@@ -47,6 +66,15 @@ function importsFor(capabilities) {
       panel = {corner, lines: lines.slice(0, 16).map(line => ({text: clip(line.text), color: Number(line.color) >>> 0}))};
     },
     clear() { panel = null; },
+  });
+  if (capabilities.includes("movement")) add("movement", {
+    getMotion: motion,
+    setVerticalSpeed(vy) {
+      if (!Number.isFinite(vy)) return;
+      nudge ??= {vertical: null, push: [0, 0]};
+      nudge.vertical = Math.max(-MAX_DROP, Math.min(MAX_RISE, vy));
+    },
+    push: pushNudge,
   });
   return Object.freeze(imports);
 }
@@ -79,9 +107,11 @@ async function initialize(message) {
     };
     beginCall(message.snapshot);
     const component = await generated.instantiate(getCoreModule, importsFor(manifest.capabilities));
-    events = component["horizon:mods/events@0.1.0"] || component["horizon:mods/events"] || component.events;
+    events = component["horizon:mods/events@0.1.1"] || component["horizon:mods/events@0.1.0"] || component["horizon:mods/events"] || component.events;
     if (!events || typeof events.init !== "function") throw new Error("Component does not export Horizon events");
     hooks = registration(events.init());
+    // There is no movement step to nudge before the first tick.
+    nudge = null;
     postMessage({kind: "ready", hooks, panel, out: output});
   } finally { URL.revokeObjectURL(moduleUrl); }
 }
@@ -103,7 +133,7 @@ function invoke(message) {
       output.push({kind: "feedback", text: clip(error.payload ?? error.message ?? error), error: true});
     }
   } else throw new Error("Unregistered mod hook");
-  postMessage({kind: "result", call: message.call, panel, out: output});
+  postMessage({kind: "result", call: message.call, panel, out: output, nudge});
 }
 self.onmessage = async event => {
   try {

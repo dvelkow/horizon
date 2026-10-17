@@ -7,11 +7,13 @@
 //! [`Mods`] makes no engine and every hook returns at once.
 pub mod content;
 pub mod manifest;
+pub mod nudge;
 #[cfg(all(feature = "runtime", not(target_arch = "wasm32")))]
 mod runtime;
 
 pub use content::Content;
 pub use manifest::{Capability, Manifest, Package, Side};
+pub use nudge::Nudge;
 #[cfg(all(feature = "runtime", not(target_arch = "wasm32")))]
 pub use runtime::*;
 

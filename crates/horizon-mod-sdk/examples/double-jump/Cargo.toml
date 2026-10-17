@@ -1,0 +1,16 @@
+[package]
+name = "double-jump"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+publish = false
+description = "Example Horizon mod: a second jump in the air with its own feel (a catch, a burst, a float)"
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+horizon-mod-sdk = { path = "../.." }
+
+[lints]
+workspace = true

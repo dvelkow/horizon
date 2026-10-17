@@ -6,7 +6,7 @@ import { runValidator } from './validator.mjs';
 
 export const sha256 = bytes => createHash('sha256').update(bytes).digest('hex');
 export const isHash = value => typeof value === 'string' && /^[a-f0-9]{64}$/.test(value);
-const capabilities = new Set(['game-read', 'chat', 'hud', 'registries']);
+const capabilities = new Set(['game-read', 'chat', 'hud', 'movement', 'registries']);
 
 export async function atomicJson(path, value) {
   const temporary = `${path}.${randomBytes(12).toString('hex')}.tmp`;
@@ -23,7 +23,7 @@ function manifestSummary(manifest) {
       typeof manifest.name !== 'string' || manifest.name.length > 128 || !manifest.name ||
       typeof manifest.version !== 'string' || manifest.version.length > 64 || !manifest.version ||
       !['0.1', '0.2'].includes(manifest.api) || !['client', 'server', 'both'].includes(manifest.side) ||
-      !Array.isArray(manifest.capabilities) || manifest.capabilities.length > 4 ||
+      !Array.isArray(manifest.capabilities) || manifest.capabilities.length > capabilities.size ||
       manifest.capabilities.some(value => !capabilities.has(value))) throw new Error('Validator returned an invalid manifest');
   if (manifest.description != null && (typeof manifest.description !== 'string' || manifest.description.length > 4096)) throw new Error('Invalid mod description');
   if (manifest.authors != null && (!Array.isArray(manifest.authors) || manifest.authors.length > 32 || manifest.authors.some(name => typeof name !== 'string' || name.length > 256))) throw new Error('Invalid mod authors');

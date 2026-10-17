@@ -3194,6 +3194,11 @@ impl Game<'_> {
         }
         let riding = self.riding.is_some();
         let ghast_collisions = self.happy_ghast_player_collisions();
+        let nudge = if self.mods.mods.is_running() {
+            self.take_mod_nudge()
+        } else {
+            None
+        };
         let Some(player) = self.player.as_mut() else {
             // A dedicated server has no local player: the world still runs.
             if self.options.dedicated.is_some() {
@@ -3278,6 +3283,12 @@ impl Game<'_> {
             [player.position.x, player.position.y, player.position.z],
         );
         if !riding {
+            // Mods' movement nudges (docs/mods.md), bounded, before the step.
+            if let Some(nudge) = nudge
+                && nudge.apply(player)
+            {
+                self.mods.lift_used += 1;
+            }
             MotionWorld {
                 entities: &ghast_collisions,
                 player,

@@ -9,7 +9,7 @@ const LIMITS = {initialize: 15000, tick: 1000, frame: 1000, chat: 1000, command:
 const clip = (value, maximum = 256) => Array.from(String(value).slice(0, maximum * 2)).slice(0, maximum).join("");
 const hex = value => typeof value === "string" && /^[a-f0-9]{64}$/.test(value);
 const errorText = error => clip(error?.message ?? error);
-const allowedCapabilities = new Set(["game-read", "chat", "hud", "registries"]);
+const allowedCapabilities = new Set(["game-read", "chat", "hud", "movement", "registries"]);
 
 function modUrl(value, hash) {
   const url = new URL(value, location.origin);
@@ -117,6 +117,7 @@ class Instance {
       if (message.kind !== "result" || !this.busy || message.call !== this.busy.call) throw new Error("Unexpected mod response");
       clearTimeout(this.deadline); this.busy = null;
       this.panel = boundedPanel(message.panel); this.manager.addOutput(this.sanitizeOutput(message.out));
+      if (this.manifest.capabilities.includes("movement")) this.manager.addNudge(message.nudge);
       this.pump();
     } catch (error) { this.fail(errorText(error)); }
   }
@@ -169,7 +170,7 @@ class Instance {
 
 class ModManager {
   constructor() {
-    this.instances = new Map(); this.snapshot = {player: null, clock: null}; this.output = [];
+    this.instances = new Map(); this.snapshot = {player: null, clock: null, motion: null}; this.output = []; this.nudge = null;
     this.revision = 1; this.indexRevision = null; this.closed = false; this.refreshing = false; this.refreshAgain = false;
     this.socket = null; this.reconnect = null; this.pollTimer = null;
     this.refreshPromise = null;
@@ -178,6 +179,17 @@ class ModManager {
   addOutput(rows) {
     this.output.push(...rows);
     if (this.output.length > MAX_OUTPUT) this.output.splice(0, this.output.length - MAX_OUTPUT);
+  }
+  /* Movement nudges since the last poll: the latest vertical speed wins, pushes add (bounded in Rust again). */
+  addNudge(nudge) {
+    if (!nudge || typeof nudge !== "object") return;
+    const vertical = Number.isFinite(nudge.vertical) ? Math.max(-3.92, Math.min(0.6, nudge.vertical)) : null;
+    const push = Array.isArray(nudge.push) && nudge.push.length === 2 && nudge.push.every(Number.isFinite) ? nudge.push : [0, 0];
+    const merged = this.nudge ?? {vertical: null, push: [0, 0]};
+    if (vertical !== null) merged.vertical = vertical;
+    let x = merged.push[0] + push[0], z = merged.push[1] + push[1]; const length = Math.hypot(x, z);
+    if (length > 0.1) { x *= 0.1 / length; z *= 0.1 / length; }
+    merged.push = [x, z]; this.nudge = merged;
   }
   refresh() {
     if (this.closed) return Promise.resolve();
@@ -249,12 +261,14 @@ class ModManager {
       if (instance.panel) panels.push(instance.panel);
       for (const command of instance.hooks.commands) if (commands.size < 128) commands.add(command);
     }
-    return {revision: this.revision, entries, panels, commands: [...commands], out: drain ? this.output.splice(0, MAX_OUTPUT) : []};
+    const nudge = drain ? this.nudge : null;
+    if (drain) this.nudge = null;
+    return {revision: this.revision, entries, panels, commands: [...commands], out: drain ? this.output.splice(0, MAX_OUTPUT) : [], nudge};
   }
   dispatch(method, payload) {
     if (method === "view" || method === "poll") return this.view(method === "poll");
     if (method === "snapshot") {
-      this.snapshot = payload && typeof payload === "object" ? {player: payload.player ?? null, clock: payload.clock ?? null} : {player: null, clock: null};
+      this.snapshot = payload && typeof payload === "object" ? {player: payload.player ?? null, clock: payload.clock ?? null, motion: payload.motion ?? null} : {player: null, clock: null, motion: null};
       return {};
     }
     if (method === "command") {

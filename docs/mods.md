@@ -16,9 +16,9 @@ Coding agents can [submit packages and source directly through the review API](m
 
 | Part | Where | State |
 |---|---|---|
-| The contract (WIT) | `crates/horizon-mod-sdk/wit/horizon.wit` | 0.1: log, game-read, chat, hud; tick, frame, chat and command hooks |
+| The contract (WIT) | `crates/horizon-mod-sdk/wit/horizon.wit` | 0.1.1: log, game-read, chat, hud, movement; tick, frame, chat and command hooks |
 | SDK for mod authors | `crates/horizon-mod-sdk` | 0.1 |
-| Example mod | `crates/horizon-mod-sdk/examples/coords-hud` | coordinates, facing and time HUD, `/where`, `/coords` |
+| Example mods | `crates/horizon-mod-sdk/examples/coords-hud`, `examples/double-jump` | coordinates, facing and time HUD, `/where`, `/coords`; a second jump in the air, `/doublejump` |
 | Runtime | `crates/horizon-mods` | wasmtime 36 LTS, component model |
 | Authoring tool | `crates/cargo-horizon-mod` | `cargo horizon-mod new / build / run` |
 | In the game | `crates/horizon-client/src/game/mods.rs`, Options > Mods | client mods |
@@ -88,6 +88,20 @@ Coding agents can [submit packages and source directly through the review API](m
 | `game` | `game-read` | `get-player()`: x y z, yaw, pitch, health, food, dimension; `get-clock()`: game time, day time |
 | `chat` | `chat` | `show(text)`: a line only the local player sees, after the mod's name (8 per call) |
 | `hud` | `hud` | `set-panel(corner, lines)`, `clear()`: up to 16 lines of 256 characters |
+| `movement` (0.1.1) | `movement` | `get-motion()`: velocity, on-ground, jump held, steerable, lift left; `set-vertical-speed(vy)`, `push(dx, dz)` for the next movement step |
+
+**Movement nudges are bounded by the game** (`crates/horizon-mods/src/nudge.rs`),
+so a mod can shape a jump but cannot fly, hover or outrun the world. A nudge
+applies just before the player's next movement step, after the tick hook (in
+the browser, whose mods answer from Workers, one tick later). Vertical speeds
+are clamped to 0.6 blocks per tick up and 3.92 down; one tick's pushes add at
+most 0.1, and never take the player past 0.6 blocks per tick horizontally (or
+their current speed, if faster). A vertical speed above the one the player
+would have is *lift*: 16 ticks of it per airtime, refilled by standing on the
+ground. Nudges are ignored while flying, gliding, swimming, in water or lava,
+riding, sleeping, dead or in spectator mode, and on a server. They change
+velocity only, so vanilla's collisions, fall distance and fall damage apply
+as usual.
 
 | Hook (export) | When |
 |---|---|
@@ -295,7 +309,7 @@ so the rest of the tag still loads; vanilla would drop the whole tag.
 
 ## Versions and compatibility
 
-- The API is the WIT package `horizon:mods@0.1.0`. New functions and
+- The API is the WIT package `horizon:mods@0.1.1` (0.1.1 added `movement`). New functions and
   interfaces arrive in patch versions (0.1.1, ...); a game serving 0.1.N loads
   mods built for 0.1.0 to 0.1.N. A breaking change makes `0.2` (and later
   `1.0`); the game then links both versions side by side for at least one

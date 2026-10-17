@@ -1,6 +1,6 @@
 //! Browser host facade. Guest code runs only in isolated JavaScript Workers;
 //! this facade exchanges snapshots and bounded retained output with their host.
-use crate::Manifest;
+use crate::{Manifest, Nudge};
 use horizon_platform::{
     path::{Path, PathBuf},
     time::Duration,
@@ -31,10 +31,21 @@ pub struct Clock {
     pub game_time: u64,
     pub day_time: u64,
 }
+#[derive(Clone, Copy, Debug, Serialize, Deserialize)]
+pub struct Motion {
+    pub vx: f64,
+    pub vy: f64,
+    pub vz: f64,
+    pub on_ground: bool,
+    pub jumping: bool,
+    pub steerable: bool,
+    pub lift_left: u32,
+}
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct Snapshot {
     pub player: Option<Player>,
     pub clock: Option<Clock>,
+    pub motion: Option<Motion>,
 }
 #[derive(Clone, Copy, Debug, Deserialize)]
 #[serde(rename_all = "kebab-case")]
@@ -79,6 +90,7 @@ pub struct Mods {
     panels: Vec<Panel>,
     commands: Vec<String>,
     out: Vec<Output>,
+    nudge: Nudge,
     revision: u64,
 }
 
@@ -89,7 +101,15 @@ struct View {
     panels: Vec<Panel>,
     commands: Vec<String>,
     out: Vec<Output>,
+    nudge: Option<ViewNudge>,
     revision: u64,
+}
+/// The host's merged `movement` nudges; bounded again on this side.
+#[derive(Default, Deserialize)]
+#[serde(default)]
+struct ViewNudge {
+    vertical: Option<f64>,
+    push: [f64; 2],
 }
 #[derive(Deserialize)]
 struct ViewEntry {
@@ -173,8 +193,19 @@ impl Mods {
                 })
                 .collect();
             self.out.extend(view.out.into_iter().take(64));
+            if let Some(n) = view.nudge {
+                let mut later = Nudge::default();
+                if let Some(vy) = n.vertical {
+                    later.set_vertical(vy);
+                }
+                later.add_push(n.push[0], n.push[1]);
+                self.nudge.merge(later);
+            }
         }
         std::mem::take(&mut self.out)
+    }
+    pub fn take_nudge(&mut self) -> Nudge {
+        std::mem::take(&mut self.nudge)
     }
     pub fn reload_changed(&mut self, reserved: impl Fn(&str) -> bool) -> bool {
         let Ok(view) = serde_json::from_value::<View>(self.call("view", serde_json::Value::Null))

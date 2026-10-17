@@ -1,6 +1,6 @@
 //! Horizon mods in the game (`docs/mods.md`): loading the ones turned on,
-//! their tick, frame, chat and command hooks, their HUD panels and what
-//! they print. With no mod on, `horizon_mods::Mods` holds no engine and
+//! their tick, frame, chat and command hooks, their HUD panels, what they
+//! print and their nudges to the player's movement. With no mod on, `horizon_mods::Mods` holds no engine and
 //! every hook here returns after one check.
 use super::{Game, Screen};
 use horizon_client::{
@@ -9,9 +9,11 @@ use horizon_client::{
     extras_hud::{self, Corners},
     hud::HudBatch,
     mod_list::{self, Installed},
+    motion::PlayerMotion,
     text::{self, Text},
 };
-use horizon_mods::{Clock, Mods, Output, Player, Snapshot, Status};
+use horizon_core::geometry::Vec3;
+use horizon_mods::{Clock, Mods, Motion, Nudge, Output, Player, Snapshot, Status, nudge};
 #[cfg(target_arch = "wasm32")]
 use horizon_platform as std;
 use std::{
@@ -34,6 +36,9 @@ pub(super) struct ModsState {
     approved_dir: Option<PathBuf>,
     #[cfg(not(target_arch = "wasm32"))]
     approval_error: Option<String>,
+    /// Ticks of lift mods' nudges used since the player last stood on the
+    /// ground (`nudge::LIFT_TICKS` per airtime).
+    pub(super) lift_used: u32,
 }
 impl ModsState {
     /// The chat's command tree: vanilla's, plus the running mods' commands.
@@ -45,6 +50,21 @@ impl ModsState {
 }
 /// How often dev mods are checked for a rebuild.
 const RELOAD_CHECK: Duration = Duration::from_secs(1);
+
+/// Mods' `movement` nudges, for the player's next movement step.
+pub(super) struct PendingNudge {
+    nudge: Nudge,
+    may_lift: bool,
+}
+impl PendingNudge {
+    /// True when it used a tick of lift.
+    pub(super) fn apply(self, player: &mut PlayerMotion) -> bool {
+        let v = player.velocity;
+        let ([x, y, z], lifted) = self.nudge.apply([v.x, v.y, v.z], self.may_lift);
+        player.velocity = Vec3::new(x, y, z);
+        lifted
+    }
+}
 
 /// A vanilla command name: mods may not take it.
 fn vanilla_command(name: &str) -> bool {
@@ -313,6 +333,7 @@ impl Game<'_> {
                     game_time: self.world.game_time.max(0) as u64,
                     day_time: self.world.day_time.max(0) as u64,
                 }),
+                motion: None,
             };
         }
         let player = self.player.as_ref().map(|p| Player {
@@ -329,7 +350,56 @@ impl Game<'_> {
             game_time: self.world.game_time.max(0) as u64,
             day_time: self.world.day_time.max(0) as u64,
         });
-        Snapshot { player, clock }
+        let steerable = self.mod_steerable();
+        let motion = self.player.as_ref().map(|p| Motion {
+            vx: p.velocity.x,
+            vy: p.velocity.y,
+            vz: p.velocity.z,
+            on_ground: p.ground.on_ground,
+            jumping: self.screen == Screen::Playing
+                && self.keys.contains(&winit::keyboard::KeyCode::Space),
+            steerable,
+            lift_left: if p.ground.on_ground || !steerable {
+                nudge::LIFT_TICKS
+            } else {
+                nudge::LIFT_TICKS.saturating_sub(self.mods.lift_used)
+            },
+        });
+        Snapshot {
+            player,
+            clock,
+            motion,
+        }
+    }
+    /// Whether nudges reach the player: not while the game's own movement
+    /// rules own them (flight, gliding, fluids, riding, sleep, death).
+    fn mod_steerable(&self) -> bool {
+        self.player.as_ref().is_some_and(|p| {
+            self.riding.is_none()
+                && self.sleeping.is_none()
+                && !p.spectator
+                && !p.flying
+                && !p.fall_flying
+                && !p.swimming
+                && !p.fluids.was_touching_water
+                && !p.is_in_lava()
+                && !p.health.dead_or_dying()
+        })
+    }
+    /// Before the player's movement step: what mods' nudges asked since the
+    /// last one, or None when there is nothing to apply. Standing on the
+    /// ground, or leaving the mods' reach, refills the lift allowance.
+    pub(super) fn take_mod_nudge(&mut self) -> Option<PendingNudge> {
+        let nudge = self.mods.mods.take_nudge();
+        let grounded = self.player.as_ref().is_some_and(|p| p.ground.on_ground);
+        let steerable = self.mod_steerable();
+        if grounded || !steerable {
+            self.mods.lift_used = 0;
+        }
+        (steerable && !nudge.is_empty()).then(|| PendingNudge {
+            nudge,
+            may_lift: self.mods.lift_used < nudge::LIFT_TICKS,
+        })
     }
     /// A game tick.
     pub(super) fn tick_mods(&mut self) {

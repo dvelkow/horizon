@@ -25,12 +25,14 @@ mod bindings {
 pub use bindings::horizon::mods::{
     game::{Clock, Player},
     hud::{Corner, Line},
+    movement::Motion,
 };
 use bindings::{
     HorizonMod,
     exports::horizon::mods::events::Registration,
-    horizon::mods::{chat, game, hud, log as mod_log},
+    horizon::mods::{chat, game, hud, log as mod_log, movement},
 };
+use crate::Nudge;
 
 /// A mod's linear memory cap.
 const MEMORY: usize = 64 << 20;
@@ -50,6 +52,7 @@ const LINE_CHARS: usize = 256;
 pub struct Snapshot {
     pub player: Option<Player>,
     pub clock: Option<Clock>,
+    pub motion: Option<Motion>,
 }
 
 /// What mods asked the game to show since the last [`Mods::drain`].
@@ -105,6 +108,7 @@ struct State {
     snapshot: Arc<Snapshot>,
     out: Vec<Output>,
     panel: Option<Panel>,
+    nudge: Nudge,
     limits: StoreLimits,
 }
 
@@ -117,6 +121,7 @@ pub struct Mods {
     entries: Vec<Entry>,
     snapshot: Arc<Snapshot>,
     out: Vec<Output>,
+    nudge: Nudge,
 }
 
 /// The `.hmod` files and mod folders in `dir`, by name.
@@ -278,6 +283,7 @@ impl Mods {
             snapshot,
             out: Vec::new(),
             panel: None,
+            nudge: Nudge::default(),
             limits: StoreLimitsBuilder::new()
                 .memory_size(MEMORY)
                 .instances(16)
@@ -300,6 +306,8 @@ impl Mods {
             free
         });
         self.out.append(&mut store.data_mut().out);
+        // There is no movement step to nudge before the first tick.
+        store.data_mut().nudge = Nudge::default();
         Ok(Some(Running {
             store,
             exports,
@@ -355,8 +363,12 @@ impl Mods {
         // An average over about the last 64 calls.
         entry.cost = (entry.cost * 63 + started.elapsed()) / 64;
         self.out.append(&mut run.store.data_mut().out);
+        let nudge = std::mem::take(&mut run.store.data_mut().nudge);
         match result {
-            Ok(r) => Some(r),
+            Ok(r) => {
+                self.nudge.merge(nudge);
+                Some(r)
+            }
             Err(e) => {
                 let reason = reason(&e);
                 log::warn!("Horizon: mod {} stopped: {reason}", run.store.data().id);
@@ -441,6 +453,11 @@ impl Mods {
     /// What mods asked to show since the last call.
     pub fn drain(&mut self) -> Vec<Output> {
         std::mem::take(&mut self.out)
+    }
+    /// The `movement` nudges mods asked for since the last call, for the
+    /// player's next movement step.
+    pub fn take_nudge(&mut self) -> Nudge {
+        std::mem::take(&mut self.nudge)
     }
 
     /// Reload changed development files. A candidate must validate and finish
@@ -668,6 +685,25 @@ impl chat::Host for State {
                 name,
                 text: clip(text),
             });
+        }
+    }
+}
+impl movement::Host for State {
+    fn get_motion(&mut self) -> Option<Motion> {
+        if self.side == Side::Server {
+            None
+        } else {
+            self.snapshot.motion
+        }
+    }
+    fn set_vertical_speed(&mut self, vy: f64) {
+        if self.side != Side::Server {
+            self.nudge.set_vertical(vy);
+        }
+    }
+    fn push(&mut self, dx: f64, dz: f64) {
+        if self.side != Side::Server {
+            self.nudge.add_push(dx, dz);
         }
     }
 }

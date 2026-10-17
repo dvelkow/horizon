@@ -18,7 +18,7 @@ function showSessions() {
   $("owner-form").hidden = owner.authenticated; $("owner-signed-in").hidden = !owner.authenticated;
   $("review-section").hidden = !owner.authenticated; $("active-section").hidden = !ready;
 }
-const capabilityLabels = {"game-read": "Read position and time", chat: "Write in local chat", hud: "Draw on your screen", registries: "Add world content"};
+const capabilityLabels = {"game-read": "Read position and time", chat: "Write in local chat", hud: "Draw on your screen", movement: "Change how you move in the air", registries: "Add world content"};
 const checkLabels = {manifest: "Manifest", imports: "Permissions", content: "Content rules", archiveCaps: "File size limits", sandboxInitFuel: "Sandbox startup"};
 function modRow(item, active = false) {
   const manifest = item.manifest ?? item;

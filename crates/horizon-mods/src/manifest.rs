@@ -59,15 +59,18 @@ pub enum Capability {
     GameRead,
     Chat,
     Hud,
+    /// The local player's motion, and bounded nudges to it (API 0.1.1).
+    Movement,
     /// New blocks and items from the mod's `data/` (API 0.2): no WIT
     /// interface, the game reads them before the world loads.
     Registries,
 }
 impl Capability {
-    pub const ALL: [Capability; 4] = [
+    pub const ALL: [Capability; 5] = [
         Capability::GameRead,
         Capability::Chat,
         Capability::Hud,
+        Capability::Movement,
         Capability::Registries,
     ];
     /// The WIT interface it grants, in `horizon:mods`.
@@ -76,6 +79,7 @@ impl Capability {
             Capability::GameRead => "game",
             Capability::Chat => "chat",
             Capability::Hud => "hud",
+            Capability::Movement => "movement",
             Capability::Registries => "registries",
         }
     }
@@ -85,6 +89,7 @@ impl Capability {
             Capability::GameRead => "see your position, health and the time",
             Capability::Chat => "show you chat messages",
             Capability::Hud => "draw text on your screen",
+            Capability::Movement => "change how you move in the air",
             Capability::Registries => "add blocks and items to your worlds",
         }
     }
@@ -114,6 +119,7 @@ impl fmt::Display for Capability {
             Capability::GameRead => "game-read",
             Capability::Chat => "chat",
             Capability::Hud => "hud",
+            Capability::Movement => "movement",
             Capability::Registries => "registries",
         };
         f.write_str(name)
@@ -301,6 +307,10 @@ capabilities = ["game-read", "hud"]
         assert_eq!(
             chat,
             Err("uses capability chat, missing from horizon-mod.toml".into())
+        );
+        assert_eq!(
+            m.check_imports(["horizon:mods/movement@0.1.1"]),
+            Err("uses capability movement, missing from horizon-mod.toml".into())
         );
         assert!(m.check_imports(["wasi:filesystem/types@0.2.0"]).is_err());
         assert!(m.check_imports(["horizon:mods/game@0.2.0"]).is_err());

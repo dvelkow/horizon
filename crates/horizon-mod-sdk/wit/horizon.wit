@@ -4,7 +4,7 @@
 /// interface but `log` is a capability: the mod's manifest lists the ones it
 /// uses, the player sees them before turning the mod on, and the game refuses
 /// a component that imports one its manifest does not declare.
-package horizon:mods@0.1.0;
+package horizon:mods@0.1.1;
 
 /// The mod's log, in the game's log under the mod's id. Always granted.
 interface log {
@@ -66,6 +66,37 @@ interface hud {
     clear: func();
 }
 
+/// Capability `movement` (0.1.1): the local player's motion, and nudges to
+/// it. The game applies the nudges before the player's next movement step
+/// and bounds them, so a mod can shape a jump but cannot fly or hover: see
+/// docs/mods.md. Vanilla's fall damage still counts every block fallen.
+interface movement {
+    record motion {
+        /// Blocks per tick, as the next movement step starts.
+        vx: f64,
+        vy: f64,
+        vz: f64,
+        on-ground: bool,
+        /// The jump key (or button) is held.
+        jumping: bool,
+        /// False while nudges are ignored: flying, gliding, swimming, in
+        /// water or lava, riding, sleeping, dead or in spectator mode.
+        steerable: bool,
+        /// Ticks of lift (a vertical speed above the one the player would
+        /// have) left before the player stands on the ground again.
+        lift-left: u32,
+    }
+    /// None on the title screen and on a server.
+    get-motion: func() -> option<motion>;
+    /// The vertical speed for the next movement step, in blocks per tick:
+    /// at most 0.6 up (a jump is 0.42) and 3.92 down. The latest call wins.
+    set-vertical-speed: func(vy: f64);
+    /// Adds to the horizontal velocity for the next movement step, at most
+    /// 0.1 blocks per tick in all; it never takes the player past 0.6 blocks
+    /// per tick (or their current speed, if faster).
+    push: func(dx: f64, dz: f64);
+}
+
 /// What the game calls. Only the hooks `init` asks for are ever called.
 interface events {
     record registration {
@@ -93,5 +124,6 @@ world horizon-mod {
     import game;
     import chat;
     import hud;
+    import movement;
     export events;
 }
