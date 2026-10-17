@@ -23,6 +23,7 @@ use horizon_platform::PathExt;
 use horizon_world::nbt::{self, JavaString, Limits, Tag};
 use serde::{Deserialize, Serialize, de};
 use std::{
+    cell::RefCell,
     collections::BTreeMap,
     fmt, fs,
     ops::Range,
@@ -678,10 +679,13 @@ pub fn tag_namespaces(root: &Path) -> Vec<String> {
 const TAG_BUNDLES: [&str; 2] = ["block-tags.json", "worldgen/block_tags.json"];
 
 /// The overlay being written: `out` mirrors `base` through links, and a
-/// directory becomes real only when something inside it is written.
+/// directory becomes real only when something inside it is written. Built
+/// over `base` itself, or only checked, the files are staged instead: kept
+/// until the whole build succeeded, so a failure leaves the base as it was.
 struct Overlay<'a> {
     base: &'a Path,
     out: &'a Path,
+    staged: Option<RefCell<Vec<(String, Vec<u8>)>>>,
 }
 impl Overlay<'_> {
     fn new<'a>(base: &'a Path, out: &'a Path) -> Result<Overlay<'a>> {
@@ -689,9 +693,27 @@ impl Overlay<'_> {
             fs::remove_dir_all(out)?;
         }
         fs::create_dir_all(out)?;
-        let overlay = Overlay { base, out };
+        let overlay = Overlay {
+            base,
+            out,
+            staged: None,
+        };
         overlay.link_children(Path::new(""))?;
         Ok(overlay)
+    }
+    fn staged(base: &Path) -> Overlay<'_> {
+        Overlay {
+            base,
+            out: base,
+            staged: Some(RefCell::new(Vec::new())),
+        }
+    }
+    /// Writes the staged files over the base.
+    fn commit(self) -> Result<()> {
+        for (rel, bytes) in self.staged.map(RefCell::into_inner).unwrap_or_default() {
+            write_in_place(&self.out.join(rel), bytes)?;
+        }
+        Ok(())
     }
     fn link_children(&self, rel: &Path) -> Result<()> {
         let Ok(read) = fs::read_dir(self.base.join(rel)) else {
@@ -725,6 +747,10 @@ impl Overlay<'_> {
         Ok(())
     }
     fn write(&self, rel: &str, bytes: &[u8]) -> Result<()> {
+        if let Some(staged) = &self.staged {
+            staged.borrow_mut().push((rel.to_owned(), bytes.to_vec()));
+            return Ok(());
+        }
         let rel = Path::new(rel);
         if let Some(parent) = rel.parent() {
             self.dir(parent)?;
@@ -737,6 +763,22 @@ impl Overlay<'_> {
         Ok(())
     }
 }
+/// The browser's resources are immutable to the game's own writes, and a
+/// preloaded file is never saved with the player's files.
+#[cfg(target_arch = "wasm32")]
+fn write_in_place(path: &Path, bytes: Vec<u8>) -> Result<()> {
+    horizon_platform::fs::preload(path, bytes)?;
+    Ok(())
+}
+#[cfg(not(target_arch = "wasm32"))]
+fn write_in_place(path: &Path, bytes: Vec<u8>) -> Result<()> {
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent)?;
+    }
+    fs::write(path, bytes)?;
+    Ok(())
+}
+
 #[cfg(unix)]
 fn link(target: &Path, at: &Path) -> std::io::Result<()> {
     std::os::unix::fs::symlink(target, at)
@@ -828,12 +870,30 @@ impl Known {
     }
 }
 
-/// Builds the content root for `mods` over `base` in `out`.
+/// Builds the content root for `mods` over `base` in `out`; with `out` the
+/// base itself, in place (the browser's in-memory resources), only once the
+/// whole build succeeded.
 pub fn build(base: &Path, mods: &[ContentMod], out: &Path) -> Result<()> {
+    if base == out {
+        let staged = Overlay::staged(base);
+        fill(base, mods, &Plan::new(base, mods)?, &staged)?;
+        return staged.commit();
+    }
     // The overlay links to the base: a relative base would leave them dangling.
     let base = &std::path::absolute(base)?;
     let plan = Plan::new(base, mods)?;
-    let overlay = Overlay::new(base, out)?;
+    fill(base, mods, &plan, &Overlay::new(base, out)?)
+}
+
+/// Whether `mods` build over `base`, writing nothing: what [`build`] would
+/// refuse (a template the game lacks, more states than chunks hold, a tag
+/// that replaces vanilla's).
+pub fn check(base: &Path, mods: &[ContentMod]) -> Result<()> {
+    fill(base, mods, &Plan::new(base, mods)?, &Overlay::staged(base))
+}
+
+/// The tables, mod files, tags and block states of `plan`, into `overlay`.
+fn fill(base: &Path, mods: &[ContentMod], plan: &Plan, overlay: &Overlay) -> Result<()> {
     for name in JSON_TABLES {
         let path = base.join(name);
         if !path.platform_exists() {
@@ -886,7 +946,7 @@ pub fn build(base: &Path, mods: &[ContentMod], out: &Path) -> Result<()> {
     // A tag naming an id nobody registers fails as a whole in vanilla, and
     // carried-over mods name blocks left out or other mods' ids: such
     // entries are dropped instead, so the rest of the tag holds.
-    let known = Known::new(base, &plan, &tags)?;
+    let known = Known::new(base, plan, &tags)?;
     for (file, values) in &mut tags {
         values.retain(|v| known.keeps(file, v));
     }
@@ -944,9 +1004,16 @@ pub fn build(base: &Path, mods: &[ContentMod], out: &Path) -> Result<()> {
 }
 
 /// The root to load: `base` itself with no content, else the mods' overlay
-/// over it, built in `cache/mod-content`.
+/// over it, built in `cache/mod-content`. In the browser the resources are
+/// an in-memory copy made at every start and never saved (crate::browser):
+/// the content goes into them in place, as an overlay there would be copied
+/// file by file into the player's saved files.
 pub fn resource_root(base: &Path, mods: &[ContentMod], cache: &Path) -> Result<PathBuf> {
     if mods.iter().all(|m| m.content.is_empty()) {
+        return Ok(base.to_owned());
+    }
+    if cfg!(target_arch = "wasm32") {
+        build(base, mods, base)?;
         return Ok(base.to_owned());
     }
     let out = cache.join("mod-content");

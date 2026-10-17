@@ -38,6 +38,9 @@ fn main() {
         std::process::exit(1);
     }
     logging::flush();
+    if game::restart_requested() {
+        std::process::exit(horizon_server_files::ENGINE_RESTART);
+    }
 }
 
 #[cfg(target_arch = "wasm32")]

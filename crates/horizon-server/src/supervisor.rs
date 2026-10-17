@@ -1,6 +1,6 @@
 //! `horizon-server run`: writes `server.properties` from `server.toml`, runs the engine with the console on
 //! stdin, serves the control API, stops the game cleanly on Ctrl-C, SIGTERM or `stop`, and restarts it when
-//! it crashes (docs/server.md, sections 2 and 7).
+//! it crashes or asks to (a hosted world's approved content mods changed; docs/server.md, sections 2 and 7).
 
 use crate::{
     api::{self, Phase, Shared},
@@ -66,7 +66,7 @@ enum Exit {
     /// Asked to stop, or the game ended by itself without an error (`stop` typed in its console, the EULA
     /// not agreed, the port taken): not restarted.
     Stopped,
-    /// Asked to restart (`horizon-server restart`).
+    /// Asked to restart (`horizon-server restart`), or the game asked to be started again.
     Restart,
     Crashed(ExitStatus),
 }
@@ -422,6 +422,17 @@ fn supervise(shared: &Arc<Shared>, child: &mut Child, console: &mpsc::Receiver<S
         }
         match child.try_wait() {
             Ok(Some(_)) if restart => return Exit::Restart,
+            // The game saved and stopped itself to start again: its approved
+            // content mods changed, and blocks load only at start.
+            Ok(Some(status)) if stopping.is_none() && restarts_itself(status) => {
+                note(
+                    shared,
+                    "INFO",
+                    "The game stopped to load its approved content mods: starting it again",
+                );
+                shared.set_phase(Phase::Restarting);
+                return Exit::Restart;
+            }
             Ok(Some(status)) if stopping.is_some() || status.success() => return Exit::Stopped,
             Ok(Some(status)) => return Exit::Crashed(status),
             Ok(None) => thread::sleep(Duration::from_millis(50)),
@@ -431,6 +442,11 @@ fn supervise(shared: &Arc<Shared>, child: &mut Child, console: &mpsc::Receiver<S
             }
         }
     }
+}
+
+/// The game's own request to be started again ([`horizon_server_files::ENGINE_RESTART`]).
+fn restarts_itself(status: ExitStatus) -> bool {
+    status.code() == Some(horizon_server_files::ENGINE_RESTART)
 }
 
 fn send_stop(stdin: &mut Option<std::process::ChildStdin>) {
@@ -447,6 +463,20 @@ mod tests {
     fn backoff_doubles_up_to_five_minutes() {
         let waits: Vec<u64> = (1..=8).map(|n| backoff(n).as_secs()).collect();
         assert_eq!(waits, [5, 10, 20, 40, 80, 160, 300, 300]);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn only_the_games_own_restart_status_restarts_it_at_once() {
+        use std::os::unix::process::ExitStatusExt;
+        let exited = |code: i32| ExitStatus::from_raw(code << 8);
+        assert!(restarts_itself(exited(
+            horizon_server_files::ENGINE_RESTART
+        )));
+        assert!(!restarts_itself(exited(0)));
+        assert!(!restarts_itself(exited(1)));
+        // Killed by a signal: no status code at all.
+        assert!(!restarts_itself(ExitStatus::from_raw(9)));
     }
 
     #[test]

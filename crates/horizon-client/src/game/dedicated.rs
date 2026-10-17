@@ -61,6 +61,10 @@ struct Setup {
     started: Instant,
 }
 static SETUP: OnceLock<Mutex<Option<Setup>>> = OnceLock::new();
+/// The server stopped to be started again with its changed approved
+/// content mods (`Game::poll_server_mods`): `game::restart_requested`.
+pub(super) static RESTART: std::sync::atomic::AtomicBool =
+    std::sync::atomic::AtomicBool::new(false);
 
 /// Log4j's console pattern: `[HH:mm:ss] [thread/LEVEL]: message`.
 pub(super) fn log(level: &str, message: &str) {
@@ -526,6 +530,10 @@ impl Game<'_> {
             let tick_start = Instant::now();
             #[cfg(not(target_arch = "wasm32"))]
             self.poll_server_mods();
+            // Approved blocks and items changed: save and start again with them.
+            if self.mods_restart_due() {
+                break;
+            }
             while let Ok(line) = state.console.try_recv() {
                 self.console_command(&mut state, &line);
             }
@@ -1118,6 +1126,7 @@ impl Game<'_> {
     }
 
     fn stop_dedicated(&mut self) -> Result<()> {
+        let restart = self.mods_restart_due();
         log("INFO", "Stopping server");
         log("INFO", "Saving players");
         if let Some(h) = self.lan.as_mut() {
@@ -1130,13 +1139,18 @@ impl Game<'_> {
                 self.save_guest_records(h, g);
             }
         }
+        // The restart's reason names it, so players' games reconnect.
+        let reason = if restart {
+            horizon_protocol::text::literal(
+                "The world is restarting to add new blocks and items. Back in a moment.",
+            )
+        } else {
+            translatable("multiplayer.disconnect.server_shutdown", &[])
+        };
         if let Some(h) = self.lan.as_mut() {
             let conns: Vec<u32> = h.hub.guests.iter().map(|g| g.conn).collect();
             for conn in conns {
-                h.hub.kick(
-                    conn,
-                    translatable("multiplayer.disconnect.server_shutdown", &[]),
-                );
+                h.hub.kick(conn, reason.clone());
             }
         }
         std::thread::sleep(Duration::from_millis(100));
@@ -1144,6 +1158,10 @@ impl Game<'_> {
         self.save_game()?;
         self.log_saved_levels();
         self.lan_close(false);
+        // Only once the world is saved: horizon-server starts the game again.
+        if restart {
+            RESTART.store(true, std::sync::atomic::Ordering::SeqCst);
+        }
         Ok(())
     }
 }

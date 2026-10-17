@@ -295,6 +295,119 @@ fn refuses_more_states_than_chunks_hold() {
     fs::remove_dir_all(&scratch).unwrap();
 }
 
+/// The browser builds over its in-memory resources in place: the same
+/// tables, mod files, tags and marker an overlay over the same base holds.
+#[test]
+fn in_place_build_writes_what_the_overlay_holds() {
+    let scratch = std::env::temp_dir().join(format!("horizon-mod-in-place-{}", std::process::id()));
+    let _ = fs::remove_dir_all(&scratch);
+    let base_files = [
+        (
+            "facts.json",
+            r#"{"states": [["minecraft:air"], ["minecraft:iron_block"]], "defaults": {"minecraft:air": 0, "minecraft:iron_block": 1}}"#,
+        ),
+        (
+            "gameplay-facts.json",
+            r#"{"states": [{"item": "minecraft:air"}, {"item": "minecraft:iron_block", "hardness": 5.0}]}"#,
+        ),
+        (
+            "items.json",
+            r#"{"minecraft:iron_block": {"minecraft:max_stack_size": 64}}"#,
+        ),
+        (
+            "assets/minecraft/blockstates/iron_block.json",
+            r#"{"variants": {"": {"model": "minecraft:block/iron_block"}}}"#,
+        ),
+        (
+            "data/minecraft/tags/block/mineable/pickaxe.json",
+            r#"{"values": ["minecraft:iron_block"]}"#,
+        ),
+    ];
+    let (base, copy) = (scratch.join("base"), scratch.join("copy"));
+    for root in [&base, &copy] {
+        for (name, text) in base_files {
+            fs::create_dir_all(root.join(name).parent().unwrap()).unwrap();
+            fs::write(root.join(name), text).unwrap();
+        }
+    }
+    // A block from iron, a tag addition and a name; `tag` is the tag file.
+    let content_mod = |id: &str, tag: &str| {
+        let dir = scratch.join(id);
+        let manifest = format!(
+            "id = \"{id}\"\nname = \"{id}\"\nversion = \"0.1.0\"\napi = \"0.2\"\ncapabilities = [\"registries\"]\n"
+        );
+        for (name, text) in [
+            ("horizon-mod.toml".to_owned(), manifest),
+            (
+                format!("data/{id}/horizon/block/{id}_block.json"),
+                r#"{"template": "minecraft:iron_block", "properties": {"hardness": 4.0}}"#.into(),
+            ),
+            (
+                "data/minecraft/tags/block/mineable/pickaxe.json".into(),
+                tag.into(),
+            ),
+            (
+                format!("assets/{id}/lang/en_us.json"),
+                format!(r#"{{"block.{id}.{id}_block": "Ruby"}}"#),
+            ),
+        ] {
+            fs::create_dir_all(dir.join(&name).parent().unwrap()).unwrap();
+            fs::write(dir.join(&name), text).unwrap();
+        }
+        let package = horizon_mods::Package::read(&dir).unwrap();
+        ContentMod {
+            id: id.into(),
+            content: Content::read(&dir, &package.manifest).unwrap(),
+        }
+    };
+    let mods = [
+        content_mod("ruby", r#"{"values": ["ruby:ruby_block"]}"#),
+        content_mod(
+            "zinc",
+            r#"{"replace": true, "values": ["zinc:zinc_block"]}"#,
+        ),
+    ];
+    // A build refused after its tables were rewritten leaves the base as it
+    // was; checked alone, the mod that does not fit is the one refused.
+    let e = build(&copy, &mods, &copy).unwrap_err();
+    assert!(e.to_string().contains("cannot replace"), "{e}");
+    assert_eq!(
+        fs::read_to_string(copy.join("facts.json")).unwrap(),
+        base_files[0].1
+    );
+    assert!(check(&copy, &mods[..1]).is_ok());
+    assert!(check(&copy, &mods[1..]).is_err());
+    let m = &mods[0];
+    let out = scratch.join("out");
+    build(&base, std::slice::from_ref(m), &out).unwrap();
+    build(&copy, std::slice::from_ref(m), &copy).unwrap();
+    for name in [
+        "facts.json",
+        "gameplay-facts.json",
+        "items.json",
+        "data/minecraft/tags/block/mineable/pickaxe.json",
+        "assets/ruby/blockstates/ruby_block.json",
+        "assets/ruby/lang/en_us.json",
+        MARKER,
+    ] {
+        assert_eq!(
+            fs::read(out.join(name)).unwrap(),
+            fs::read(copy.join(name)).unwrap(),
+            "{name}"
+        );
+    }
+    assert_eq!(namespaces(&copy), ["ruby"]);
+    let facts: serde_json::Value =
+        serde_json::from_slice(&fs::read(copy.join("facts.json")).unwrap()).unwrap();
+    assert_eq!(facts["defaults"]["ruby:ruby_block"], 2);
+    // The overlay left its base as it was.
+    assert_eq!(
+        fs::read_to_string(base.join("facts.json")).unwrap(),
+        base_files[0].1
+    );
+    fs::remove_dir_all(&scratch).unwrap();
+}
+
 #[test]
 fn no_content_keeps_the_base_root() {
     let base = Path::new("/nonexistent/base");

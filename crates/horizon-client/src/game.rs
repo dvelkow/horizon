@@ -263,6 +263,15 @@ struct Options {
     /// `--hosted` (with `--server`): the game belongs to that one server, as
     /// the browser's hosted world does (`title::hosted`).
     hosted: bool,
+    /// A hosted world's approved mods: `--approved-mods DIR` (the browser's
+    /// verified copies), or a dedicated server's `HORIZON_APPROVED_MODS`
+    /// mirror. The game layers exactly their content mods (docs/mods.md).
+    approved_mods: Option<PathBuf>,
+    /// The approved content mods the resources were built with, by id, with
+    /// their packages' SHA-256: a dedicated server restarts when the
+    /// mirror's differ (`mods::content_root`). A browser has none to make.
+    #[cfg_attr(target_arch = "wasm32", allow(dead_code))]
+    approved_content: Vec<(String, [u8; 32])>,
 }
 impl Options {
     /// The name to join servers with: the one given, else the offline name kept
@@ -317,6 +326,8 @@ impl Options {
             server_thread: std::env::var("HORIZON_SERVER_THREAD").is_ok_and(|v| v == "1"),
             integrated: false,
             hosted: false,
+            approved_mods: None,
+            approved_content: Vec::new(),
         };
         let mut session_file = std::env::var("HORIZON_SESSION_FILE").ok();
         let mut args = std::env::args().skip(1);
@@ -324,7 +335,7 @@ impl Options {
             match arg.as_str() {
                 "--help" | "-h" => {
                     println!(
-                        "Horizon — Minecraft Java Edition 26.3 in Rust\n\n  --resources PATH        Prepared resources (horizon-prepare)\n  --render-distance N     Chunks, 2..64 (default 12)\n  --world NAME            World folder under saves/ (default \"New World\")\n  --seed N                World seed for new worlds (default 0)\n  --creative              Creative mode (default survival)\n  --test-terrain          Simple test terrain instead of vanilla generation\n  --frames N              Exit after N frames (testing)\n  --world-frames N        Exit after N frames drawn in the world (testing)\n  --smoke-report PATH     Write a JSON report on exit\n  --benchmark SCENARIO    Run a benchmark (standard, village, forest, ocean, mountain), write its report to benchmarks/ and quit\n  --control               Accept horizon-ctl commands on a local socket\n  --control-socket PATH   Control socket path (default $XDG_RUNTIME_DIR/horizon-control.sock)\n  --server HOST[:PORT]    Join a multiplayer server (offline mode) at start\n  --name NAME             Player name for multiplayer (default: generated once, kept in horizon-player.txt)\n  --session-file PATH     Signed-in account from the launcher (read once, then deleted)\n  --dev-mod PATH          A Horizon mod (.hmod or folder) to develop: always on, reloaded when rebuilt\n\nControls: mouse look, WASD move, Space jump, Left Shift sneak, Left Ctrl sprint,\nleft click break, right click place/use, 1-9/scroll hotbar, E inventory,\nQ drop, F3 debug, Esc pause."
+                        "Horizon — Minecraft Java Edition 26.3 in Rust\n\n  --resources PATH        Prepared resources (horizon-prepare)\n  --render-distance N     Chunks, 2..64 (default 12)\n  --world NAME            World folder under saves/ (default \"New World\")\n  --seed N                World seed for new worlds (default 0)\n  --creative              Creative mode (default survival)\n  --test-terrain          Simple test terrain instead of vanilla generation\n  --frames N              Exit after N frames (testing)\n  --world-frames N        Exit after N frames drawn in the world (testing)\n  --smoke-report PATH     Write a JSON report on exit\n  --benchmark SCENARIO    Run a benchmark (standard, village, forest, ocean, mountain), write its report to benchmarks/ and quit\n  --control               Accept horizon-ctl commands on a local socket\n  --control-socket PATH   Control socket path (default $XDG_RUNTIME_DIR/horizon-control.sock)\n  --server HOST[:PORT]    Join a multiplayer server (offline mode) at start\n  --name NAME             Player name for multiplayer (default: generated once, kept in horizon-player.txt)\n  --session-file PATH     Signed-in account from the launcher (read once, then deleted)\n  --dev-mod PATH          A Horizon mod (.hmod or folder) to develop: always on, reloaded when rebuilt\n  --approved-mods DIR     A hosted world's approved mods: their content, and no other content mod\n\nControls: mouse look, WASD move, Space jump, Left Shift sneak, Left Ctrl sprint,\nleft click break, right click place/use, 1-9/scroll hotbar, E inventory,\nQ drop, F3 debug, Esc pause."
                     );
                     return Ok(None);
                 }
@@ -374,6 +385,7 @@ impl Options {
                         "--screenshot-after" => o.screenshot_after = Some(value.parse()?),
                         "--world" => o.world = Some(value),
                         "--dev-mod" => o.dev_mods.push(std::path::absolute(&value)?),
+                        "--approved-mods" => o.approved_mods = Some(value.into()),
                         "--benchmark" => {
                             if horizon_client::benchmark::scenes(&value).is_none() {
                                 return Err(format!(
@@ -10658,6 +10670,14 @@ impl<'a> Game<'a> {
     }
 }
 
+/// After [`run`]: the dedicated server saved its world and stopped to be
+/// started again at once with its changed approved content mods; the
+/// process exits with `horizon_server_files::ENGINE_RESTART`.
+#[cfg(not(target_arch = "wasm32"))]
+pub fn restart_requested() -> bool {
+    dedicated::RESTART.load(std::sync::atomic::Ordering::SeqCst)
+}
+
 pub fn run() -> Result<()> {
     let Some(mut options) = Options::read()? else {
         return Ok(());
@@ -10676,10 +10696,19 @@ pub fn run() -> Result<()> {
             pack_error = Some(e.to_string());
             vanilla_root.clone()
         });
-    options.resources = mods::content_root(
+    // A dedicated server hosting a world takes its approved mods from the
+    // approval mirror the portal publishes to (packaging/web).
+    #[cfg(not(target_arch = "wasm32"))]
+    if options.dedicated.is_some() && options.approved_mods.is_none() {
+        options.approved_mods = std::env::var_os("HORIZON_APPROVED_MODS")
+            .filter(|path| !path.is_empty())
+            .map(PathBuf::from);
+    }
+    (options.resources, options.approved_content) = mods::content_root(
         &options.resources,
         &early_settings.mods.enabled,
         &options.dev_mods,
+        options.approved_mods.as_deref(),
     );
     let assets = match Assets::load(&options.resources) {
         Ok(assets) => assets,

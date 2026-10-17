@@ -36,11 +36,27 @@ pub(super) struct ModsState {
     approved_dir: Option<PathBuf>,
     #[cfg(not(target_arch = "wasm32"))]
     approval_error: Option<String>,
+    /// The approval mirror's content mods since they first differed from the
+    /// ones the world started with, and whether players were told.
+    #[cfg(not(target_arch = "wasm32"))]
+    content_change: Option<(Vec<(String, [u8; 32])>, Instant, bool)>,
+    /// Save and stop now, to be started again with them.
+    #[cfg(not(target_arch = "wasm32"))]
+    restart: bool,
     /// Ticks of lift mods' nudges used since the player last stood on the
     /// ground (`nudge::LIFT_TICKS` per airtime).
     pub(super) lift_used: u32,
 }
 impl ModsState {
+    #[cfg(not(target_arch = "wasm32"))]
+    fn restart_due(&self) -> bool {
+        self.restart
+    }
+    /// A browser hosts no world.
+    #[cfg(target_arch = "wasm32")]
+    fn restart_due(&self) -> bool {
+        false
+    }
     /// The chat's command tree: vanilla's, plus the running mods' commands.
     pub(super) fn dispatcher(&self) -> &Dispatcher {
         self.tree
@@ -50,6 +66,12 @@ impl ModsState {
 }
 /// How often dev mods are checked for a rebuild.
 const RELOAD_CHECK: Duration = Duration::from_secs(1);
+/// A changed set of approved content mods must hold this long before players
+/// are told (a publication settles), then the world restarts after the notice.
+#[cfg(not(target_arch = "wasm32"))]
+const CONTENT_SETTLE: Duration = Duration::from_secs(2);
+#[cfg(not(target_arch = "wasm32"))]
+const CONTENT_NOTICE: Duration = Duration::from_secs(5);
 
 /// Mods' `movement` nudges, for the player's next movement step.
 pub(super) struct PendingNudge {
@@ -98,28 +120,46 @@ fn server_command(name: &str) -> bool {
         )
 }
 
-/// `root` with the content mods that are on layered over it
-/// (docs/modpacks.md): their blocks, items, data and assets. Read once at
-/// start, before the resources load; a mod whose content is refused is left
-/// out here and its row on the Mods page says why.
+/// `root` with content mods layered over it (docs/modpacks.md): their
+/// blocks, items, data and assets, mods in id order, so the same set always
+/// gives the same block-state ids. Read once at start, before the resources
+/// load; a mod whose content is refused is left out, with the reason logged.
+///
+/// A hosted world's game (`approved`: a dedicated server's approval mirror,
+/// or a browser's verified copies of it) layers exactly the world's approved
+/// content mods and no other: the server and every player must have the same
+/// blocks. Otherwise the content mods turned on in `horizon-mods/` and the
+/// dev mods. Also returns the approved ones read, with their packages'
+/// SHA-256, for the dedicated server's restart check (natively).
 pub(super) fn content_root(
     root: &std::path::Path,
     enabled: &std::collections::BTreeSet<String>,
     dev: &[std::path::PathBuf],
-) -> std::path::PathBuf {
+    approved: Option<&std::path::Path>,
+) -> (std::path::PathBuf, Vec<(String, [u8; 32])>) {
     use horizon_client::mod_content::{self, ContentMod};
     use horizon_mods::{Capability, Content, Package};
     let here = std::env::current_dir().unwrap_or_default();
-    let mut paths = horizon_mods::find(&here.join(mod_list::DIR));
-    paths.retain(|p| !dev.contains(p));
-    paths.extend(dev.iter().cloned());
+    let cache = here.join(".horizon-cache");
+    let (paths, loaded) = match approved {
+        Some(dir) => approved_packages(dir, &cache).unwrap_or_else(|e| {
+            log::warn!("Horizon: approved content mods not read: {e}");
+            Default::default()
+        }),
+        None => {
+            let mut paths = horizon_mods::find(&here.join(mod_list::DIR));
+            paths.retain(|p| !dev.contains(p));
+            paths.extend(dev.iter().cloned());
+            (paths, Vec::new())
+        }
+    };
     let mut mods: Vec<ContentMod> = Vec::new();
     for path in &paths {
         let Ok(package) = Package::read(path) else {
             continue;
         };
         let m = &package.manifest;
-        let on = enabled.contains(&m.id) || dev.contains(path);
+        let on = approved.is_some() || enabled.contains(&m.id) || dev.contains(path);
         if !on
             || !m.capabilities.contains(&Capability::Registries)
             || mods.iter().any(|c| c.id == m.id)
@@ -134,13 +174,32 @@ pub(super) fn content_root(
             Err(e) => log::warn!("Horizon: mod {} content not loaded: {e}", m.id),
         }
     }
-    match mod_content::resource_root(root, &mods, &here.join(".horizon-cache")) {
+    mods.sort_by(|a, b| a.id.cmp(&b.id));
+    let built = mod_content::resource_root(root, &mods, &cache).or_else(|e| {
+        // One mod that does not fit (a template the game lacks, too many
+        // states) must not take the others' blocks with it: leave out each
+        // that fails on its own, the same way on the server and in browsers.
+        log::warn!("Horizon: content mods do not load together: {e}");
+        mods.retain(
+            |m| match mod_content::check(root, std::slice::from_ref(m)) {
+                Ok(()) => true,
+                Err(e) => {
+                    log::warn!("Horizon: mod {} content left out: {e}", m.id);
+                    false
+                }
+            },
+        );
+        mod_content::resource_root(root, &mods, &cache)
+    });
+    let root = match built {
         Ok(out) => {
-            if out != root {
+            if !mods.is_empty() {
+                let ids: Vec<&str> = mods.iter().map(|m| m.id.as_str()).collect();
                 log::info!(
-                    "Horizon: content from {} mod(s) in {}",
+                    "Horizon: content from {} mod(s) in {}: {}",
                     mods.len(),
-                    out.display()
+                    out.display(),
+                    ids.join(", ")
                 );
             }
             out
@@ -149,7 +208,92 @@ pub(super) fn content_root(
             log::warn!("Horizon: content mods not loaded: {e}");
             root.to_owned()
         }
+    };
+    (root, loaded)
+}
+
+/// The approval mirror's content mods, copied into `cache` first: the
+/// portal may replace a package while the resources are built from it, and
+/// a copy stays one version. The digests are of the bytes read, as
+/// `Mods::approved_content` takes them from the mirror; they name what the
+/// mirror held even when the content does not load, so a world cannot
+/// restart over and over for the same set. A mirror not made yet is empty.
+#[cfg(not(target_arch = "wasm32"))]
+fn approved_packages(
+    dir: &std::path::Path,
+    cache: &std::path::Path,
+) -> std::result::Result<(Vec<PathBuf>, Vec<(String, [u8; 32])>), String> {
+    if !dir.exists() {
+        return Ok(Default::default());
     }
+    let copies = cache.join("approved-content");
+    let listed = copy_packages(dir, &copies).and_then(|()| digests(&copies));
+    // Copies are a safeguard; without room for them, read the mirror itself.
+    listed.or_else(|e| {
+        log::warn!("Horizon: approved mods not copied ({e}); reading the mirror itself");
+        digests(dir)
+    })
+}
+
+/// The content mods among the packages in `dir`, with their digests.
+#[cfg(not(target_arch = "wasm32"))]
+fn digests(
+    dir: &std::path::Path,
+) -> std::result::Result<(Vec<PathBuf>, Vec<(String, [u8; 32])>), String> {
+    let mut paths = Vec::new();
+    let mut loaded = Vec::new();
+    for (id, path) in horizon_mods::content::approved(dir)? {
+        let bytes = std::fs::read(&path).map_err(|e| e.to_string())?;
+        loaded.push((id, horizon_mods::package_digest(&bytes)));
+        paths.push(path);
+    }
+    Ok((paths, loaded))
+}
+
+/// The mirror's packages, copied into `copies`.
+#[cfg(not(target_arch = "wasm32"))]
+fn copy_packages(
+    dir: &std::path::Path,
+    copies: &std::path::Path,
+) -> std::result::Result<(), String> {
+    if copies.exists() {
+        std::fs::remove_dir_all(copies).map_err(|e| e.to_string())?;
+    }
+    std::fs::create_dir_all(copies).map_err(|e| e.to_string())?;
+    for entry in std::fs::read_dir(dir).map_err(|e| format!("{}: {e}", dir.display()))? {
+        let entry = entry.map_err(|e| e.to_string())?;
+        let name = entry.file_name();
+        let package = std::path::Path::new(&name)
+            .extension()
+            .is_some_and(|e| e == "hmod");
+        // Regular files of the size the mirror's scan reads.
+        let file = entry
+            .metadata()
+            .is_ok_and(|m| m.is_file() && m.len() <= 64 << 20);
+        if package && file && entry.file_type().is_ok_and(|t| t.is_file()) {
+            // One read, so the copy is one version of the file.
+            match std::fs::read(entry.path()) {
+                Ok(bytes) => {
+                    std::fs::write(copies.join(&name), bytes).map_err(|e| e.to_string())?
+                }
+                Err(e) => log::warn!("Horizon: approved mod {}: {e}", name.to_string_lossy()),
+            }
+        }
+    }
+    Ok(())
+}
+
+/// The browser's copies are verified and immutable (crate::browser).
+#[cfg(target_arch = "wasm32")]
+fn approved_packages(
+    dir: &std::path::Path,
+    _cache: &std::path::Path,
+) -> std::result::Result<(Vec<PathBuf>, Vec<(String, [u8; 32])>), String> {
+    let found = horizon_mods::content::approved(dir)?;
+    Ok((
+        found.into_iter().map(|(_, path)| path).collect(),
+        Vec::new(),
+    ))
 }
 
 impl Game<'_> {
@@ -182,9 +326,7 @@ impl Game<'_> {
     #[cfg(not(target_arch = "wasm32"))]
     fn start_server_mods(&mut self) {
         self.mods.server = true;
-        self.mods.approved_dir = std::env::var_os("HORIZON_APPROVED_MODS")
-            .filter(|path| !path.is_empty())
-            .map(PathBuf::from);
+        self.mods.approved_dir = self.options.approved_mods.clone();
         self.mods.checked = None;
         if self.mods.approved_dir.is_some() {
             self.mods.mods = Mods::load_server(&[], |_| true, server_command);
@@ -229,6 +371,7 @@ impl Game<'_> {
             match self.mods.mods.sync_server_directory(dir, server_command) {
                 Ok(changed) => {
                     self.mods.approval_error = None;
+                    self.watch_content();
                     changed
                 }
                 Err(error) => {
@@ -249,6 +392,75 @@ impl Game<'_> {
             super::dedicated::log("INFO", "Approved server mods updated");
         }
         self.show_mod_output();
+    }
+
+    /// The approval mirror's content mods differ from the ones the world
+    /// started with: blocks and items cannot join a running world. Once the
+    /// change holds for `CONTENT_SETTLE` players are told, and after
+    /// `CONTENT_NOTICE` the world saves and the server stops for horizon-server
+    /// to start it again with them. Open pages reload into them meanwhile:
+    /// the portal's release changes with its content (web/server).
+    #[cfg(not(target_arch = "wasm32"))]
+    fn watch_content(&mut self) {
+        // A package that does not read is no change: wait for it.
+        let Some(now) = self.mods.mods.approved_content() else {
+            return;
+        };
+        let tell = |game: &Self, message: &str| {
+            super::dedicated::log("INFO", message);
+            if let Some(host) = &game.lan {
+                host.hub
+                    .system_message(horizon_protocol::text::literal(message));
+            }
+        };
+        if now == self.options.approved_content {
+            let told = self.mods.content_change.take().is_some_and(|c| c.2);
+            if told {
+                tell(
+                    self,
+                    "The world's blocks and items are back as they were: no restart",
+                );
+            }
+            return;
+        }
+        if !matches!(&self.mods.content_change, Some((set, _, _)) if *set == now) {
+            self.mods.content_change = Some((now, Instant::now(), false));
+            return;
+        }
+        let Some((_, since, told)) = self.mods.content_change.as_mut() else {
+            return;
+        };
+        let elapsed = since.elapsed();
+        let first = !*told && elapsed >= CONTENT_SETTLE;
+        let due = *told && elapsed >= CONTENT_SETTLE + CONTENT_NOTICE;
+        *told |= first;
+        if first {
+            tell(
+                self,
+                &format!(
+                    "The world's blocks and items changed: it restarts in {} seconds to load them, and you rejoin right after",
+                    CONTENT_NOTICE.as_secs()
+                ),
+            );
+        } else if due {
+            let ids: Vec<&str> = now.iter().map(|(id, _)| id.as_str()).collect();
+            let ids = if ids.is_empty() {
+                "none".to_owned()
+            } else {
+                ids.join(", ")
+            };
+            super::dedicated::log(
+                "INFO",
+                &format!("Restarting to load the approved content mods: {ids}"),
+            );
+            self.mods.restart = true;
+        }
+    }
+
+    /// Whether the dedicated server should save and stop now, to be started
+    /// again with its changed approved content mods.
+    pub(super) fn mods_restart_due(&self) -> bool {
+        self.mods.restart_due()
     }
 
     /// The Mods page's rows, from what loaded.
