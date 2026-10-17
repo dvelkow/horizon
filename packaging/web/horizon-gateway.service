@@ -1,5 +1,5 @@
 [Unit]
-Description=Horizon authenticated browser entry
+Description=Horizon browser entry and mod approvals
 After=network.target horizon-game.service
 
 [Service]

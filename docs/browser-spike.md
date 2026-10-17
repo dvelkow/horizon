@@ -1,27 +1,62 @@
-# Phase 0: browser platform and title bootstrap
+# Phase 0: browser feasibility
 
-This branch ports the existing Rust client to `wasm32-unknown-unknown` and starts its original title through WebGPU. Native runtime paths remain selected outside wasm32. The branch is limited to the title/platform spike; later phases add durable storage, networking and active mods.
+The genuine Horizon title screen renders in Chrome with WebGPU. The browser
+client is the Rust game, built for `wasm32-unknown-unknown`; it is not a
+JavaScript recreation of its title screen. Native rendering remains Vulkan/Metal.
+The initial compile blockers at upstream revision
+`1af78463ebf7148d71e8a8472564a80cc392544e` have been addressed as follows.
 
-| Baseline blocker | Phase 0 change and remaining boundary |
+| Blocker | Implemented solution |
 |---|---|
-| wgpu Vulkan/Metal only | Select WebGPU by target; initialize the adapter/device asynchronously. Native Vulkan/Metal remain unchanged. |
-| winit web lifecycle | Attach the real renderer to the browser canvas and use the browser event loop. |
-| `std::thread` | Shared-memory module Workers through vendored `wasm_thread`, with wasm-bindgen-compatible TLS startup and no JavaScript eval. |
-| Blocking Window synchronization | Browser mutex/RwLock acquisition avoids unsupported Window parking; Workers retain blocking synchronization. Scoped preparation runs serially. |
-| `std::fs` and path metadata | A shared in-memory virtual filesystem and `PathExt` provide the same resource/path interface. Minimal bounded, verified fetch preloads native-prepared resources; OPFS durability is a later phase. |
-| `Instant::now` | `web-time` supplies browser clocks throughout supporting crates; Chrono uses its browser backend. |
-| `ureq` | Target-gate native HTTP and add asynchronous browser fetch. Native TCP is unavailable in browser gameplay until the separate networking phase. |
-| `pollster` | Renderer startup awaits browser promises instead of blocking the Window. |
-| `arboard` | Asynchronous browser clipboard handling, with stale paste protection. |
-| `cpal`, HID and input | Browser audio/gamepad adapters and gesture activation; retain native audio/HID implementations on their platforms. |
-| Texture-array limits | Split sprite banks at the adapter's reported layer limit. |
-| WGSL validation | Move HUD sampling before fragment-dependent branches and surface shader/device errors visibly. |
-| Wasmtime/Cranelift | Keep the native runtime target-gated; provide the browser API facade without installing an active JavaScript mod host in this phase. |
+| Native graphics backend | Target-specific WebGPU, async adapter/device initialization, winit canvas lifecycle. |
+| Thread creation | Shared WASM memory and module Workers; vendored `wasm_thread` adapted to current wasm-bindgen initialization without JavaScript eval. Native threads are unchanged. |
+| Blocking the browser Window | Window mutex/RwLock contention uses nonparking acquisition; Workers use normal blocking synchronization. Scoped preparation is serial. Saves and screenshot readback complete asynchronously. |
+| Filesystem | `horizon-platform` provides a shared virtual filesystem, preloaded resources, and mutable settings/save files. `PathExt` routes path queries through the same filesystem. Native paths still use `std::fs`. |
+| Time | `web-time`, including supporting crates; Chrono's browser clock is enabled. |
+| Native HTTP and sockets | Browser fetch and asynchronous WebSocket transport. Direct TCP, native discovery and Microsoft account login remain native features; hosted browsers use the gateway invite/session. |
+| Clipboard, HID, audio | Asynchronous browser clipboard, browser audio/gamepad paths, native-only HID output. |
+| Browser texture limits | Sprite banks split at the adapter's actual array-layer limit, with twelve banks available for 256-layer adapters. |
+| WGSL validation | HUD sampling occurs before fragment-dependent branches, satisfying Chrome's derivative-uniformity rule. Shader/device errors produce a persistent visible error. |
+| Wasmtime/Cranelift | Native runtime is target-gated. Browser mod interfaces connect to the separate Worker runtime described in `browser.md`. |
+| Prepared resources | Pinned 26.3 resources were prepared natively using Java 25, then packaged into authenticated, hashed browser bundles. |
 
-Build prerequisites are nightly-2026-10-17 with `rust-src` and the wasm32 target, plus wasm-bindgen CLI 0.2.129. `web/build.sh` pins that compiler by default, enforces the binding-tool version, uses Cargo's lockfile, and supplies shared-memory/atomics/TLS flags. A plain stable wasm build is not the threaded release procedure.
+The implementation requires cross-origin isolation, WebGPU, SharedArrayBuffer,
+and a desktop Chrome/Edge browser. Native shader packs and the native integrated
+server are explicitly unavailable in the browser; the hosted multiplayer world
+is the supported entry path. This does not extend Horizon's underlying gameplay
+or mod WIT beyond its existing capabilities.
 
-Run native `horizon-prepare` for the pinned resource version, then `python3 web/prepare-assets.py --help` for deterministic bundling. `python3 tools/serve_web.py` serves the generated `.local/web` directory on loopback with COOP/COEP. A secure context, cross-origin isolation and browser WebGPU are required. This phase's launcher opens the original title directly.
+## Build and reproduce
 
-Isolated branch validation: native client/server `cargo check` and the nightly atomics/build-std browser check passed. These are compile checks; exact-tree rendered-title and FPS verification are separate evidence. The complete integration branch records its Chrome rendering observations rather than attributing later multiplayer or mod behavior to this branch.
+Native builds use the existing Rust toolchain and normal Cargo commands. The
+browser build additionally needs nightly Rust with `rust-src`, the WASM target,
+and wasm-bindgen CLI 0.2.129. The verified nightly was 2026-10-17.
 
-Implementation references: [platform adapters](../crates/horizon-platform/src/lib.rs), [worker runtime](../vendor/wasm_thread/src/wasm32/mod.rs), [resource bootstrap](../crates/horizon-client/src/browser.rs), [renderer](../crates/horizon-client/src/gfx.rs), and [game lifecycle](../crates/horizon-client/src/game.rs).
+```sh
+rustup toolchain install nightly-2026-10-17 --component rust-src --target wasm32-unknown-unknown
+cargo install wasm-bindgen-cli --version 0.2.129 --locked
+python3 web/prepare-assets.py --resources .local/horizon-client/26.3
+./web/build.sh
+python3 tools/serve_web.py
+```
+
+The local preview at `http://127.0.0.1:8080` opens the actual title screen without
+a gateway. The production launcher authenticates and joins the hosted world.
+Shared WASM requires rebuilding the standard library with atomics, imported
+shared memory, and TLS exports; `web/build.sh` includes those flags. A plain
+stable `cargo build --target wasm32-unknown-unknown` is not the threaded release
+build procedure.
+
+## Verification notes
+
+Chrome's Vulkan headless compositor on this workstation produced blank
+screenshots even when a WebGPU clear readback returned the correct pixels.
+Verification therefore used headed Chrome under Xvfb with WebGPU enabled and
+ANGLE OpenGL. The real title screenshot is recorded in the local verification
+artifacts, alongside a separate clear/readback check proving that compositor
+issue. Rendering was also checked for actual shader validation errors: a logged
+"first frame" alone is insufficient evidence of a displayed title.
+
+Native tests, multiplayer, deployment and performance results are recorded in
+`browser.md` and `web/server/deploy/memory-results.md`. The old initial no-go
+report described the unported baseline and is superseded by this implementation.
