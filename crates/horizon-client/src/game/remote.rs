@@ -1582,6 +1582,11 @@ impl Game<'_> {
                 {
                     m.hurt_time = 10;
                 }
+                // EntityEvent.USE_ITEM_COMPLETE: the server finished our eating or
+                // drinking (LocalPlayer.completeUsingItem).
+                if p.event == 9 && self.remote.as_ref().is_some_and(|r| r.entity_id == p.id) {
+                    self.remote_use_complete();
+                }
                 // EntityEvent.DEATH: start the death animation.
                 if p.event == 3
                     && let Some(m) = self.mobs.iter_mut().find(|m| m.id == p.id as u32)
@@ -2846,19 +2851,12 @@ impl Game<'_> {
             return;
         }
         let facts = self.res.facts.get(state).clone();
-        let held = self.held().cloned();
-        let mut speed = self.res.items.mining_speed(held.as_ref(), &facts.name);
-        if self.player.as_ref().is_some_and(|p| !p.ground.on_ground) {
-            speed /= 5.0;
-        }
-        let harvest =
-            !facts.requires_tool || self.res.items.correct_for_drops(held.as_ref(), &facts.name);
+        // BlockState.getDestroyProgress with Player.getDestroySpeed: efficiency,
+        // haste and fatigue, water and the ground, as the server counts it.
         let progress = if facts.hardness < 0.0 {
             0.0
-        } else if facts.hardness == 0.0 {
-            1.0
         } else {
-            speed / facts.hardness / if harvest { 30.0 } else { 100.0 }
+            self.destroy_progress(hit.pos)
         };
         let same = self
             .remote
@@ -3247,12 +3245,24 @@ impl Game<'_> {
         // Consumable.emitParticlesAndSounds' crumbs (the server plays the sounds).
         if eats {
             let remaining = duration.saturating_sub(ticks - 1);
-            if ticks - 1 > (duration as f32 * 0.21875) as u32 && remaining % 4 == 0 {
+            if ticks <= duration
+                && ticks - 1 > (duration as f32 * 0.21875) as u32
+                && remaining % 4 == 0
+            {
                 self.eat_particles(&stack, 5);
             }
         }
-        if ticks >= duration {
-            if eats {
+        // Food and drink end when the server says so (EntityEvent 9, with the
+        // new hunger), so a held button does not start a second helping the
+        // server refuses; a server that never says ends them a little late.
+        let server_ends = eats || drinks;
+        let end = if server_ends {
+            duration.saturating_add(60)
+        } else {
+            duration
+        };
+        if ticks >= end {
+            if eats && !server_ends {
                 self.eat_particles(&stack, 16);
             }
             if item == "minecraft:spyglass" {
@@ -3261,6 +3271,21 @@ impl Game<'_> {
             self.using = None;
         } else {
             self.using = Some((slot, ticks));
+        }
+    }
+    /// LivingEntity.completeUsingItem on the client: the last crumbs.
+    fn remote_use_complete(&mut self) {
+        let Some((slot, _)) = self.using.take() else {
+            return;
+        };
+        if let Some(stack) = self.stack_in(slot).cloned()
+            && self
+                .res
+                .items
+                .get(&stack.item)
+                .is_some_and(|i| i.consumable && i.food.is_some())
+        {
+            self.eat_particles(&stack, 16);
         }
     }
     /// Left click: attack the targeted entity (MultiPlayerGameMode.attack).

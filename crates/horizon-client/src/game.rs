@@ -3000,7 +3000,11 @@ impl Game<'_> {
         }
         self.crack_particle(crack.0, crack.1, state);
         let m = self.mining.as_mut().ok_or("mining")?;
-        if m.progress >= 1.0 {
+        // ServerPlayerGameMode.tick: a network player's block breaks when
+        // their client finishes it (STOP_DESTROY_BLOCK) or as a delayed
+        // destroy, never on the server's count alone, which can run ahead of
+        // the client and skip its pause between blocks.
+        if m.progress >= 1.0 && self.lan_acting.is_none() {
             let pos = m.pos;
             self.mining = None;
             self.break_block(pos)?;
@@ -6156,13 +6160,21 @@ impl Game<'_> {
         self.tick_vaults()?;
         self.tick_beehives();
         let mut lit_changes = Vec::new();
+        let mut cooking = Vec::new();
         for (pos, entity) in self.world.block_entities.iter_mut() {
-            if let BlockEntity::Furnace(f) = entity
-                && let Some(lit) = f.tick(&self.res.recipes, &self.res.items, &self.res.providers)
-            {
-                lit_changes.push((*pos, lit));
+            if let BlockEntity::Furnace(f) = entity {
+                let busy = f.lit_remaining > 0 || f.cooking_timer > 0;
+                if let Some(lit) = f.tick(&self.res.recipes, &self.res.items, &self.res.providers) {
+                    lit_changes.push((*pos, lit));
+                }
+                // AbstractFurnaceBlockEntity.serverTick's setChanged: what it
+                // burned and cooked is saved with the chunk.
+                if busy || f.lit_remaining > 0 {
+                    cooking.push((pos.0 >> 4, pos.2 >> 4));
+                }
             }
         }
+        self.world.modified.extend(cooking);
         for ((x, y, z), lit) in lit_changes {
             let state = self.world.block(x, y, z);
             if let Some(mut s) = self.pack.assets.registry.state(state).cloned()

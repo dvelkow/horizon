@@ -222,6 +222,7 @@ impl Game<'_> {
             }
             // AbstractFurnaceBlockEntity.setItem: only a new input restarts cooking.
             f.input_clicked(&self.res.recipes, items[0].clone());
+            self.world.modified.insert((pos.0 >> 4, pos.2 >> 4));
         }
         host.play.entry(conn).or_default().crafting.furnace = Some((p.container, menu));
         host.hub.inventory_clicked(conn, p, &self.world, &changed);

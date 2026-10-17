@@ -98,6 +98,10 @@ impl Slots {
                 for slot in e.slots_mut() {
                     *slot = rest.next().flatten();
                 }
+                // BlockEntity.setChanged: the chunk is saved with the new
+                // contents, or a restart (or the chunk unloading) brings the
+                // old ones back.
+                world.modified.insert((k.0 >> 4, k.2 >> 4));
             }
         }
     }

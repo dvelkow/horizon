@@ -45,6 +45,9 @@ pub(super) struct GuestPlay {
     /// its progress since `dig_start` is complete (ServerPlayerGameMode.hasDelayedDestroy).
     delayed: Option<([i32; 3], u64)>,
     last_progress: i32,
+    /// A use that ended on its own last tick (eaten, drunk): the client hears
+    /// of it (EntityEvent.USE_ITEM_COMPLETE) after its new food and health.
+    use_finished: bool,
     /// Hand movements the client announced and the host animated.
     swung: bool,
     /// The trading screen the guest has open.
@@ -414,6 +417,20 @@ impl Game<'_> {
                     // The pause between two blocks is the client's (MultiPlayerGameMode's
                     // destroyDelay); the server digs from the START it receives.
                     play.destroy_delay = 0;
+                    // handleBlockBreakAction START: a block a survival player breaks in
+                    // one tick goes at once (destroyAndAck); others wait for STOP.
+                    let state = self.world.block(a.pos[0], a.pos[1], a.pos[2]);
+                    if !host.hub.guests[gi].creative()
+                        && !self.res.facts.is_air(state)
+                        && self
+                            .as_guest(host, conn, |g| g.destroy_progress(a.pos))
+                            .is_some_and(|p| p >= 1.0)
+                    {
+                        let play = host.play.entry(conn).or_default();
+                        play.digging = None;
+                        play.mining = None;
+                        self.guest_destroy(host, conn, a.pos);
+                    }
                 }
                 1 => {}
                 3 => {
@@ -1008,11 +1025,21 @@ impl Game<'_> {
                 continue;
             }
             let play = host.play.entry(conn).or_default();
+            if std::mem::take(&mut play.use_finished) {
+                // ServerPlayer.completeUsingItem, sent once the hub has sent
+                // what eating changed (sync_player_state ran this tick first).
+                let id = host.hub.guests[gi].entity_id;
+                host.hub.send_to(
+                    conn,
+                    &C::EntityEvent(play::EntityEvent { id, event: 9 }),
+                );
+            }
+            let play = host.play.entry(conn).or_default();
             let digging = play.digging;
             let using = play.using.is_some();
             let delayed = play.destroy_delay > 0 || play.use_delay > 0 || play.attack_ticks < 100;
             if digging.is_some() || using || delayed {
-                self.as_guest(host, conn, |g| {
+                let finished = self.as_guest(host, conn, |g| {
                     g.attack_ticks = g.attack_ticks.saturating_add(1);
                     if let Some((pos, face)) = digging {
                         g.forced_hit = Some(Hit {
@@ -1028,11 +1055,17 @@ impl Game<'_> {
                     let _ = g.tick_mining();
                     g.forced_hit = None;
                     g.right = g.using.is_some();
+                    let was_using = g.using.is_some();
                     g.tick_using();
                     if g.use_delay > 0 {
                         g.use_delay -= 1;
                     }
+                    // The client still holds the button: only finishing ends a use here.
+                    was_using && g.using.is_none()
                 });
+                if finished == Some(true) {
+                    host.play.entry(conn).or_default().use_finished = true;
+                }
             }
             // LivingEntity.DATA_LIVING_ENTITY_FLAGS for the others: the hand in use.
             let used = host.play.get(&conn).and_then(|p| p.using);
