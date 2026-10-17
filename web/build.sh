@@ -12,6 +12,6 @@ cargo +"$toolchain" rustc --locked -Z build-std=std,panic_abort --profile web -p
 wasm-bindgen target/wasm32-unknown-unknown/web/horizon-client.wasm --target web --out-dir .local/web/pkg --out-name horizon_client
 cp web/{index.html,style.css,app.js,portal.html,portal.js,bootstrap.js,rust-worker.js} .local/web/
 mkdir -p .local/web/branding
-cp web/branding/{pepe-crowd-v1.png,Geist-SemiBold.ttf,Geist-Regular.ttf,OFL-Geist.txt} .local/web/branding/
+cp web/branding/{pepe-pixel-party-v1.png,Geist-SemiBold.ttf,Geist-Regular.ttf,OFL-Geist.txt} .local/web/branding/
 mkdir -p .local/web/mods-runtime
 cp web/mods/{host.js,worker.js} .local/web/mods-runtime/

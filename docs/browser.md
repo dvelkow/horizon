@@ -7,7 +7,7 @@ subsequent visits reuse content whose SHA-256 still matches. WASM Workers requir
 COOP `same-origin` and COEP `require-corp`; the gateway supplies both.
 
 The hosted game is branded **(dev)Modcraft**. Its landing page centers the name,
-sign-in controls and workshop link inside a generated Pepe crowd. The artwork,
+sign-in controls and workshop link inside the selected Pixel Pepe Party illustration. The artwork,
 local fonts, license and exact generation prompt are in `web/branding/`.
 `web/build.sh` copies the public assets and the deployment allowlist explicitly
 includes them. Game menu labels share `horizon-client/src/brand.rs`; engine,
