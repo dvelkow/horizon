@@ -559,14 +559,12 @@ impl Screen {
                 ),
             ],
             Self::Disconnected { retry, .. } => {
-                let mut v = vec![b(
-                    w / 2.0 - 100.0,
-                    h / 2.0 + 30.0,
-                    200.0,
-                    "Back to Server List",
-                    true,
-                    54,
-                )];
+                let back = if crate::title::hosted().is_some() {
+                    "Rejoin"
+                } else {
+                    "Back to Server List"
+                };
+                let mut v = vec![b(w / 2.0 - 100.0, h / 2.0 + 30.0, 200.0, back, true, 54)];
                 if retry.is_some() {
                     v.push(b(
                         w / 2.0 - 100.0,
@@ -990,6 +988,12 @@ impl Screen {
         saves: &Path,
     ) -> Outcome {
         let (w, h) = size;
+        // A hosted game has one server: its way back is to rejoin it.
+        if let (Self::Disconnected { .. }, Some(54)) = (&*self, id)
+            && let Some(address) = crate::title::hosted()
+        {
+            return Outcome::Connect(address.to_owned());
+        }
         match (&mut *self, id) {
             (
                 Self::List {
@@ -1320,6 +1324,8 @@ impl Screen {
     pub fn escape(&mut self, saves: &Path) -> bool {
         match self {
             Self::List { .. } => true,
+            // A hosted game has no server list to go back to: the title.
+            _ if crate::title::hosted().is_some() => true,
             // ConfirmScreen.keyPressed: Escape answers no.
             Self::ConfirmDelete { list, .. } => {
                 let list = std::mem::replace(

@@ -258,7 +258,13 @@ pub async fn ready() -> Result<(), JsValue> {
                 "Player names need 1–16 letters, numbers, or underscores",
             ));
         }
-        args.extend(["--server".into(), "gateway".into(), "--name".into(), name]);
+        args.extend([
+            "--server".into(),
+            "gateway".into(),
+            "--hosted".into(),
+            "--name".into(),
+            name,
+        ]);
     }
     horizon_platform::env::set_args(args);
     loading_status("Checking game resources…", 0.0);

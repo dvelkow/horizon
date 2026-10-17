@@ -66,6 +66,17 @@ impl BackupToast {
     }
 }
 
+/// `--hosted`: this game belongs to one server, the browser's hosted world.
+/// The title then joins it and hides singleplayer and the server list.
+static HOSTED: ::std::sync::OnceLock<String> = ::std::sync::OnceLock::new();
+pub fn set_hosted(address: String) {
+    let _ = HOSTED.set(address);
+}
+/// The hosted server's address, when the game belongs to one.
+pub fn hosted() -> Option<&'static str> {
+    HOSTED.get().map(String::as_str)
+}
+
 #[derive(Clone, Debug)]
 pub struct WorldEntry {
     pub folder: String,
@@ -593,13 +604,21 @@ impl Title {
             Mode::Main => {
                 let cx = (w / 2.0).floor();
                 let y = (h / 4.0).floor() + 48.0;
-                let mut buttons = vec![
-                    b(cx - 100.0, y, 200.0, "Singleplayer", true, 1),
-                    b(cx - 100.0, y + 24.0, 200.0, "Multiplayer", true, 4),
-                    b(cx - 100.0, y + 48.0, 200.0, "Minecraft Realms", false, 0),
-                    b(cx - 100.0, y + 96.0, 98.0, "Options...", true, 3),
-                    b(cx + 2.0, y + 96.0, 98.0, "Quit Game", true, 2),
-                ];
+                let join = format!("Join {}", crate::brand::NAME);
+                let mut buttons = if hosted().is_some() {
+                    vec![
+                        b(cx - 100.0, y, 200.0, &join, true, 1),
+                        b(cx - 100.0, y + 24.0, 200.0, "Options...", true, 3),
+                    ]
+                } else {
+                    vec![
+                        b(cx - 100.0, y, 200.0, "Singleplayer", true, 1),
+                        b(cx - 100.0, y + 24.0, 200.0, "Multiplayer", true, 4),
+                        b(cx - 100.0, y + 48.0, 200.0, "Minecraft Realms", false, 0),
+                        b(cx - 100.0, y + 96.0, 98.0, "Options...", true, 3),
+                        b(cx + 2.0, y + 96.0, 98.0, "Quit Game", true, 2),
+                    ]
+                };
                 for (i, (label, enabled, id, icon, size)) in [
                     ("Friends", false, 5, "friends/friends", 15.0),
                     ("Language", true, 6, "icon/language", 15.0),
@@ -616,7 +635,7 @@ impl Title {
                 {
                     let mut button = b(
                         cx - 34.0 + i as f32 * 24.0,
-                        y + 72.0,
+                        if hosted().is_some() { y + 48.0 } else { y + 72.0 },
                         20.0,
                         label,
                         enabled,
@@ -1199,6 +1218,11 @@ impl Title {
     fn click_action(&mut self, x: f32, y: f32, (w, h): (f32, f32), hit: Option<u8>) -> Action {
         match (&mut self.mode, hit) {
             (Mode::Main, Some(1)) => {
+                if let Some(address) = hosted() {
+                    return Action::Connect {
+                        address: address.to_owned(),
+                    };
+                }
                 self.enter_singleplayer();
                 Action::None
             }

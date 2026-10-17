@@ -379,13 +379,19 @@ impl Game<'_> {
             self.capture(false);
             return Ok(());
         }
-        title.mode = horizon_client::title::Mode::Multiplayer(match reason {
-            Some(reason) => horizon_client::multiplayer::Screen::Disconnected {
-                reason,
-                retry: None,
-            },
-            None => horizon_client::multiplayer::Screen::list(&saves),
-        });
+        title.mode = match reason {
+            Some(reason) => horizon_client::title::Mode::Multiplayer(
+                horizon_client::multiplayer::Screen::Disconnected {
+                    reason,
+                    retry: None,
+                },
+            ),
+            // A hosted game has no server list: its title joins the one world.
+            None if horizon_client::title::hosted().is_some() => horizon_client::title::Mode::Main,
+            None => horizon_client::title::Mode::Multiplayer(
+                horizon_client::multiplayer::Screen::list(&saves),
+            ),
+        };
         self.title = Some(title);
         self.capture(false);
         Ok(())

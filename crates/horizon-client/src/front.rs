@@ -24,6 +24,7 @@ const QUIT: u64 = id("title.quit", 0);
 const PLAY: u64 = id("home.play", 0);
 const MULTIPLAYER: u64 = id("home.multiplayer", 0);
 const RESUME: u64 = id("home.resume", 0);
+const HOSTED_JOIN: u64 = id("home.hosted_join", 0);
 const BACK: u64 = id("front.back", 0);
 const PLAY_WORLD: u64 = id("worlds.play", 0);
 const CREATE: u64 = id("worlds.create", 0);
@@ -98,6 +99,8 @@ fn page(mode: &Mode) -> usize {
     }
 }
 const PAGES: [&str; 4] = ["Home", "Singleplayer", "Multiplayer", "Options"];
+/// A hosted game's pages: its one world and the options (`title::hosted`).
+const HOSTED_PAGES: [&str; 2] = ["Home", "Options"];
 /// World editing and backups still use the classic screens, and so do their
 /// errors; the rest of the singleplayer flow has Horizon pages.
 fn classic(mode: &Mode) -> bool {
@@ -216,6 +219,11 @@ impl Title {
     fn sidebar(&self, ui: &mut Ui) {
         let (h, muted) = (ui.h, ui.muted);
         ui.sidebar_frame(crate::brand::NAME);
+        if crate::title::hosted().is_some() {
+            ui.sidebar_list(NAV, 12.0, 72.0, SIDEBAR - 24.0, &HOSTED_PAGES, 0);
+            ui.caps(24.0, h - 12.0 - 18.0, muted, crate::brand::VERSION);
+            return;
+        }
         ui.sidebar_list(NAV, 12.0, 72.0, SIDEBAR - 24.0, &PAGES, page(&self.mode));
         let qy = h - 12.0 - 18.0 - 12.0 - CONTROL;
         let hover = ui.interact(QUIT, 12.0, qy, SIDEBAR - 24.0, CONTROL, true);
@@ -272,6 +280,33 @@ impl Title {
             "The world you know, rebuilt from the ground up.",
         );
         y += 22.0 + 28.0;
+        if crate::title::hosted().is_some() {
+            let label = format!("Join {}", crate::brand::NAME);
+            let jw = ui.button_width(&label, true).max(132.0);
+            ui.button(
+                HOSTED_JOIN,
+                [x, y, jw, CONTROL_LARGE],
+                &label,
+                Kind::Primary,
+                true,
+            );
+            y += CONTROL_LARGE + 16.0;
+            ui.text(
+                Face::Regular,
+                BODY,
+                x,
+                y,
+                muted,
+                "Everyone who opens the link plays in this one shared world.",
+            );
+            ui.caps(
+                x,
+                ui.h - 12.0 - 18.0,
+                muted,
+                "Not affiliated with Mojang or Microsoft",
+            );
+            return;
+        }
         let pw = ui.button_width("Singleplayer", true).max(132.0);
         ui.button(
             PLAY,
@@ -357,6 +392,23 @@ impl Title {
             worlds: list_worlds(saves),
             selected: None,
         };
+        if crate::title::hosted().is_some() {
+            match hit {
+                h if h == NAV => {
+                    self.mode = Mode::Main;
+                    return Action::None;
+                }
+                h if h == NAV + 1 => return Action::Options,
+                HOSTED_JOIN => {
+                    if let Some(address) = crate::title::hosted() {
+                        return Action::Connect {
+                            address: address.to_owned(),
+                        };
+                    }
+                }
+                _ => {}
+            }
+        }
         match hit {
             QUIT => return Action::Quit,
             h if h == NAV => {
@@ -1110,14 +1162,13 @@ fn multiplayer_page(ui: &mut Ui, x: f32, w: f32, screen: &Screen, caret: bool) {
                 ui.text_line(Face::Regular, BODY, 19.0, x, y, color::MUTED, &text);
                 y += 19.0 + 12.0;
             }
-            let bw = ui.button_width("Back to servers", false);
-            ui.button(
-                BACK,
-                [x, y, bw, CONTROL],
-                "Back to servers",
-                Kind::Secondary,
-                true,
-            );
+            let (back, kind) = if crate::title::hosted().is_some() {
+                ("Rejoin", Kind::Primary)
+            } else {
+                ("Back to servers", Kind::Secondary)
+            };
+            let bw = ui.button_width(back, false);
+            ui.button(BACK, [x, y, bw, CONTROL], back, kind, true);
             if retry.is_some() {
                 let cw = ui.button_width("Cancel reconnecting", false);
                 ui.button(

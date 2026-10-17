@@ -799,6 +799,10 @@ impl Game<'_> {
             );
             return;
         }
+        // Teleport requests need no permission either: the other player answers.
+        if super::lan_tpa::command(host, conn, &words) {
+            return;
+        }
         // An integrated server runs every player's commands at their own
         // permission level (`CommandSourceStack.permissions`).
         if host.hub.config.integrated {

@@ -111,7 +111,8 @@ impl Game<'_> {
     /// Auto-reconnect's next attempt after a disconnect, when it is on and
     /// the reason allows one.
     pub(super) fn reconnect_after(&mut self, reason: &str, from_server: bool) -> Option<Retry> {
-        if !self.settings.extras.auto_reconnect {
+        // A hosted game always tries to get back into its one world.
+        if !self.settings.extras.auto_reconnect && horizon_client::title::hosted().is_none() {
             self.extras.reconnect.reset();
             return None;
         }

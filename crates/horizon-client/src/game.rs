@@ -70,6 +70,7 @@ mod lan_crafting;
 mod lan_mobs;
 mod lan_pvp;
 mod lan_screen;
+mod lan_tpa;
 mod lan_trading;
 mod leads;
 mod level_particles;
@@ -256,6 +257,9 @@ struct Options {
     server_thread: bool,
     /// Set on the integrated server's own options: it draws nothing, so it skips meshing.
     integrated: bool,
+    /// `--hosted` (with `--server`): the game belongs to that one server, as
+    /// the browser's hosted world does (`title::hosted`).
+    hosted: bool,
 }
 impl Options {
     /// The name to join servers with: the one given, else the offline name kept
@@ -309,6 +313,7 @@ impl Options {
             dev_mods: Vec::new(),
             server_thread: std::env::var("HORIZON_SERVER_THREAD").is_ok_and(|v| v == "1"),
             integrated: false,
+            hosted: false,
         };
         let mut session_file = std::env::var("HORIZON_SESSION_FILE").ok();
         let mut args = std::env::args().skip(1);
@@ -330,6 +335,7 @@ impl Options {
                 "--offscreen" => o.offscreen = true,
                 "--control" => o.control = Some(horizon_client::control::default_path()),
                 "--server-thread" => o.server_thread = true,
+                "--hosted" => o.hosted = true,
                 _ => {
                     let value = args
                         .next()
@@ -406,6 +412,10 @@ impl Options {
                 }
                 Err(e) => eprintln!("Horizon: not signed in: {e}"),
             }
+        }
+        if o.hosted {
+            let server = o.server.clone().ok_or("--hosted needs --server")?;
+            horizon_client::title::set_hosted(server);
         }
         Ok(Some(o))
     }

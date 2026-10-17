@@ -59,6 +59,8 @@ pub(super) struct LanHost {
     pub mob_players: HashMap<u32, u32>,
     /// An integrated server's owner (game/integrated.rs).
     pub owner: Option<Owner>,
+    /// Open `/tpa` requests (game/lan_tpa.rs).
+    pub tpa: super::lan_tpa::Requests,
 }
 
 /// The player who owns an integrated server's world: a guest whose state is
@@ -504,6 +506,7 @@ impl Game<'_> {
             mob_state: HashMap::new(),
             mob_players: HashMap::new(),
             owner: None,
+            tpa: Default::default(),
         });
         self.audio.capture = Some(Vec::new());
         Ok(())
