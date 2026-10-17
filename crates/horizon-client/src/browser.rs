@@ -155,7 +155,7 @@ pub fn report_performance(fps: f32, frames: u64, world_frames: u64) {
     record_performance(fps, frames, world_frames);
 }
 
-/// Requests a lock only in a browser gesture and reports actual capture state.
+/// Requests or restores mouse control and reports actual browser capture state.
 pub fn capture_pointer(capture: bool) -> bool {
     set_pointer_capture(capture)
 }

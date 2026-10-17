@@ -31,9 +31,23 @@ While playing in the browser, press **Esc** to open the classic Minecraft pause
 menu. **Options** opens the game settings. The gold **DEV MODE** button below
 Disconnect opens the Mod workshop in a separate tab, keeping your world tab
 connected. The workshop uses your existing friend session; publishing a mod
-still requires the owner's separate approval. **Back to Game** resumes play.
-If Chrome releases the mouse without sending Escape to the game, the pause
-menu still opens. Native menu preferences remain available as before.
+still requires the owner's separate approval. **Esc** again or **Back to Game**
+resumes play and restores mouse control, including after a long pause.
+
+On the first play gesture, supported browsers enter fullscreen and request
+keyboard control for **Escape only**. Allow that request if Chrome asks: it lets
+a short Escape press reach the game instead of releasing the mouse at browser
+level. **Hold Esc** or press **F11** to leave fullscreen; the game does not force
+you back into it. F11 can re-enable fullscreen controls later. If these APIs are
+unavailable or permission is denied, windowed play still works, but Chrome may
+require a click to recapture after its own Escape unlock. Switching tabs still
+releases the mouse and pauses. Native controls are unchanged.
+
+`node --test web/test-bootstrap.mjs` covers keyboard resume without transient
+activation, repeated menu cycles, focus loss, asynchronous and denied capture,
+and fullscreen/keyboard permission lifecycle. For a real Chrome smoke test:
+join, allow game controls, press Esc, wait at least ten seconds, press Esc and
+move the mouse without clicking; repeat, then test inventory, F11 and Alt-Tab.
 
 Read [the existing SDK and WIT](mods.md) first. An agent can create/build a mod
 using `cargo horizon-mod new` and `cargo horizon-mod build`, then hand its `.hmod`
