@@ -179,6 +179,13 @@ export function installGpuErrorHandling() {
   };
 }
 
+// The hosted world's content mods, fetched and verified by the mods host before
+// Rust starts (web/mods/host.js). Taken once, so their bytes are not kept twice.
+export function takeHostedContent() {
+  const mods = globalThis.horizonMods?.takeContent?.();
+  return Array.isArray(mods) ? mods : [];
+}
+
 // The launcher supplies the authenticated session name before Rust starts.
 export function browserOptions() {
   const value = globalThis.horizonOptions;

@@ -34,6 +34,8 @@ extern "C" {
     fn request_player_skin(path: &str);
     #[wasm_bindgen(js_name = takePlayerSkinTextures)]
     fn take_player_skin_textures() -> Array;
+    #[wasm_bindgen(js_name = takeHostedContent)]
+    fn take_hosted_content() -> Array;
     #[wasm_bindgen(catch, js_name = loadResourceIndex)]
     async fn load_resource_index() -> Result<JsValue, JsValue>;
     #[wasm_bindgen(catch, js_name = fetchVerified)]
@@ -129,6 +131,13 @@ pub fn player_skin(uuid: Option<u128>) -> Option<String> {
 
 const MAX_FILE: u64 = 128 * 1024 * 1024;
 const MAX_RESOURCES: u64 = 1024 * 1024 * 1024;
+/// Where the hosted world's content mods go: under the immutable resources,
+/// so they are never saved with the player's files and a mod the host
+/// removed is gone at the next start.
+const HOSTED_MODS: &str = "/resources/.hosted-mods";
+/// The hosted world's content packages, each and in all (web/mods/host.js).
+const MAX_CONTENT_FILE: usize = 64 << 20;
+const MAX_CONTENT: usize = 64 << 20;
 fn fail(message: impl ToString) -> JsValue {
     JsValue::from_str(&message.to_string())
 }
@@ -220,6 +229,41 @@ fn resource_path(value: &str) -> Result<(), JsValue> {
     }
     Ok(())
 }
+/// The hosted world's content mods, as the mods host fetched and verified
+/// them before the game started: checked again here (ids, sizes, SHA-256)
+/// and put in [`HOSTED_MODS`]. The game layers exactly these, by id, as the
+/// world's server does (game/mods.rs `content_root`). False with none.
+fn hosted_content() -> Result<bool, JsValue> {
+    let field = |entry: &JsValue, name: &str| Reflect::get(entry, &JsValue::from_str(name));
+    let mut ids = BTreeSet::new();
+    let mut total = 0_usize;
+    for entry in take_hosted_content().iter() {
+        let id = field(&entry, "id")?
+            .as_string()
+            .filter(|id| {
+                (1..=64).contains(&id.len())
+                    && id
+                        .bytes()
+                        .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'_')
+            })
+            .ok_or_else(|| fail("Invalid content mod id"))?;
+        let hash = field(&entry, "sha256")?
+            .as_string()
+            .ok_or_else(|| fail("Content mod without a checksum"))?;
+        let bytes = field(&entry, "bytes")?
+            .dyn_into::<Uint8Array>()
+            .map_err(|_| fail("Content mod is not bytes"))?;
+        let size = bytes.length() as usize;
+        total = total.saturating_add(size);
+        if !ids.insert(id.clone()) || size > MAX_CONTENT_FILE || total > MAX_CONTENT {
+            return Err(fail("Duplicate or oversized content mods"));
+        }
+        let bytes = bytes.to_vec();
+        verify(&bytes, &hash)?;
+        fs::preload(Path::new(HOSTED_MODS).join(format!("{id}.hmod")), bytes).map_err(fail)?;
+    }
+    Ok(!ids.is_empty())
+}
 fn verify(bytes: &[u8], expected: &str) -> Result<(), JsValue> {
     let actual: String = Sha256::digest(bytes)
         .iter()
@@ -265,6 +309,11 @@ pub async fn ready() -> Result<(), JsValue> {
             "--name".into(),
             name,
         ]);
+        // The world's blocks and items before anything loads: the server's
+        // chunks name block states by these ids.
+        if hosted_content()? {
+            args.extend(["--approved-mods".into(), HOSTED_MODS.into()]);
+        }
     }
     horizon_platform::env::set_args(args);
     loading_status("Checking game resources…", 0.0);

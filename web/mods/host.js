@@ -3,6 +3,8 @@ const MAX_MODS = 32;
 const MAX_BROWSER_MODS = 8;
 const MAX_FILES = 128;
 const MAX_BUNDLE = 64 * 1024 * 1024;
+/* Every content mod's package together, as the portal allows (web/server/mod-store.mjs). */
+const MAX_CONTENT = 64 * 1024 * 1024;
 const MAX_OUTPUT = 64;
 const MAX_QUEUE = 32;
 const LIMITS = {initialize: 15000, tick: 1000, frame: 1000, chat: 1000, command: 1500};
@@ -21,6 +23,15 @@ function modUrl(value, hash) {
   if (url.origin !== location.origin || !url.pathname.startsWith(`/mods/bundles/${hash}/`) || url.search || url.hash
       || url.username || url.password) throw new Error("Unexpected mod file URL");
   return url.href;
+}
+function packageUrl(value, hash) {
+  const url = new URL(value, location.origin);
+  if (url.origin !== location.origin || url.pathname !== `/mods/packages/${hash}.hmod` || url.search || url.hash
+      || url.username || url.password) throw new Error("Unexpected mod package URL");
+  return url.href;
+}
+async function sha256(bytes) {
+  return Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256", bytes)), b => b.toString(16).padStart(2, "0")).join("");
 }
 function pathName(path) {
   if (typeof path !== "string" || !/^[a-zA-Z0-9_.\/-]+$/.test(path) || path.startsWith("/")
@@ -70,13 +81,41 @@ async function verifiedFiles(entry) {
     const url = modUrl(file.url, entry.sha256);
     const bytes = await boundedFetch(url, file.size);
     if (bytes.byteLength !== file.size) throw new Error("Mod file size mismatch");
-    const hash = Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256", bytes)), b => b.toString(16).padStart(2, "0")).join("");
-    if (hash !== file.sha256) throw new Error("Mod file checksum mismatch");
+    if (await sha256(bytes) !== file.sha256) throw new Error("Mod file checksum mismatch");
     if (url === entryUrl) entryPath = path;
     files.push({path, bytes: bytes.buffer});
   }
   if (!entryPath?.endsWith(".js")) throw new Error("Missing verified JavaScript instantiator");
   return {entryPath, files};
+}
+async function fetchIndex() {
+  const bytes = await boundedFetch("/mods/index.json", 2 * 1024 * 1024);
+  const index = JSON.parse(new TextDecoder("utf-8", {fatal: true}).decode(bytes));
+  if (index.schema !== 1 || !Array.isArray(index.mods) || index.mods.length > MAX_MODS || !["number", "string"].includes(typeof index.revision)) throw new Error("Invalid approved-mod index");
+  return index;
+}
+const isContent = manifest => manifest.capabilities.includes("registries");
+/* The world's content mods (capability registries): their packages, verified, by id. The game
+   layers exactly these before it starts, in this order, as the world's server does, so the
+   block-state ids in the server's chunks mean the same blocks here. */
+async function contentPackages(index) {
+  const rows = index.mods.map(entry => ({entry, manifest: manifest(entry)})).filter(row => isContent(row.manifest))
+    .sort((a, b) => a.manifest.id < b.manifest.id ? -1 : a.manifest.id > b.manifest.id ? 1 : 0);
+  if (new Set(rows.map(row => row.manifest.id)).size !== rows.length) throw new Error("Duplicate content mod identifier");
+  const packages = []; let total = 0;
+  for (const {entry, manifest} of rows) {
+    if (!Number.isSafeInteger(entry.size) || entry.size <= 0) throw new Error(`${manifest.name}: invalid package size`);
+    total += entry.size;
+    if (total > MAX_CONTENT) throw new Error("The world's content mods exceed 64 MB");
+    const bytes = await boundedFetch(packageUrl(entry.url, entry.sha256), entry.size);
+    if (bytes.byteLength !== entry.size || await sha256(bytes) !== entry.sha256) throw new Error(`${manifest.name}: package checksum mismatch`);
+    packages.push({id: manifest.id, sha256: entry.sha256, bytes});
+  }
+  return packages;
+}
+/* A Mods-page row with nothing to run in this page. */
+function placeholder(row, status, error = "") {
+  return {manifest: row.manifest, hash: row.entry.sha256, status, error, panel: null, hooks: {commands: []}, stop() {}, enqueue() { return false; }};
 }
 function boundedPanel(panel) {
   if (panel === null || panel === undefined) return null;
@@ -181,7 +220,15 @@ class ModManager {
     this.refreshPromise = null;
     this.failedUpdates = new Map();
     this.release = globalThis.horizonOptions?.release ?? null; this.updating = null;
+    /* Content mods this page started with: id -> package hash. Blocks and items load once, before
+       the game; a change reaches this page by reloading it (the gateway's release names them). */
+    this.content = new Map(); this.contentPackages = [];
   }
+  setContent(packages) {
+    this.content = new Map(packages.map(row => [row.id, row.sha256])); this.contentPackages = packages;
+  }
+  /* For Rust's bootstrap, once (web/bootstrap.js takeHostedContent). */
+  takeContent() { const packages = this.contentPackages; this.contentPackages = []; return packages; }
   /* The gateway names its client release; a different one means this page runs old code. */
   sawRelease(release) {
     if (typeof release !== "string" || !/^[a-f0-9]{16}$/.test(release) || !this.release || release === this.release
@@ -239,9 +286,7 @@ class ModManager {
   async refreshOnce() {
     this.refreshing = true;
     try {
-      const bytes = await boundedFetch("/mods/index.json", 2 * 1024 * 1024);
-      const index = JSON.parse(new TextDecoder("utf-8", {fatal: true}).decode(bytes));
-      if (index.schema !== 1 || !Array.isArray(index.mods) || index.mods.length > MAX_MODS || !["number", "string"].includes(typeof index.revision)) throw new Error("Invalid approved-mod index");
+      const index = await fetchIndex();
       // The game parses `manifest` strictly: keep it to horizon-mod.toml's fields. A capability this
       // page predates (a newer release went live) marks just that mod, which waits for a reload.
       const entries = index.mods.map(entry => {
@@ -249,7 +294,8 @@ class ModManager {
         return {entry, manifest: normalized, unsupported: normalized.capabilities.some(c => !allowedCapabilities.has(c))};
       });
       if (new Set(entries.map(row => row.manifest.id)).size !== entries.length) throw new Error("Duplicate approved mod identifier");
-      if (entries.filter(row => row.manifest.side !== "server").length > MAX_BROWSER_MODS) throw new Error("This world exceeds the limit of 8 active browser mods; ask the host to remove an older mod");
+      // Workers run client code: content-only and server mods have none here.
+      if (entries.filter(row => row.manifest.side !== "server" && row.entry.entry).length > MAX_BROWSER_MODS) throw new Error("This world exceeds the limit of 8 active browser mods; ask the host to remove an older mod");
       const retained = new Set();
       for (const row of entries) {
         const id = row.manifest.id; retained.add(id);
@@ -259,14 +305,23 @@ class ModManager {
         if (row.unsupported) {
           this.checkRelease();
           if (old) old.stop();
-          this.instances.set(id, {manifest: row.manifest, hash: row.entry.sha256, status: "off", error: "Needs a newer game: reload the page", panel: null, hooks: {commands: []}, stop() {}});
+          this.instances.set(id, placeholder(row, "off", "Needs a newer game: reload the page"));
           this.revision++;
           if (old?.hash !== row.entry.sha256) this.addOutput([{kind: "feedback", text: `${row.manifest.name} needs a newer game: reload the page to use it`, error: true}]);
           continue;
         }
-        if (row.manifest.side === "server" || row.manifest.capabilities.includes("registries")) {
+        const content = isContent(row.manifest);
+        if (content && this.content.get(id) !== row.entry.sha256) {
+          // New or changed blocks and items: only a page that starts with them has them.
+          this.checkRelease();
           if (old) old.stop();
-          this.instances.set(id, {manifest: row.manifest, hash: row.entry.sha256, status: "off", error: "Server/content mods require coordinated world support", panel: null, hooks: {commands: []}, stop() {}});
+          this.instances.set(id, placeholder(row, "off", "Reload the page to get its blocks and items"));
+          this.revision++; continue;
+        }
+        if (row.manifest.side === "server" || !row.entry.entry) {
+          // Its content (loaded at start) is live here; its code, if any, runs on the server.
+          if (old) old.stop();
+          this.instances.set(id, content ? placeholder(row, "running") : placeholder(row, "off", "Runs on the world's server"));
           this.revision++; continue;
         }
         const candidate = new Instance(this, row.entry, row.manifest);
@@ -285,6 +340,8 @@ class ModManager {
         }
       }
       for (const [id, old] of this.instances) if (!retained.has(id)) { old.stop(); this.instances.delete(id); this.failedUpdates.delete(id); this.revision++; }
+      // A removed content mod's blocks stay in this page until it reloads.
+      for (const id of this.content.keys()) if (!retained.has(id)) this.checkRelease();
       this.indexRevision = index.revision;
     } catch (error) { this.addOutput([{kind: "feedback", text: "Approved mods unavailable: " + errorText(error), error: true}]); }
     finally {
@@ -340,7 +397,11 @@ class ModManager {
 }
 export async function startMods() {
   if (globalThis.horizonMods) return globalThis.horizonMods;
-  const manager = new ModManager(); globalThis.horizonMods = manager;
+  const manager = new ModManager();
+  // The world's blocks and items first: without them this page must not join.
+  try { manager.setContent(await contentPackages(await fetchIndex())); }
+  catch (error) { throw new Error("The world's blocks and items could not be loaded: " + errorText(error) + ". Reload to try again."); }
+  globalThis.horizonMods = manager;
   await manager.refresh(); manager.connect();
   manager.pollTimer = setInterval(() => { manager.refresh(); manager.checkRelease(); }, 30000);
   addEventListener("pagehide", () => manager.close(), {once: true});
