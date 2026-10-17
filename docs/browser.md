@@ -67,6 +67,11 @@ owner approval key to write/build mods.
 5. Revoke an active version to unload it. A failed replacement keeps the last
    working mod. A guest that traps or exceeds its time/memory budget stops without
    restarting the game or other guests.
+6. A content mod (API 0.2, capability `registries`: new blocks and items) is
+   approved the same way, but blocks cannot join a running world: approving,
+   replacing or revoking one restarts the world with the new set, and every open
+   page reloads into it ([Content mods](#content-mods)). The workshop says so
+   on the button.
 
 Coding agents can also [submit a built mod and its source through the API](mod-api.md)
 using a submission-only key. They don't need to use the workshop. The two mod
@@ -99,21 +104,65 @@ WASI, filesystem, arbitrary sockets or process access. Generated code is trusted
 transpiler output; uploaded JavaScript is not accepted. Browser output is bounded,
 commands and lifecycle callbacks are serialized, and queued snapshots coalesce.
 Each browser mod has at most 64 MiB of core memory and 10,000 table entries;
-at most eight client/both mods may be active. A Worker deadline terminates runaway
+at most eight client/both mods with code may be active. A Worker deadline terminates runaway
 execution. This is wall-clock isolation, not the native instruction-fuel model.
 
 API 0.1 supports game snapshots, HUD, chat and registered commands; 0.1.1 adds
 bounded `movement` nudges, which Workers return with each hook's result and the
-game applies before the next movement step (one tick after the hook). New block or
-item registries and baked resource/content changes require a coordinated release;
-the live portal rejects their activation explicitly. This deployment does not
+game applies before the next movement step (one tick after the hook). New blocks
+and items load only when the world starts (below). This deployment does not
 claim arbitrary Java/Fabric mods or new game-engine hooks can be hot-loaded.
 
-Server/both mods are mirrored only after approval into a private directory.
+Server/both mods and every content mod are mirrored only after approval into a
+private directory.
 The native engine polls content hashes, initializes before replacing, and retains
 its previous working instance on failure. Server clock/chat hooks run in the
 native world. The server has no local player snapshot. Existing vanilla command
 names retain precedence.
+
+## Content mods
+
+Content mods are data, not code: blocks and items declared from vanilla templates,
+with their models, textures, recipes, loot and tags ([mods.md](mods.md#content-mods-api-02)).
+The validator applies the game's own fences and limits (own namespace, additions to
+`minecraft` and `c` tags only, file and size caps, no `minecraft` or `c` id) and
+reports the blocks, items and files it found. A content-only package has no code,
+so no sandbox or browser bundle and no Worker slot; at most 64 MiB of content
+packages may be active in all, since every player downloads them before joining.
+
+Approving one, a new version of one or revoking one goes live with a restart:
+
+1. The gateway publishes and mirrors it, then recomputes its release identity
+   (`/api/release`, `/api/session`, `/mods/events`) from the client files **and**
+   the active content mods' ids and hashes. Open pages see a new release and
+   reload 10 seconds later, then rejoin.
+2. The native server sees the mirror's content set differ from the one it started
+   with, tells players, saves and exits for `horizon-server` to start it again with
+   the new set (exit status 75, not a crash). Players' games reconnect.
+3. Before the Rust client starts, `web/mods/host.js` fetches every active content
+   mod's package from `/mods/packages/<sha256>.hmod`, checks size and SHA-256, and
+   hands the bytes to the game (`takeHostedContent` in `web/bootstrap.js`). The
+   game checks them again, keeps them under the immutable, never-saved
+   `/resources/.hosted-mods/` and layers exactly those over its resources, in
+   mod-id order like the server, so block-state ids match. If a package cannot be
+   loaded, the page does not join.
+
+The browser builds the content into its in-memory `/resources` in place; an
+overlay would copy the whole resource tree into the player's saved files. While a
+page runs, a content mod approved after it loaded shows "Reload the page to get its
+blocks and items" on the Mods page until the reload. Native engine and browser
+builds must agree on how content is layered; deploy them together.
+
+A content mod that cannot be built (a template the game lacks, too many block
+states) is left out on its own, the same way on the server and in every page, so
+the others' blocks stay. `node --test web/test-mods-host.mjs` covers the page side:
+packages verified and handed over in id order, a changed one waiting for a reload,
+and a bad checksum stopping the join.
+
+Risks: a revoked content mod's placed blocks load as air in every chunk loaded
+while it is gone, and are saved that way. A page whose mods socket missed the
+notification can rejoin the restarted world with old content until its 30-second
+release check reloads it.
 
 ## Resources and persistence
 
@@ -240,7 +289,8 @@ install the verified binaries with mode 0755 and resources with directory/file
 modes 0755/0644, then `systemctl start horizon-game`. Preserve the previous
 binaries/resources and a world backup for rollback. Do not overwrite a live
 binary in place, and do not restart the game for an ordinary approved API 0.1 mod
-update. Inspect supervisor status and a real join after restarting.
+update. Approving a content mod restarts the game by itself. Inspect supervisor
+status and a real join after restarting.
 
 ## Verification and performance
 

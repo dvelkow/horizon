@@ -18,7 +18,9 @@ function showSessions() {
   $("owner-form").hidden = owner.authenticated; $("owner-signed-in").hidden = !owner.authenticated;
   $("review-section").hidden = !owner.authenticated; $("active-section").hidden = !ready;
 }
-const capabilityLabels = {"game-read": "Read position and time", chat: "Write in local chat", hud: "Draw on your screen", movement: "Change how you move in the air", registries: "Add world content"};
+const capabilityLabels = {"game-read": "Read position and time", chat: "Write in local chat", hud: "Draw on your screen", movement: "Change how you move in the air", registries: "Add blocks and items"};
+const isContent = manifest => (manifest.capabilities ?? []).includes("registries");
+const plural = (count, word) => `${count} ${word}${count === 1 ? "" : "s"}`;
 const checkLabels = {manifest: "Manifest", imports: "Permissions", content: "Content rules", archiveCaps: "File size limits", sandboxInitFuel: "Sandbox startup"};
 function modRow(item, active = false) {
   const manifest = item.manifest ?? item;
@@ -57,7 +59,10 @@ function modRow(item, active = false) {
     });
     row.append(source);
   }
-  if (item.liveReload === false) row.append(element("p", "This changes world content and needs a coordinated server restart. It cannot be approved as a live update.", "owner-note"));
+  if (item.content) row.append(element("p", `Adds ${plural(item.content.blocks, "block")} and ${plural(item.content.items, "item")} (${plural(item.content.files, "file")})${item.code === false ? ", no code" : ""}.`));
+  if (isContent(manifest)) row.append(element("p", active
+    ? "Removing it restarts the world. Its placed blocks turn into air in every chunk loaded while it is gone."
+    : "Approving it restarts the world to add its blocks and items: players are told, the world saves, and everyone's page reloads into it.", "owner-note"));
   row.append(element("div", "File fingerprint (SHA-256)", "hash-label"), element("code", item.sha256, "sha"));
   const details = element("details"); details.append(element("summary", "View manifest and checks"), element("pre", JSON.stringify({manifest, checks: item.checks ?? null}, null, 2))); row.append(details);
   if (owner.authenticated && /^[a-f0-9]{64}$/.test(item.sha256)) {
@@ -65,7 +70,7 @@ function modRow(item, active = false) {
     const action = (label, verb, css) => { const button = element("button", label, css); button.type = "button"; button.addEventListener("click", () => decide(item, verb, row)); actions.append(button); };
     if (active) action("Remove from world", "revoke", "secondary");
     else if (item.status === "pending") {
-      if (item.liveReload !== false) action("Approve for everyone", "approve", "primary");
+      action(isContent(manifest) ? "Approve and restart the world" : "Approve for everyone", "approve", "primary");
       action("Reject upload", "reject", "secondary");
     }
     row.append(actions);
@@ -76,8 +81,9 @@ async function decide(item, decision, row) {
   for (const button of row.querySelectorAll("button")) button.disabled = true;
   status("review-status", decision === "approve" ? "Publishing this exact version…" : "Saving your decision…");
   try {
-    await request(`/api/mods/${item.sha256}/${decision}`, {method: "POST", headers: {"Content-Type": "application/json", "x-csrf-token": owner.csrf}, body: JSON.stringify({sha256: item.sha256})});
-    status("review-status", decision === "approve" ? "Approved. Connected players are receiving the update." : decision === "revoke" ? "Removed from the world." : "Upload rejected.");
+    const result = await request(`/api/mods/${item.sha256}/${decision}`, {method: "POST", headers: {"Content-Type": "application/json", "x-csrf-token": owner.csrf}, body: JSON.stringify({sha256: item.sha256})});
+    const restart = result.restartsWorld ? " The world restarts in a few seconds to load its blocks and items; players' pages reload into it." : "";
+    status("review-status", (decision === "approve" ? (restart ? "Approved." : "Approved. Connected players are receiving the update.") : decision === "revoke" ? "Removed from the world." : "Upload rejected.") + restart);
     await refresh();
   } catch (error) { status("review-status", error.message, true); }
   finally { for (const button of row.querySelectorAll("button")) button.disabled = false; }

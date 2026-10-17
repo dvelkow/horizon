@@ -87,6 +87,12 @@ export function submissionView(candidate, index) {
   return { ...review, status, ...(candidate.sourceSha256 ? {sourceUrl: `/api/mods/submissions/${candidate.sha256}/source`} : {}) };
 }
 
+/** The source agents read for context: the SDK, its examples and the submission client. */
+const SOURCE = 'https://github.com/dvelkow/horizon';
+const BRANCH = 'codex/movement-capability';
+const tree = path => `${SOURCE}/tree/${BRANCH}${path ? `/${path}` : ''}`;
+const blob = path => `${SOURCE}/blob/${BRANCH}/${path}`;
+
 export function apiGuide(origin) {
   return {
     name: '(dev)Modcraft mod submissions', version: 1, rules: MOD_RULES,
@@ -100,11 +106,23 @@ export function apiGuide(origin) {
       'Build locally with the Horizon SDK and cargo horizon-mod build. Submit both the built .hmod and its source; the server does not compile or execute uploaded source.',
       'The normal manifest, import/capability, content, size, sandbox-init and browser-bundle checks run on the package. A 202 response means pending review, not approval.',
       'The host reviews the two rules and approves the exact package hash. The API key cannot approve, reject, publish, play, or read another key\'s submissions.',
-      'Poll the returned statusUrl. Published updates reach connected players. Identical retries are idempotent; changed source/notes for the same package require a new build/version.',
+      'Poll the returned statusUrl. Published code updates reach connected players live. A content mod (new blocks and items) goes live with a world restart; see contentMods. Identical retries are idempotent; changed source/notes for the same package require a new build/version.',
     ],
+    contentMods: {
+      manifest: 'api = "0.2" and capabilities = ["registries"]; mod.wasm is optional. Blocks and items are declared in data/<id>/horizon/block/*.json and data/<id>/horizon/item/*.json from vanilla templates; assets/ and data/ stay in the mod\'s own namespace, plus additions to vanilla (minecraft) and convention (c) tags. The id cannot be minecraft or c.',
+      approval: 'Approving, replacing or revoking a content mod restarts the hosted world: the server tells players, saves, stops and starts again with the new set, and every open page reloads into it; players rejoin by themselves. Its code, if any, runs like any other mod.',
+      order: 'The server and every browser layer the same approved content mods, sorted by mod id, so block-state ids match; vanilla ids never move.',
+      removal: 'Saves store block and item names. While a content mod is gone its placed blocks load as air and are saved that way, in every chunk loaded meanwhile; approving it again does not bring those back. Items with its ids are unusable until it returns.',
+      limits: '64 MiB of content packages per world in all; every player downloads them before joining.',
+      example: tree('crates/horizon-mod-sdk/examples/ruby-content'),
+    },
     sourceReview: 'Source and notes are immutable review material bound to the package hash. This is not a reproducible-build attestation; source/binary correspondence and gameplay balance need host review.',
-    sdk: 'https://github.com/dvelkow/horizon/blob/codex/agent-mod-submissions/docs/mods.md',
-    client: 'https://github.com/dvelkow/horizon/blob/codex/agent-mod-submissions/tools/modcraft_api.py',
+    repository: tree(''),
+    sdk: blob('docs/mods.md'),
+    apiDocs: blob('docs/mod-api.md'),
+    client: blob('tools/modcraft_api.py'),
+    sdkCrate: tree('crates/horizon-mod-sdk'),
+    examples: tree('crates/horizon-mod-sdk/examples'),
     statuses: ['pending', 'rejected', 'published', 'superseded', 'revoked'],
     errors: { 400: 'Invalid payload', 401: 'Missing, invalid, expired or revoked API key', 409: 'Duplicate conflict or storage quota', 413: 'Request too large', 422: 'Package failed validation; see returned error', 429: 'Busy or rate limited; retry after Retry-After seconds' },
   };

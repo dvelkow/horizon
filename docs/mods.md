@@ -11,19 +11,21 @@ folder, loads no runtime and plays exactly like vanilla 26.3.
 
 Hosted browser worlds use [the approval workshop](browser.md): friends upload
 the same `.hmod` format, the owner approves its exact hash, and connected clients
-receive the update. Approved server mods run in native Wasmtime.
+receive the update. Approved server mods run in native Wasmtime. Approved content
+mods (new blocks and items) restart the world, which comes back with them, and
+every player's page reloads into them ([Hosted worlds](#hosted-worlds)).
 Coding agents can [submit packages and source directly through the review API](mod-api.md).
 
 | Part | Where | State |
 |---|---|---|
 | The contract (WIT) | `crates/horizon-mod-sdk/wit/horizon.wit` | 0.1.1: log, game-read, chat, hud, movement; tick, frame, chat and command hooks |
 | SDK for mod authors | `crates/horizon-mod-sdk` | 0.1 |
-| Example mods | `crates/horizon-mod-sdk/examples/coords-hud`, `examples/double-jump` | coordinates, facing and time HUD, `/where`, `/coords`; a second jump in the air, `/doublejump` |
+| Example mods | `crates/horizon-mod-sdk/examples/coords-hud`, `examples/double-jump`, `examples/ruby-content` | coordinates, facing and time HUD, `/where`, `/coords`; a second jump in the air, `/doublejump`; a content-only block and item |
 | Runtime | `crates/horizon-mods` | wasmtime 36 LTS, component model |
 | Authoring tool | `crates/cargo-horizon-mod` | `cargo horizon-mod new / build / run` |
 | In the game | `crates/horizon-client/src/game/mods.rs`, Options > Mods | client mods |
-| Browser workshop and approved server mods | [Browser guide](browser.md) | implemented in this fork |
-| Launcher mod browser, signing, registries | this page, [Roadmap](#roadmap) | planned |
+| Browser workshop, approved server and content mods | [Browser guide](browser.md) | implemented in this fork |
+| Launcher mod browser, signing, live registry sync | this page, [Roadmap](#roadmap) | planned |
 
 ## Design goals
 
@@ -225,6 +227,8 @@ cargo horizon-mod run               # build, then start the game with it
 cargo horizon-mod build             # again after an edit: the running game reloads it
 ```
 
+`build` also packs the folder's `assets/` and `data/` for a content mod (below);
+a content-only folder (no `Cargo.toml`) has no code and builds without Rust.
 `run` starts `horizon-client` (on `PATH`, or `--game PATH`, or
 `HORIZON_CLIENT`) with `--dev-mod target/horizon-mod/<id>.hmod`. A dev mod is
 always on, and the game checks its file once a second: rebuild and it restarts
@@ -299,13 +303,52 @@ blocks and items by declaring them in `data/<id>/horizon/block/*.json` and
 The fence: files go in the mod's own namespace (`assets/<id>/`,
 `data/<id>/`), plus additions to vanilla tags (`data/minecraft/tags/`) and
 to the convention tags NeoForge and Fabric mods share (`data/c/tags/`).
-Templates and `sounds` name vanilla blocks; unknown keys are refused. Paths
-use vanilla's resource characters, at most 65,536 files, 16 MiB each and
+Templates and `sounds` name vanilla blocks; unknown keys are refused. A
+content mod's id cannot be `minecraft` or `c`: those namespaces are shared.
+Paths use vanilla's resource characters, at most 65,536 files, 16 MiB each and
 512 MiB in all. A mod whose content is refused stays off, with the reason on
 its row. The game reads this content into its block and item tables
 (`horizon_client::mod_content`, docs/modpacks.md). A tag entry naming an id
 nobody registers (a block a port left out, another mod's item) is dropped,
 so the rest of the tag still loads; vanilla would drop the whole tag.
+
+Content loads once, before the world: a content mod turned on, off or changed
+takes effect at the next start. Mods are layered **in id order**, whatever order
+they were found or listed in, and their blocks in id order within each mod, so
+the same set of content mods always gives the same block-state ids.
+
+### Hosted worlds
+
+A hosted world's server and its players must have the same blocks: chunks name
+block states by id. So the game of a hosted world layers exactly the world's
+approved content mods and no others (`--approved-mods DIR`, which the dedicated
+server takes from `HORIZON_APPROVED_MODS`):
+
+1. The owner approves a content mod in the workshop (or replaces or revokes
+   one). The portal publishes it like any mod and mirrors it for the server,
+   whatever its side: its blocks are the world's.
+2. The portal's release identity, which open pages compare with the one they
+   loaded, now names the content mods too: every open page shows "reloading in
+   10 seconds".
+3. The dedicated server checks the mirror every second. Once the content mods
+   there differ from the ones it started with for 2 seconds, it tells players
+   the world restarts, waits 5 seconds, saves the players and worlds, disconnects
+   everyone with a restart message (their games reconnect by themselves) and
+   exits with status 75. `horizon-server` starts it again at once, not counting
+   a crash. The new process builds its resources with the mirror's content
+   mods, copied first so a later publication cannot change them mid-build.
+4. Each reloaded page fetches the content mods' packages before the game
+   starts, checks their SHA-256 and size, and the game layers them in the same
+   id order. Code in a content mod runs like any other mod's.
+
+A damaged package in the mirror postpones the restart until it reads again: a
+restart without its blocks would turn them into air. A content mod that passes the
+portal's checks but cannot be built over the game's tables (a template the game
+lacks, more block states than chunks hold) is left out on its own, with the reason
+logged, on the server and in every browser alike, so the other mods' blocks stay. The code of a content mod
+still goes live without a restart. Saves store block and item names, so while a
+content mod is gone its blocks load as air in every chunk loaded meanwhile (and
+are saved so); approving it again does not bring those back.
 
 ## Versions and compatibility
 
@@ -336,13 +379,15 @@ so the rest of the tag still loads; vanilla would drop the whole tag.
   Horizon client with matching client halves enables them for that session, or
   offers to download them from the same source the launcher uses. Vanilla
   clients are refused only if the server says its mods need a client.
-- Registries (new blocks and items) are server-owned and synced like vanilla's
-  registry sync, so ids match on both ends.
+- Registries (new blocks and items) are server-owned. A hosted world loads the
+  same approved content mods on the server and in every browser, in id order,
+  before either starts ([Hosted worlds](#hosted-worlds)), so ids match; a
+  change restarts the world. Live registry sync to other clients is later work.
 
 ## Distribution
 
-- **The file.** `.hmod`: a zip holding `horizon-mod.toml`, `mod.wasm` and,
-  later, `assets/` and `data/`. `mod.wasm` is capped at 32 MiB.
+- **The file.** `.hmod`: a zip holding `horizon-mod.toml`, `mod.wasm` (optional
+  for a content mod) and `assets/` and `data/`. `mod.wasm` is capped at 32 MiB.
 - **Integrity.** Every download is checked against the SHA-256 the index
   lists before the file reaches `horizon-mods/`.
 - **Signing.** Authors sign `.hmod` files with an Ed25519 key (minisign
@@ -371,7 +416,8 @@ so the rest of the tag still loads; vanilla would drop the whole tag.
    update state.
 5. `recipes`, `world-read`, `render`: recipe viewer and schematics ports.
 6. Server mods, `registries`, `net`, data-driven content from `.hmod`
-   `data/` and `assets/`, multiplayer sync.
+   `data/` and `assets/`, multiplayer sync. Server mods and content mods on a
+   hosted world (with a restart) work; live registry sync and `net` do not yet.
 
 Modpacks ([modpacks.md](modpacks.md)) move data-driven `registries` first:
 API 0.2 is content-only `.hmod`s (blocks, items, recipes, loot, models and

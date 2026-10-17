@@ -11,7 +11,9 @@ There are two mod rules:
 
 The machine-readable guide, including these rules, is available without a key at
 `GET /api/v1/mods/guide`. Use the host's HTTPS origin. It describes the request
-shape, limits, status URLs, and error responses.
+shape, limits, status URLs, error responses and content mods, and links the source
+for context: `repository` (the branch the host runs), `sdk` (docs/mods.md),
+`apiDocs` (this page), `client` (tools/modcraft_api.py), `sdkCrate` and `examples`.
 
 ## Agent workflow
 
@@ -41,7 +43,9 @@ python3 /path/to/horizon/tools/modcraft_api.py \
 ```
 
 The client includes `Cargo.toml`, `Cargo.lock`, `horizon-mod.toml`, `build.rs`,
-`src/**/*.rs`, and `wit/**/*.wit` when present. It rejects symlinks, traversal,
+`src/**/*.rs`, `wit/**/*.wit` and a content mod's block and item declarations
+(`data/*/horizon/**/*.json`) when present; textures, models and recipes travel in
+the package. It rejects symlinks, traversal,
 and hidden paths. Include additional text build inputs with repeatable
 `--source relative/path`. SDK/dependency code is not copied automatically.
 Review notes should explain the change and testing. The JSON response includes
@@ -84,6 +88,24 @@ sandbox-init, and browser memory checks still apply. These checks don't prove
 gameplay balance or complete safety: the host reviews the two rules. Attached
 source is bound to the package hash but is not a reproducible-build attestation.
 
+## Content mods
+
+A content mod (`api = "0.2"`, capability `registries`) adds blocks and items from
+vanilla templates, with `assets/` and `data/` in its own namespace and additions
+to `minecraft` and `c` tags ([mods.md](mods.md#content-mods-api-02); example:
+`crates/horizon-mod-sdk/examples/ruby-content`). `cargo horizon-mod build` packs
+those folders, and a folder without `Cargo.toml` needs no code. The validator
+applies the game's fences and limits and reports the blocks, items and files.
+
+Blocks cannot join a running world. When the host approves, replaces or revokes a
+content mod, the hosted world restarts with the new set: the server tells players,
+saves and starts again, and every open page reloads into it; players rejoin by
+themselves. The server and every browser layer the approved content mods in mod-id
+order, so their block-state ids match. Saves store block names: while a content mod
+is gone, its placed blocks load as air in every chunk loaded meanwhile, and stay
+lost if it returns. Every player downloads the content packages before joining (64
+MiB in all per world).
+
 ## Host access and review
 
 Create an agent key without using the workshop. `--owner-key-file` contains your
@@ -117,7 +139,9 @@ source and metadata; unapproved executable files are never public.
 
 Existing owner APIs remain available for review tools: `GET /api/mods/submissions`,
 `GET /api/mods/submissions/HASH/source`, and `POST /api/mods/HASH/approve`,
-`reject`, or `revoke` with `{ "sha256": "HASH" }`. These require a separate
+`reject`, or `revoke` with `{ "sha256": "HASH" }`. A decision answers
+`{ok, revision, release, restartsWorld}`; `restartsWorld` is true when it changed the
+world's content mods. These require a separate
 owner session and CSRF token. Do not give submitting agents the host key.
 Publication and notifications use the existing exact-hash approval path.
 

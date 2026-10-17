@@ -242,8 +242,10 @@ How the game loads them, without touching vanilla's path:
   (Macaw's Doors, Fences, Paths and Trapdoors alone add 36,154: not all four fit). Block
   sprites fill texture arrays of 2048 layers, four at most (8,192; vanilla takes 1,250,
   identical textures share a layer). Wider state ids are the next step for big packs.
-- Not in 0.2: multiplayer registry sync (single player and the integrated server first), worlds
-  opened without a mod they used (vanilla turns unknown blocks into air; we will ask first),
+- **Hosted worlds.** A dedicated server and its browsers layer the same approved content mods, in
+  id order, before they start; approving one restarts the world ([mods.md](mods.md#hosted-worlds)).
+- Not in 0.2: live multiplayer registry sync (a client must load the server's set before joining),
+  worlds opened without a mod they used (vanilla turns unknown blocks into air; we will ask first),
   vanilla ids redefined by a mod (refused).
 
 ## The pipeline: `horizon-port-pack`

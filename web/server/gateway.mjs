@@ -138,6 +138,15 @@ async function clientRelease(config) {
   return hash.digest('hex').slice(0, 16);
 }
 
+/** What an open page must reload for: the client files, and the world's content mods, which the
+ * game loads only before it starts (web/mods/host.js). Without content mods it is the client's. */
+export function releaseOf(client, content) {
+  if (!content.length) return client;
+  const hash = createHash('sha256').update(`${client}\n`);
+  for (const mod of content) hash.update(`${mod.id} ${mod.sha256}\n`);
+  return hash.digest('hex').slice(0, 16);
+}
+
 /** One process owns the candidate/index writes. Run one instance against this privateDir. */
 export async function createGateway(input, { discordFetch, minecraftFetch } = {}) {
   // Resolve roots before comparing them: a symlinked "public" directory must
@@ -147,7 +156,8 @@ export async function createGateway(input, { discordFetch, minecraftFetch } = {}
   for (const key of ['privateDir', 'publicDir', 'assetsDir', 'modsRuntimeDir']) if (roots[key]) roots[key] = await fs.realpath(roots[key]);
   const config = validateConfig(roots);
   const store = new ModStore(config); await store.init();
-  const release = await clientRelease(config);
+  const client = await clientRelease(config);
+  let release = releaseOf(client, store.contentSet());
   const apiTokens = new ModApiTokens(config.privateDir); await apiTokens.init();
   const minecraftSkins = new MinecraftSkins(config.privateDir, minecraftFetch); await minecraftSkins.init();
   const accounts = config.discord ? new Accounts(config.privateDir, { protectedNames: [...config.protectedNames], ownerIds: config.discord.ownerIds ?? [], skinStore: minecraftSkins }) : null;
@@ -359,11 +369,15 @@ export async function createGateway(input, { discordFetch, minecraftFetch } = {}
         const session = admin(request); csrf(request, session);
         const value = await jsonBody(request);
         if (value.sha256 !== decision[1]) fail(409, 'Approval hash does not match the reviewed candidate');
-        const previousRevision = store.index.revision;
+        const previousRevision = store.index.revision, previousRelease = release;
         try { await store[decision[2]](decision[1]); }
         catch (error) { fail(error.code === 'ENOENT' ? 404 : 409, error.message); }
-        finally { if (store.index.revision !== previousRevision) notify(); }
-        return json(response, 200, { ok: true, revision: store.index.revision });
+        finally {
+          // New blocks and items: pages reload into them while the server restarts to load them.
+          release = releaseOf(client, store.contentSet());
+          if (store.index.revision !== previousRevision) notify();
+        }
+        return json(response, 200, { ok: true, revision: store.index.revision, release, restartsWorld: release !== previousRelease });
       }
       if (request.method === 'GET' && path === '/mods/index.json') { friend(request); return json(response, 200, { schema: 1, revision: store.index.revision, mods: store.index.mods }); }
       if (!['GET', 'HEAD'].includes(request.method)) fail(405, 'Method not allowed');
@@ -423,7 +437,7 @@ export async function createGateway(input, { discordFetch, minecraftFetch } = {}
       else { ws.alive = false; ws.ping(); }
     }
   }, 30_000); heartbeat.unref();
-  return { server, store, config, release,
+  return { server, store, config, get release() { return release; },
     async close() {
       clearInterval(heartbeat);
       for (const ws of wss.clients) ws.terminate();

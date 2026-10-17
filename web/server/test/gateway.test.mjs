@@ -225,7 +225,7 @@ test('upload is quarantined until exact-hash owner approval and notifications fo
   ws.terminate();
 });
 
-test('rejected, oversized, modified and registry candidates never enter the index', async t => {
+test('rejected, oversized, modified and codeless candidates never enter the index', async t => {
   const f = await fixture(t, { maxUploadBytes: 1024 }), friend = await f.login(), owner = await f.login(true);
   for (const content of [{ reject: true }, { badHash: true }]) {
     const result = await f.upload(friend, content);
@@ -237,9 +237,9 @@ test('rejected, oversized, modified and registry candidates never enter the inde
   await fs.chmod(join(f.root, 'private', 'candidates', modified.candidate.sha256, 'browser', 'mod.js'), 0o600);
   await fs.writeFile(join(f.root, 'private', 'candidates', modified.candidate.sha256, 'browser', 'mod.js'), 'tampered');
   assert.equal((await f.approve(owner, modified.candidate.sha256)).status, 409);
-  const registry = await f.upload(friend, { id: 'registry', capabilities: ['registries'] });
-  assert.equal(registry.response.status, 202);
-  assert.equal((await f.approve(owner, registry.candidate.sha256)).status, 409);
+  // Only a content mod may come without code.
+  const codeless = await f.upload(friend, { id: 'codeless', code: false });
+  assert.equal(codeless.response.status, 422); assert.equal(codeless.candidate.status, 'rejected');
   assert.equal(f.gateway.store.index.revision, 0);
 });
 
@@ -264,6 +264,88 @@ test('server and both mods mirror approved bytes, recover from interruption, and
   assert.equal(response.status, 200); assert.deepEqual(await fs.readdir(directory), ['both.hmod']);
   assert.equal(f.gateway.store.index.mods.length, 1);
   assert.equal((await f.request(`/mods/packages/${server.candidate.sha256}.hmod`, { headers: { Cookie: friend.cookie } })).status, 200);
+});
+
+test('content mods are approved with a world restart: mirrored for the server and named by the release pages reload for', async t => {
+  const f = await fixture(t), friend = await f.login(), owner = await f.login(true);
+  const client = f.gateway.release, directory = join(f.root, 'private', 'approved-server');
+  const ruby = await f.upload(friend, { id: 'ruby', capabilities: ['registries'], code: false });
+  assert.equal(ruby.response.status, 202);
+  const pending = (await (await f.request('/api/mods/pending', { headers: { Cookie: owner.cookie } })).json()).candidates[0];
+  assert.equal(pending.restartsWorld, true); assert.equal(pending.liveReload, false); assert.equal(pending.code, false);
+  assert.deepEqual(pending.content, { blocks: 2, items: 1, files: 7 }); assert.equal(pending.browser, null);
+  const ws = f.websocket('/mods/events', friend), notifications = [];
+  ws.on('message', bytes => notifications.push(JSON.parse(bytes)));
+  await once(ws, 'open');
+  const approved = await f.approve(owner, ruby.candidate.sha256);
+  assert.equal(approved.status, 200);
+  const decision = await approved.json();
+  assert.equal(decision.restartsWorld, true); assert.notEqual(decision.release, client);
+  assert.equal(decision.release, f.gateway.release);
+  await new Promise(resolve => setTimeout(resolve, 20));
+  assert.ok(notifications.some(value => value.revision === 1 && value.release === decision.release));
+  assert.equal((await (await f.request('/api/release')).json()).release, decision.release);
+  assert.equal((await (await f.request('/api/session', { headers: { Cookie: friend.cookie } })).json()).release, decision.release);
+  // A players' content mod is the server's too: its blocks are in the world.
+  assert.deepEqual(await fs.readFile(join(directory, 'ruby.hmod')), ruby.bytes);
+  const index = await (await f.request('/mods/index.json', { headers: { Cookie: friend.cookie } })).json();
+  const mod = index.mods[0];
+  assert.equal(mod.entry, null); assert.deepEqual(mod.files, []); assert.equal(mod.size, ruby.bytes.length);
+  assert.equal(sha256(Buffer.from(await (await f.request(mod.url, { headers: { Cookie: friend.cookie } })).arrayBuffer())), mod.sha256);
+  // Code alone goes live as before: no restart, and the same release.
+  const hud = await f.upload(friend, { id: 'hud' });
+  const live = await (await f.approve(owner, hud.candidate.sha256)).json();
+  assert.equal(live.restartsWorld, false); assert.equal(live.release, decision.release);
+  assert.deepEqual((await fs.readdir(directory)).sort(), ['ruby.hmod']);
+  // A new version and a removal each restart; with no content the release is the client's again.
+  const update = await f.upload(friend, { id: 'ruby', capabilities: ['registries'], code: false, version: '2.0.0' });
+  const replaced = await (await f.approve(owner, update.candidate.sha256)).json();
+  assert.equal(replaced.restartsWorld, true); assert.notEqual(replaced.release, decision.release);
+  assert.deepEqual(await fs.readFile(join(directory, 'ruby.hmod')), update.bytes);
+  const revoked = await f.request(`/api/mods/${update.candidate.sha256}/revoke`, { method: 'POST', headers: {
+    Cookie: owner.cookie, 'X-CSRF-Token': owner.csrf, 'Content-Type': 'application/json' }, body: JSON.stringify({ sha256: update.candidate.sha256 }) });
+  const removed = await revoked.json();
+  assert.equal(removed.restartsWorld, true); assert.equal(removed.release, client);
+  assert.deepEqual(await fs.readdir(directory), []);
+  // A restarted gateway names the same release for the same content.
+  await f.approve(owner, (await f.upload(friend, { id: 'amber', capabilities: ['registries'], code: false })).candidate.sha256);
+  const again = await createGateway(f.config);
+  t.after(() => again.close());
+  assert.equal(again.release, f.gateway.release);
+  ws.terminate();
+});
+
+test('content mods use no browser Worker slot, and their packages are capped in all', async t => {
+  const f = await fixture(t, { maxContentBytes: 200 }), friend = await f.login(), owner = await f.login(true);
+  for (let i = 0; i < 8; i++) {
+    const upload = await f.upload(friend, { id: `client_${i}` });
+    assert.equal((await f.approve(owner, upload.candidate.sha256)).status, 200);
+  }
+  const content = await f.upload(friend, { id: 'ruby', capabilities: ['registries'], code: false });
+  assert.equal((await f.approve(owner, content.candidate.sha256)).status, 200);
+  // Content with players' code still needs a Worker.
+  const withCode = await f.upload(friend, { id: 'amber', capabilities: ['registries', 'hud'] });
+  assert.equal(withCode.candidate.status, 'pending');
+  assert.equal((await f.approve(owner, withCode.candidate.sha256)).status, 409);
+  const big = await f.upload(friend, { id: 'zinc', capabilities: ['registries'], code: false, padding: 'x'.repeat(150) });
+  const refused = await f.approve(owner, big.candidate.sha256);
+  assert.equal(refused.status, 409); assert.match((await refused.json()).error, /Content mod limit/);
+  // Replacing the same ID only counts the new package.
+  const update = await f.upload(friend, { id: 'ruby', capabilities: ['registries'], code: false, version: '2.0.0' });
+  assert.equal((await f.approve(owner, update.candidate.sha256)).status, 200);
+  assert.equal(f.gateway.store.contentSet().length, 1);
+});
+
+test('the release changes with the content set alone, in id order', async () => {
+  const { releaseOf } = await import('../gateway.mjs');
+  const a = { id: 'amber', sha256: 'a'.repeat(64) }, b = { id: 'ruby', sha256: 'b'.repeat(64) };
+  assert.equal(releaseOf('0123456789abcdef', []), '0123456789abcdef');
+  const both = releaseOf('0123456789abcdef', [a, b]);
+  assert.match(both, /^[a-f0-9]{16}$/);
+  assert.equal(releaseOf('0123456789abcdef', [a, b]), both);
+  assert.notEqual(releaseOf('0123456789abcdef', [a]), both);
+  assert.notEqual(releaseOf('fedcba9876543210', [a, b]), both);
+  assert.notEqual(releaseOf('0123456789abcdef', [a, { ...b, sha256: 'c'.repeat(64) }]), both);
 });
 
 test('validation deadline rejects hanging uploads and completed candidates release their staging quota', async t => {

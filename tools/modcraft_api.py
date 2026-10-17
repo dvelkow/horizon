@@ -60,6 +60,8 @@ def source_files(project, extras=()):
     paths = {Path(name) for name in ("Cargo.toml", "Cargo.lock", "horizon-mod.toml", "build.rs") if (root / name).exists()}
     for folder, extension in (("src", "*.rs"), ("wit", "*.wit")):
         paths.update(path.relative_to(root) for path in (root / folder).rglob(extension))
+    # A content mod's block and item declarations (docs/mods.md).
+    paths.update(path.relative_to(root) for path in root.glob("data/*/horizon/**/*.json"))
     paths.update(Path(path) for path in extras)
     if not 1 <= len(paths) <= 64:
         raise ValueError("Include 1–64 source files")

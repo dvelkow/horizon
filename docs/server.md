@@ -369,6 +369,9 @@ runtime or new dependency. Server-sent events can replace the polling later if a
   lines and the engine's crash report (`crash-reports/`), restarts it after 5 s, and doubles the wait up to
   5 minutes. It gives up after 5 crashes in 10 minutes, so it doesn't loop on a broken world, and shows the
   reason in `status` and the panel.
+- **Restart on request.** An engine that saved and exited with status 75 asks to be started again at once,
+  not counted as a crash: a hosted world does so when its approved content mods change, since blocks and items
+  load only at start ([mods.md](mods.md#hosted-worlds)).
 - **Updates.** `update --check` compares with the latest GitHub release. `update`:
   1. downloads the server archive and checks its SHA-256;
   2. backs up the world;
