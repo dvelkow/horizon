@@ -82,6 +82,11 @@ for folder in ['pkg', 'assets']:
             or relative == 'assets/browser-sounds.json'
             or re.fullmatch(r'assets/assets/[a-z0-9_.-]+/sounds/[a-z0-9_./-]+\.ogg', relative)):
             selected.add(relative)
+# The build's precompressed copies travel with their files.
+for name in list(selected):
+    for ext in ('.br', '.gz'):
+        if (root / (name + ext)).is_file() and not (root / (name + ext)).is_symlink():
+            selected.add(name + ext)
 lines, hashes = [], []
 for name in sorted(selected):
     path = root / name

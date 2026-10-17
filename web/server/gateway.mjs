@@ -56,18 +56,50 @@ function securityHeaders(response, secure) {
   if (secure) response.setHeader('Strict-Transport-Security', 'max-age=31536000');
 }
 
+/** Accept-Encoding's codings with a weight above zero. */
+function acceptedEncodings(header) {
+  const out = new Set();
+  for (const part of String(header ?? '').toLowerCase().split(',')) {
+    const [name, ...params] = part.split(';').map(value => value.trim());
+    const q = params.find(value => value.startsWith('q='));
+    if (name && (!q || Number(q.slice(2)) > 0)) out.add(name);
+  }
+  return out;
+}
+/** Precompressed copies the build writes beside these (web/precompress.mjs). */
+const PRECOMPRESSED = new Set(['.wasm', '.js', '.css', '.html', '.json', '.zip']);
+/** A file named by its own SHA-256 never changes: browsers keep it. */
+const CONTENT_HASHED = /(^|\/)[a-f0-9]{64}\.[a-z]+$/;
+
 async function staticFile(request, response, root, relative, { immutable = false } = {}) {
   if (!root || relative.length > 512 || relative.split('/').some(part => !part || part === '.' || part === '..' || part.startsWith('.')) || relative.includes('\\')) fail(404, 'Not found');
+  if (/\.(br|gz)$/.test(relative)) fail(404, 'Not found');
   let realRoot, file;
   try { realRoot = await fs.realpath(root); file = await fs.realpath(resolve(realRoot, relative)); }
   catch { fail(404, 'Not found'); }
   if (!file.startsWith(`${realRoot}${sep}`)) fail(404, 'Not found');
   const stat = await fs.stat(file);
   if (!stat.isFile()) fail(404, 'Not found');
-  response.writeHead(200, { 'Content-Type': MIME[extname(file)] ?? 'application/octet-stream', 'Content-Length': stat.size,
-    'Cache-Control': immutable ? 'private, max-age=31536000, immutable' : 'private, no-cache' });
+  // The smallest copy the browser accepts: Brotli, then gzip, then the file.
+  let body = file, size = stat.size, encoding = null;
+  if (PRECOMPRESSED.has(extname(file))) {
+    const accepted = acceptedEncodings(request.headers['accept-encoding']);
+    for (const [name, ext] of [['br', '.br'], ['gzip', '.gz']]) {
+      if (!accepted.has(name)) continue;
+      const copy = await fs.stat(file + ext).catch(() => null);
+      if (copy?.isFile() && copy.mtimeMs >= stat.mtimeMs) { body = file + ext; size = copy.size; encoding = name; break; }
+    }
+  }
+  // Releases are immutable copies, so size and time identify the bytes.
+  const etag = `W/"${stat.size.toString(16)}-${Math.floor(stat.mtimeMs).toString(16)}${encoding ? '-' + encoding : ''}"`;
+  const headers = { 'Content-Type': MIME[extname(file)] ?? 'application/octet-stream', ETag: etag, Vary: 'Accept-Encoding',
+    'Cache-Control': immutable || CONTENT_HASHED.test(relative) ? 'private, max-age=31536000, immutable' : 'private, no-cache' };
+  if (encoding) headers['Content-Encoding'] = encoding;
+  const match = String(request.headers['if-none-match'] ?? '').split(',').map(value => value.trim());
+  if (match.includes(etag) || match.includes('*')) { response.writeHead(304, headers); response.end(); return; }
+  response.writeHead(200, { ...headers, 'Content-Length': size });
   if (request.method === 'HEAD') response.end();
-  else await pipeline(createReadStream(file), response);
+  else await pipeline(createReadStream(body), response);
 }
 
 function validateConfig(input) {

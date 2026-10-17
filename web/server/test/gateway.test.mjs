@@ -36,7 +36,7 @@ async function fixture(t, overrides = {}) {
         ...(options.body ? { 'Content-Length': Buffer.byteLength(options.body) } : {}), ...options.headers } }, response => {
       const chunks = [];
       response.on('data', chunk => chunks.push(chunk));
-      response.on('end', () => resolveResponse(new Response(Buffer.concat(chunks), { status: response.statusCode, headers: response.headers })));
+      response.on('end', () => resolveResponse(new Response([204, 304].includes(response.statusCode) ? null : Buffer.concat(chunks), { status: response.statusCode, headers: response.headers })));
     });
     request.on('error', reject); request.end(options.body);
   });
@@ -377,4 +377,31 @@ test('the client release identifies the served game files, so open pages can rel
   t.after(async () => { await next.close(); await again.close(); });
   assert.notEqual(next.release, release);
   assert.equal(again.release, next.release);
+});
+
+test('static files: precompressed copies when accepted, revalidation by ETag, and content-hashed files kept', async t => {
+  const f = await fixture(t), friend = await f.login();
+  const { brotliCompressSync, gzipSync, brotliDecompressSync } = await import('node:zlib');
+  const wasm = Buffer.alloc(200_000, 'horizon'); await fs.mkdir(join(f.root, 'public', 'pkg'));
+  const file = join(f.root, 'public', 'pkg', 'horizon_client_bg.wasm');
+  await fs.writeFile(file, wasm);
+  await fs.writeFile(file + '.br', brotliCompressSync(wasm)); await fs.writeFile(file + '.gz', gzipSync(wasm));
+  const get = (path, headers = {}) => f.request(path, { headers });
+  const br = await get('/pkg/horizon_client_bg.wasm', { 'Accept-Encoding': 'gzip, deflate, br' });
+  assert.equal(br.status, 200); assert.equal(br.headers.get('content-encoding'), 'br');
+  assert.ok(Number(br.headers.get('content-length')) < wasm.length / 10);
+  assert.deepEqual(brotliDecompressSync(Buffer.from(await br.arrayBuffer())), wasm);
+  assert.equal((await get('/pkg/horizon_client_bg.wasm', { 'Accept-Encoding': 'gzip' })).headers.get('content-encoding'), 'gzip');
+  assert.equal((await get('/pkg/horizon_client_bg.wasm', { 'Accept-Encoding': 'br;q=0, gzip' })).headers.get('content-encoding'), 'gzip');
+  const plain = await get('/pkg/horizon_client_bg.wasm');
+  assert.equal(plain.headers.get('content-encoding'), null); assert.equal(Number(plain.headers.get('content-length')), wasm.length);
+  assert.equal(plain.headers.get('cache-control'), 'private, no-cache');
+  // A returning browser revalidates instead of downloading again.
+  const again = await get('/pkg/horizon_client_bg.wasm', { 'Accept-Encoding': 'br', 'If-None-Match': br.headers.get('etag') });
+  assert.equal(again.status, 304);
+  assert.equal((await get('/pkg/horizon_client_bg.wasm.br')).status, 404);
+  const hash = 'a'.repeat(64);
+  await fs.writeFile(join(f.root, 'assets', `${hash}.zip`), 'bundle');
+  const bundle = await get(`/assets/${hash}.zip`, { Cookie: friend.cookie });
+  assert.equal(bundle.status, 200); assert.match(bundle.headers.get('cache-control'), /immutable/);
 });

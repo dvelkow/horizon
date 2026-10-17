@@ -18,3 +18,5 @@ cp web/mods/{host.js,worker.js} .local/web/mods-runtime/
 
 mkdir -p .local/web/skins
 cp web/skins/*.png .local/web/skins/
+# Brotli and gzip copies: the WASM crosses the network as ~5 MB, not 31.
+node web/precompress.mjs .local/web
