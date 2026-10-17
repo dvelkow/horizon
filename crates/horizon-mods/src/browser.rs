@@ -97,7 +97,9 @@ pub struct Mods {
 #[derive(Default, Deserialize)]
 #[serde(default)]
 struct View {
-    entries: Vec<ViewEntry>,
+    /// Each a [`ViewEntry`], read one by one: an entry this build cannot
+    /// read is left out instead of losing the whole view.
+    entries: Vec<serde_json::Value>,
     panels: Vec<Panel>,
     commands: Vec<String>,
     out: Vec<Output>,
@@ -225,6 +227,7 @@ impl Mods {
         self.entries = view
             .entries
             .into_iter()
+            .filter_map(|e| serde_json::from_value::<ViewEntry>(e).ok())
             .take(32)
             .map(|e| Entry {
                 path: PathBuf::from(format!("/approved-mods/{}.hmod", e.manifest.id)),

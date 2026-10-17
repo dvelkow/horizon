@@ -38,10 +38,7 @@ function manifest(entry) {
   if (entry.capabilities && JSON.stringify([...new Set(entry.capabilities)].sort()) !== JSON.stringify([...new Set(m.capabilities)].sort())) throw new Error("Published capability lists differ");
   return {id: m.id, name: m.name, version: m.version, api: m.api, side,
     description: clip(m.description ?? "", 4096), authors: Array.isArray(m.authors) ? m.authors.slice(0, 16).map(a => clip(a, 128)) : [],
-    capabilities: [...new Set(m.capabilities)],
-    // A capability this page predates (a newer release went live): that mod
-    // waits for a reload instead of failing the whole index.
-    unsupported: m.capabilities.some(c => !allowedCapabilities.has(c))};
+    capabilities: [...new Set(m.capabilities)]};
 }
 async function boundedFetch(url, limit) {
   const abort = new AbortController(); const timeout = setTimeout(() => abort.abort(), 30000);
@@ -245,7 +242,12 @@ class ModManager {
       const bytes = await boundedFetch("/mods/index.json", 2 * 1024 * 1024);
       const index = JSON.parse(new TextDecoder("utf-8", {fatal: true}).decode(bytes));
       if (index.schema !== 1 || !Array.isArray(index.mods) || index.mods.length > MAX_MODS || !["number", "string"].includes(typeof index.revision)) throw new Error("Invalid approved-mod index");
-      const entries = index.mods.map(entry => ({entry, manifest: manifest(entry)}));
+      // The game parses `manifest` strictly: keep it to horizon-mod.toml's fields. A capability this
+      // page predates (a newer release went live) marks just that mod, which waits for a reload.
+      const entries = index.mods.map(entry => {
+        const normalized = manifest(entry);
+        return {entry, manifest: normalized, unsupported: normalized.capabilities.some(c => !allowedCapabilities.has(c))};
+      });
       if (new Set(entries.map(row => row.manifest.id)).size !== entries.length) throw new Error("Duplicate approved mod identifier");
       if (entries.filter(row => row.manifest.side !== "server").length > MAX_BROWSER_MODS) throw new Error("This world exceeds the limit of 8 active browser mods; ask the host to remove an older mod");
       const retained = new Set();
@@ -254,7 +256,7 @@ class ModManager {
         const old = this.instances.get(id);
         if (old?.hash === row.entry.sha256 && ["running", "failed", "off"].includes(old.status)) continue;
         if (this.failedUpdates.get(id) === row.entry.sha256) continue;
-        if (row.manifest.unsupported) {
+        if (row.unsupported) {
           this.checkRelease();
           if (old) old.stop();
           this.instances.set(id, {manifest: row.manifest, hash: row.entry.sha256, status: "off", error: "Needs a newer game: reload the page", panel: null, hooks: {commands: []}, stop() {}});

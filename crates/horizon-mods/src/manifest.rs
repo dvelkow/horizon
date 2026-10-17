@@ -316,6 +316,18 @@ capabilities = ["game-read", "hud"]
         assert!(m.check_imports(["horizon:mods/game@0.2.0"]).is_err());
     }
 
+    /// web/mods/host.js hands the game each approved mod's manifest in this
+    /// shape; an extra field there makes the browser game drop the mod.
+    #[test]
+    fn the_browser_hosts_manifest_shape_parses() {
+        let json = r#"{"id":"double_jump","name":"Double Jump","version":"0.1.0","api":"0.1","side":"client",
+            "description":"","authors":["A"],"capabilities":["movement"]}"#;
+        let m: Manifest = serde_json::from_str(json).unwrap();
+        assert_eq!(m.capabilities, [Capability::Movement]);
+        let extra = json.replace(r#""side""#, r#""unsupported":true,"side""#);
+        assert!(serde_json::from_str::<Manifest>(&extra).is_err());
+    }
+
     #[test]
     fn refuses_bad_ids_and_apis() {
         let bad_id = EXAMPLE.replace("coords_hud", "Coords HUD");
