@@ -1264,9 +1264,9 @@ impl Hub {
             (6, serializer::POSE, Value::Id(pose)),
             (8, serializer::BYTE, Value::Byte(living)),
         ];
-        if (health - 1.0).abs() > f32::EPSILON && health != 20.0 {
-            meta.push((9, serializer::FLOAT, Value::Float(health)));
-        }
+        // Always present: a respawned player's full health must reach the
+        // others, whose clients still hold the 0 of their death.
+        meta.push((9, serializer::FLOAT, Value::Float(health)));
         if skin != 0 {
             meta.push((16, serializer::BYTE, Value::Byte(skin as i8)));
         }

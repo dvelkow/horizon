@@ -588,12 +588,9 @@ impl Game<'_> {
             }
             S::ChatCommand(c) => self.guest_command(host, conn, &c.command),
             // A swing at nothing (attack missed): the arm swings for everyone
-            // else and the attack strength starts over.
+            // else (handleAnimate); the attack strength is left alone.
             S::Punch(_) => {
-                self.as_guest(host, conn, |g| {
-                    g.reset_attack_strength();
-                    g.swing_arm();
-                });
+                self.as_guest(host, conn, |g| g.swing_arm());
             }
             S::ChangeDifficulty(p) if host.hub.guests[gi].permission >= 2 => {
                 if !self.level.difficulty_locked && (0..=3).contains(&p.difficulty) {

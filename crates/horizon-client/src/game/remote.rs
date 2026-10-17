@@ -1390,6 +1390,13 @@ impl Game<'_> {
                         match (index, value) {
                             (0, Value::Byte(flags)) => m.extra.crouching = flags & 0x02 != 0,
                             (6, Value::Id(pose)) => m.extra.crouching = *pose == 5,
+                            // DATA_HEALTH: a respawned player is alive again.
+                            (9, Value::Float(health)) => {
+                                m.health = *health;
+                                if *health > 0.0 {
+                                    m.death_time = 0;
+                                }
+                            }
                             // DATA_LIVING_ENTITY_FLAGS: using an item (bow, crossbow, food).
                             (8, Value::Byte(flags)) => {
                                 m.extra.using_item = if flags & 1 != 0 {
