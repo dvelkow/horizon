@@ -1,0 +1,9 @@
+{
+  "name": "horizon-private-gateway",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "engines": { "node": ">=22 <23" },
+  "scripts": { "start": "node cli.mjs", "test": "node --test test/*.test.mjs" },
+  "dependencies": { "ws": "8.22.0" }
+}

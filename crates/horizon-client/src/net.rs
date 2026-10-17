@@ -5,25 +5,40 @@
 //! Online-mode servers need the Microsoft account the launcher signed in
 //! (crate::auth): the login joins the server through the session service and
 //! encrypts the connection (ClientHandshakePacketListenerImpl.handleHello).
+#[cfg(not(target_arch = "wasm32"))]
+use crate::auth::AuthSession;
 #[cfg(target_arch = "wasm32")]
 use horizon_platform as std;
-use crate::auth::AuthSession;
+#[cfg(not(target_arch = "wasm32"))]
+use horizon_protocol::connection::{ConnReader, ConnWriter, Connection};
+#[cfg(not(target_arch = "wasm32"))]
+use std::thread::JoinHandle;
+
+#[cfg(target_arch = "wasm32")]
+#[path = "net/browser.rs"]
+mod browser;
+#[cfg(target_arch = "wasm32")]
+pub use browser::{
+    Session, friends_relay_setting, ping, ping_async, save_friends_relay, shown_address,
+};
+#[cfg(not(target_arch = "wasm32"))]
 use horizon_protocol::{
     PROTOCOL_VERSION,
-    connection::{ConnReader, ConnWriter, Connection, Counters},
+    connection::Counters,
     crypto::{generate_secret, offline_uuid, server_hash},
-    packets::{Empty, configuration as cfg, handshake, login, play},
-    registry::Dynamic,
+    packets::{Empty, configuration as cfg, handshake, login},
     rsa::RsaPublicKey,
     servers::parse_address,
-    text::{Language, plain, translatable},
+    text::{plain, translatable},
 };
+use horizon_protocol::{packets::play, registry::Dynamic, text::Language};
+use std::sync::Arc;
+#[cfg(not(target_arch = "wasm32"))]
 use std::{
     sync::{
-        Arc, Mutex,
+        Mutex,
         mpsc::{Receiver, Sender, channel},
     },
-    thread::JoinHandle,
     time::Duration,
 };
 
@@ -53,6 +68,7 @@ pub enum Event {
     },
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 pub struct Session {
     events: Receiver<Event>,
     writer: Arc<Mutex<Option<ConnWriter>>>,
@@ -63,6 +79,7 @@ pub struct Session {
     /// HORIZON_NET_DEBUG=1 logs every packet sent from the game thread.
     debug: bool,
 }
+#[cfg(not(target_arch = "wasm32"))]
 impl Session {
     /// Start connecting in the background, as `auth`'s account when there is one.
     pub fn connect(
@@ -163,6 +180,7 @@ impl Session {
         }
     }
 }
+#[cfg(not(target_arch = "wasm32"))]
 impl Drop for Session {
     fn drop(&mut self) {
         self.disconnect();
@@ -172,10 +190,14 @@ impl Drop for Session {
 /// An address of the form `friend:K7QM-3XPD` joins a friend's world through
 /// its invite code (horizon-friends): the session goes through a tunnel the
 /// client reaches on a loopback port, so everything after is a plain join.
+#[cfg(not(target_arch = "wasm32"))]
 pub const FRIEND: &str = horizon_friends::ADDRESS_PREFIX;
+#[cfg(target_arch = "wasm32")]
+pub const FRIEND: &str = "friend:";
 
 /// An address as players and logs see it: a friend's invite code stays
 /// out of it (its secret is in there).
+#[cfg(not(target_arch = "wasm32"))]
 pub fn shown_address(address: &str) -> String {
     match address.strip_prefix(FRIEND) {
         Some(code) => match horizon_friends::invite::parse(code) {
@@ -190,6 +212,7 @@ pub fn shown_address(address: &str) -> String {
 
 /// The relay the player set (`friendsRelay` in horizon.txt, beside
 /// options.txt), else `HORIZON_RELAY_URL`. None by default.
+#[cfg(not(target_arch = "wasm32"))]
 pub fn friends_relay_setting() -> Option<String> {
     let dir = std::env::current_dir().ok()?;
     crate::ui_theme::preference(&dir, "friendsRelay")
@@ -197,6 +220,7 @@ pub fn friends_relay_setting() -> Option<String> {
         .or_else(horizon_friends::relay_url)
 }
 /// Remember the relay typed on Join a friend (empty forgets it).
+#[cfg(not(target_arch = "wasm32"))]
 pub fn save_friends_relay(relay: &str) {
     if let Ok(dir) = std::env::current_dir() {
         crate::ui_theme::set_preference(&dir, "friendsRelay", (!relay.is_empty()).then_some(relay));
@@ -205,6 +229,7 @@ pub fn save_friends_relay(relay: &str) {
 
 /// Reach the friend's world from the code (directly, or through a relay)
 /// and open the tunnel: the loopback address to connect to.
+#[cfg(not(target_arch = "wasm32"))]
 fn join_friend(code: &str, send: &Sender<Event>) -> Result<(String, u16), String> {
     use horizon_friends::{
         PathMode,
@@ -231,6 +256,7 @@ fn join_friend(code: &str, send: &Sender<Event>) -> Result<(String, u16), String
     Ok(("127.0.0.1".to_owned(), port))
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 fn status(send: &Sender<Event>, text: &str) {
     let _ = send.send(Event::Status(text.to_owned()));
 }
@@ -239,12 +265,14 @@ fn status(send: &Sender<Event>, text: &str) {
 pub const NOT_SIGNED_IN: &str = "This server is in online mode. Sign in with your Microsoft account in the Horizon launcher to join it.";
 
 /// A translation, or the key itself (Language.getOrDefault).
+#[cfg(not(target_arch = "wasm32"))]
 fn tr(lang: &Language, key: &str) -> String {
     lang.get(key).cloned().unwrap_or_else(|| key.to_owned())
 }
 
 /// The whole connection. Ok: why it ended for good (the server's reason, or
 /// a refusal no retry fixes); Err: the connection failed.
+#[cfg(not(target_arch = "wasm32"))]
 fn run(
     local: Option<horizon_protocol::connection::Pipe>,
     address: &str,
@@ -435,6 +463,7 @@ fn run(
 
 /// The configuration phase: registries, tags and known packs until the
 /// server finishes it (ClientConfigurationPacketListenerImpl).
+#[cfg(not(target_arch = "wasm32"))]
 fn configure(
     reader: &mut ConnReader,
     writer: &Mutex<Option<ConnWriter>>,
@@ -486,6 +515,7 @@ fn configure(
     }
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 fn receive_brand(payload: &cfg::CustomPayload, send: &Sender<Event>) {
     if payload.channel == "minecraft:brand"
         && let Ok(brand) = horizon_protocol::buf::Reader::new(&payload.data).string(32767)
@@ -549,6 +579,7 @@ pub fn load_language(resources: &std::path::Path) -> Language {
 
 /// Ask a server for its status (ServerStatusPinger): MOTD, players and the
 /// round trip time in milliseconds.
+#[cfg(not(target_arch = "wasm32"))]
 pub fn ping(address: &str, timeout: Duration) -> Result<(serde_json::Value, u128), String> {
     use horizon_protocol::packets::status;
     let (host, port) = parse_address(address).ok_or("Invalid address")?;

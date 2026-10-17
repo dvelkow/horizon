@@ -1,0 +1,34 @@
+# The TCP game port is private. Friends enter through the authenticated HTTPS gateway.
+[server]
+motd = "Horizon · our shared world"
+port = 25565
+bind = "127.0.0.1"
+max_players = 8
+online_mode = false
+whitelist = false
+view_distance = 4
+simulation_distance = 3
+
+[world]
+name = "world"
+seed = "12345"
+game_mode = "survival"
+difficulty = "normal"
+hardcore = false
+
+[properties]
+spawn-protection = 0
+pause-when-empty-seconds = 60
+
+[engine]
+path = "/opt/horizon/bin/horizon-client"
+resources = "/opt/horizon/resources"
+restart_on_crash = true
+
+[backups]
+every = "6h"
+keep = 4
+
+[panel]
+bind = "127.0.0.1:8130"
+allow_public = false
