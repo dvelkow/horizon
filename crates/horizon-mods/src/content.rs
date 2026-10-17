@@ -22,6 +22,44 @@ use std::{
 pub const MAX_FILES: usize = 65_536;
 pub const MAX_FILE: u64 = 16 << 20;
 pub const MAX_TOTAL: u64 = 512 << 20;
+/// Namespaces mods add tags to and never own: vanilla's and the convention tags'.
+const SHARED: [&str; 2] = ["minecraft", "c"];
+
+/// Whether the package at `path` is a content mod of a hosted world's
+/// approved set: named `<id>.hmod` after its manifest, with capability
+/// `registries`. The dedicated server and its browsers decide it alike.
+pub fn approved_id(path: &Path, manifest: &Manifest) -> Option<String> {
+    (path.extension().is_some_and(|e| e == "hmod")
+        && path.file_stem().and_then(|s| s.to_str()) == Some(manifest.id.as_str())
+        && manifest.capabilities.contains(&Capability::Registries))
+    .then(|| manifest.id.clone())
+}
+
+/// The content mods in a hosted world's approval mirror
+/// (`HORIZON_APPROVED_MODS`, or a browser's verified copies of it), by id:
+/// the order the server and every browser layer them in, so the same set
+/// gives the same block-state ids on both ends. Unreadable packages are left
+/// out on both ends alike.
+pub fn approved(dir: &Path) -> Result<Vec<(String, PathBuf)>, String> {
+    let read = std::fs::read_dir(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
+    let mut found = Vec::new();
+    for entry in read {
+        let path = entry.map_err(|e| e.to_string())?.path();
+        // Regular files only, as the approval publisher writes them.
+        let file = std::fs::symlink_metadata(&path).is_ok_and(|m| m.is_file());
+        if !file || path.extension().is_none_or(|e| e != "hmod") {
+            continue;
+        }
+        if let Some(id) = crate::Package::read(&path)
+            .ok()
+            .and_then(|p| approved_id(&path, &p.manifest))
+        {
+            found.push((id, path));
+        }
+    }
+    found.sort();
+    Ok(found)
+}
 
 /// Checks a content path: `assets/` or `data/`, then `/`-separated parts of
 /// `[a-z0-9_.-]`, none of them `.` or `..` (vanilla's resource-location
@@ -236,6 +274,12 @@ impl Content {
                 "has assets/ or data/ but not capability registries in {MANIFEST}"
             ));
         }
+        // Its own namespace would be vanilla's, or the one every mod shares.
+        if !self.files.is_empty() && SHARED.contains(&id) {
+            return Err(format!(
+                "a content mod cannot have the id {id}: that namespace is shared"
+            ));
+        }
         let mut blocks = Vec::new();
         let mut items = Vec::new();
         for name in &self.files {
@@ -248,7 +292,7 @@ impl Content {
             let own = namespace == id;
             // Vanilla's own files stay vanilla's; a mod may only add to its
             // tags, and to the convention tags mods share.
-            let shared = matches!(namespace, "minecraft" | "c");
+            let shared = SHARED.contains(&namespace);
             let allowed = own || (top == "data" && shared && rest.starts_with("tags/"));
             if !allowed {
                 return Err(format!(
@@ -542,6 +586,49 @@ capabilities = ["registries"]
         let package = Package::read(&path).unwrap();
         let e = Content::read(&path, &package.manifest).err().unwrap();
         assert!(e.contains("not capability registries"), "{e}");
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn shared_namespaces_cannot_be_a_content_mods_id() {
+        for id in ["minecraft", "c"] {
+            let manifest = MANIFEST_TEXT.replace("\"ruby\"", &format!("\"{id}\""));
+            let file = format!("data/{id}/horizon/block/a.json");
+            let e = hmod(id, &manifest, &[(&file, BLOCK)]).unwrap_err();
+            assert!(e.contains("namespace is shared"), "{e}");
+        }
+    }
+
+    /// The approval mirror's content set: content mods named after their id,
+    /// by id, whatever order the directory lists them in.
+    #[test]
+    fn approved_lists_named_content_mods_by_id() {
+        let dir = scratch("approved");
+        let content = |id: &str| {
+            let manifest = MANIFEST_TEXT.replace("\"ruby\"", &format!("\"{id}\""));
+            let block = format!("data/{id}/horizon/block/a.json");
+            Package::write_files(&manifest, None, &[(&block, BLOCK)]).unwrap()
+        };
+        std::fs::write(dir.join("zinc.hmod"), content("zinc")).unwrap();
+        std::fs::write(dir.join("amber.hmod"), content("amber")).unwrap();
+        // Misnamed, code only, not a package, not a .hmod: none count.
+        std::fs::write(dir.join("other.hmod"), content("ruby")).unwrap();
+        let code = MANIFEST_TEXT
+            .replace("api = \"0.2\"", "api = \"0.1\"")
+            .replace("[\"registries\"]", "[]")
+            .replace("\"ruby\"", "\"hud\"");
+        std::fs::write(
+            dir.join("hud.hmod"),
+            Package::write(&code, b"\0asm").unwrap(),
+        )
+        .unwrap();
+        std::fs::write(dir.join("broken.hmod"), b"not a zip").unwrap();
+        std::fs::write(dir.join("ruby.zip"), content("ruby")).unwrap();
+        let found = approved(&dir).unwrap();
+        let ids: Vec<&str> = found.iter().map(|(id, _)| id.as_str()).collect();
+        assert_eq!(ids, ["amber", "zinc"]);
+        assert_eq!(found[0].1, dir.join("amber.hmod"));
+        assert!(approved(&dir.join("missing")).is_err());
         std::fs::remove_dir_all(&dir).unwrap();
     }
 

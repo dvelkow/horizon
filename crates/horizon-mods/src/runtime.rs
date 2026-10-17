@@ -93,6 +93,11 @@ pub struct Entry {
     run: Option<Running>,
     modified: Option<SystemTime>,
     fingerprint: Option<[u8; 32]>,
+    /// In an approval mirror: whether these bytes read as a package, and the
+    /// id of the content mod they are (`content::approved_id`), whether or
+    /// not its code started.
+    readable: bool,
+    content: Option<String>,
 }
 
 struct Running {
@@ -122,6 +127,8 @@ pub struct Mods {
     snapshot: Arc<Snapshot>,
     out: Vec<Output>,
     nudge: Nudge,
+    /// The approval mirror held a package that did not read at the last sync.
+    unsettled: bool,
 }
 
 /// The `.hmod` files and mod folders in `dir`, by name.
@@ -183,6 +190,8 @@ impl Mods {
                 run: None,
                 modified,
                 fingerprint: None,
+                readable: false,
+                content: None,
             };
             match Package::read(path) {
                 Err(e) => entry.status = Status::Failed(e),
@@ -541,11 +550,13 @@ impl Mods {
         }
         paths.sort();
         let mut changed = false;
+        let mut unsettled = false;
         for path in &paths {
             let fingerprint = match fingerprint(path) {
                 Ok(hash) => hash,
                 Err(error) => {
                     log::warn!("Horizon: approved mod read failed: {error}");
+                    unsettled = true;
                     continue;
                 }
             };
@@ -562,28 +573,29 @@ impl Mods {
                         run: None,
                         modified: modified(path),
                         fingerprint: None,
+                        readable: false,
+                        content: None,
                     });
                     self.entries.len() - 1
                 });
             if self.entries[index].fingerprint == Some(fingerprint) {
                 continue;
             }
-            let candidate = Package::read(path).and_then(|package| {
+            let package = Package::read(path);
+            self.entries[index].readable = package.is_ok();
+            self.entries[index].content = package
+                .as_ref()
+                .ok()
+                .and_then(|p| crate::content::approved_id(path, &p.manifest));
+            let candidate = package.and_then(|package| {
                 if path.file_stem().and_then(|name| name.to_str())
                     != Some(package.manifest.id.as_str())
                 {
                     return Err("approved filename must match the manifest id".into());
                 }
-                if package.manifest.api != "0.1"
-                    || package
-                        .manifest
-                        .capabilities
-                        .contains(&crate::Capability::Registries)
-                {
-                    return Err(
-                        "live server approvals accept API 0.1 code; content needs a restart".into(),
-                    );
-                }
+                // Content (API 0.2) is read before the world loads; a change
+                // to it restarts the world (Mods::approved_content). Its code
+                // goes live here like any other.
                 crate::Content::read(path, &package.manifest)?;
                 // Recheck after parsing so an atomic publish racing this scan
                 // cannot associate one package's bytes with another's hash.
@@ -591,6 +603,16 @@ impl Mods {
                     return Err(
                         "approved package changed during validation; retrying next scan".into(),
                     );
+                }
+                // The players' half of a content mod: the server keeps its
+                // blocks and items, not its code.
+                if !self.accepts(package.manifest.side)
+                    && package
+                        .manifest
+                        .capabilities
+                        .contains(&crate::Capability::Registries)
+                {
+                    return Ok((package.manifest, None));
                 }
                 self.start(&package, &reserved, Some(index))
                     .map(|run| (package.manifest, run))
@@ -603,8 +625,33 @@ impl Mods {
         let before = self.entries.len();
         self.entries
             .retain(|entry| paths.binary_search(&entry.path).is_ok());
+        self.unsettled = unsettled || self.entries.iter().any(|e| !e.readable);
         Ok(changed || self.entries.len() != before)
     }
+
+    /// The content mods in the approval mirror as of the last
+    /// [`Mods::sync_server_directory`], by id, with their packages' SHA-256.
+    /// Blocks and items cannot join a running world: when this differs from
+    /// the set the world started with, the dedicated server restarts. None
+    /// while a package there does not read: a damaged file is not a removal,
+    /// and restarting without its blocks would turn them into air.
+    pub fn approved_content(&self) -> Option<Vec<(String, [u8; 32])>> {
+        if self.unsettled {
+            return None;
+        }
+        let mut out: Vec<_> = self
+            .entries
+            .iter()
+            .filter_map(|e| Some((e.content.clone()?, e.fingerprint?)))
+            .collect();
+        out.sort();
+        Some(out)
+    }
+}
+
+/// The SHA-256 of a package's bytes, as [`Mods::approved_content`] lists it.
+pub fn package_digest(bytes: &[u8]) -> [u8; 32] {
+    Sha256::digest(bytes).into()
 }
 
 fn fingerprint(path: &Path) -> Result<[u8; 32], String> {

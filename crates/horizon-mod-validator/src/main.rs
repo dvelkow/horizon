@@ -1,6 +1,6 @@
 //! Isolated validation/transpilation process for the approval portal.
 //! The gateway owns wall-clock/process limits and publishes only a successful result.
-use horizon_mods::{Capability, Content, Package, Status, manifest};
+use horizon_mods::{Content, Package, Status, manifest};
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 use std::{
@@ -36,21 +36,27 @@ fn run() -> Result<Value, String> {
             .map(PathBuf::from)
             .ok_or_else(|| format!("missing {name}"))
     };
-    let input = flag("--input")?;
-    let out = flag("--browser-out")?;
+    validate(&flag("--input")?, &flag("--browser-out")?)
+}
+
+/// Checks the package at `input`; a client component's browser bundle goes
+/// in `out`.
+fn validate(input: &Path, out: &Path) -> Result<Value, String> {
+    let input = input.to_owned();
     preflight(&input)?;
     let package = Package::read(&input)?;
-    let _content = Content::read(&input, &package.manifest)?;
-    // Registry additions change the world's protocol and cannot be swapped mid-session.
-    // Keep them out of the live portal until a coordinated world-restart path exists.
-    if package
-        .manifest
-        .capabilities
-        .contains(&Capability::Registries)
-    {
-        return Err("registry/content mods require a coordinated world restart; this portal accepts live API 0.1 code mods".into());
-    }
-    let wasm = package.wasm.as_ref().ok_or("mod.wasm is required")?;
+    // The same fences and sizes the game applies. Blocks and items cannot
+    // join a running world: approving a content mod restarts the hosted
+    // world, and every browser loads the same set before it joins.
+    let content = Content::read(&input, &package.manifest)?;
+    let content = json!({"blocks":content.blocks.len(),"items":content.items.len(),"files":content.files.len()});
+    let checks = json!({"manifest":true,"imports":true,"content":true,"archiveCaps":true});
+    let Some(wasm) = package.wasm.as_ref() else {
+        // A content-only mod: data, no code to sandbox or transpile.
+        return Ok(
+            json!({"ok":true,"manifest":package.manifest,"code":false,"content":content,"browser":null,"checks":checks}),
+        );
+    };
     let imports = manifest::component_imports(wasm)?;
     package
         .manifest
@@ -70,13 +76,15 @@ fn run() -> Result<Value, String> {
     if !runtime.is_running() {
         return Err("sandbox did not start the component".into());
     }
+    let mut checks = checks;
+    checks["sandboxInitFuel"] = true.into();
     if package.manifest.side == horizon_mods::Side::Server {
         return Ok(
-            json!({"ok":true,"manifest":package.manifest,"browser":null,"checks":{"manifest":true,"imports":true,"content":true,"archiveCaps":true,"sandboxInitFuel":true}}),
+            json!({"ok":true,"manifest":package.manifest,"code":true,"content":content,"browser":null,"checks":checks}),
         );
     }
-    fs::create_dir_all(&out).map_err(|e| e.to_string())?;
-    if fs::read_dir(&out)
+    fs::create_dir_all(out).map_err(|e| e.to_string())?;
+    if fs::read_dir(out)
         .map_err(|e| e.to_string())?
         .next()
         .is_some()
@@ -102,7 +110,7 @@ fn run() -> Result<Value, String> {
             "--quiet",
             "-o",
         ])
-        .arg(&out)
+        .arg(out)
         .output()
         .map_err(|e| format!("jco: {e}"))?;
     fs::remove_file(&component).map_err(|e| e.to_string())?;
@@ -115,8 +123,8 @@ fn run() -> Result<Value, String> {
                 .collect::<String>()
         ));
     }
-    remove_types(&out)?;
-    let mut paths: Vec<_> = fs::read_dir(&out)
+    remove_types(out)?;
+    let mut paths: Vec<_> = fs::read_dir(out)
         .map_err(|e| e.to_string())?
         .map(|e| e.map(|e| e.path()))
         .collect::<Result<_, _>>()
@@ -149,8 +157,10 @@ fn run() -> Result<Value, String> {
     if !out.join("mod.js").is_file() {
         return Err("transpiler did not produce mod.js".into());
     }
+    checks["browserMemoryCap"] = (64 << 20).into();
+    checks["browserTableCap"] = 10000.into();
     Ok(
-        json!({"ok":true,"manifest":package.manifest,"browser":{"entry":"mod.js","files":files},"checks":{"manifest":true,"imports":true,"content":true,"archiveCaps":true,"sandboxInitFuel":true,"browserMemoryCap":64<<20,"browserTableCap":10000}}),
+        json!({"ok":true,"manifest":package.manifest,"code":true,"content":content,"browser":{"entry":"mod.js","files":files},"checks":checks}),
     )
 }
 
@@ -282,5 +292,59 @@ mod tests {
         let mut cap = BrowserCaps::default();
         cap.memory_type(ty).unwrap();
         assert!(cap.memory_type(ty).is_err());
+    }
+
+    const RUBY: &str = r#"
+id = "ruby"
+name = "Ruby"
+version = "0.1.0"
+api = "0.2"
+side = "both"
+capabilities = ["registries"]
+"#;
+    const BLOCK: &[u8] = br#"{"template": "minecraft:iron_block"}"#;
+
+    /// Validates a content-only package with `files`; the scratch folder goes.
+    fn content_mod(name: &str, manifest: &str, files: &[(&str, &[u8])]) -> Result<Value, String> {
+        let dir =
+            std::env::temp_dir().join(format!("horizon-validator-{}-{name}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        let input = dir.join("package.hmod");
+        fs::write(&input, Package::write_files(manifest, None, files).unwrap()).unwrap();
+        let result = validate(&input, &dir.join("browser"));
+        fs::remove_dir_all(&dir).unwrap();
+        result
+    }
+
+    #[test]
+    fn content_mods_pass_without_code_and_keep_their_fences() {
+        let files: &[(&str, &[u8])] = &[
+            ("data/ruby/horizon/block/ruby_block.json", BLOCK),
+            ("data/minecraft/tags/block/mineable/pickaxe.json", b"{}"),
+            ("assets/ruby/lang/en_us.json", b"{}"),
+        ];
+        let ok = content_mod("ok", RUBY, files).unwrap();
+        assert_eq!(ok["ok"], true);
+        assert_eq!(ok["code"], false);
+        assert_eq!(ok["browser"], Value::Null);
+        assert_eq!(ok["content"], json!({"blocks": 1, "items": 0, "files": 3}));
+        assert_eq!(ok["manifest"]["capabilities"], json!(["registries"]));
+        // The fences still apply: vanilla's files and other namespaces.
+        let vanilla = content_mod(
+            "vanilla",
+            RUBY,
+            &[("assets/minecraft/textures/block/stone.png", b"x")],
+        );
+        assert!(vanilla.unwrap_err().contains("own namespace"));
+        // A mod owning vanilla's namespace would replace vanilla's files.
+        let minecraft = RUBY.replace("id = \"ruby\"", "id = \"minecraft\"");
+        let e = content_mod(
+            "minecraft",
+            &minecraft,
+            &[("data/minecraft/horizon/block/a.json", BLOCK)],
+        )
+        .unwrap_err();
+        assert!(e.contains("namespace is shared"), "{e}");
     }
 }

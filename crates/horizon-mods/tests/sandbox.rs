@@ -405,6 +405,64 @@ fn approved_server_updates_keep_last_good_and_reconcile_additions_and_removals()
     assert!(!server.command("hello removed"));
 }
 
+/// Content mods in the approval mirror: loaded without code, a players'
+/// content mod included, and the mirror's content set follows each change
+/// except a damaged package.
+#[test]
+fn approved_content_mods_load_and_name_the_mirrors_content() {
+    let dir = std::env::temp_dir().join(format!("horizon-approved-content-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    let package = |id: &str, side: &str, template: &str| {
+        let manifest = format!(
+            "id = \"{id}\"\nname = \"{id}\"\nversion = \"0.1.0\"\napi = \"0.2\"\n\
+             side = \"{side}\"\ncapabilities = [\"registries\"]\n"
+        );
+        let block = format!("data/{id}/horizon/block/a.json");
+        let json = format!(r#"{{"template": "{template}"}}"#);
+        Package::write_files(&manifest, None, &[(&block, json.as_bytes())]).unwrap()
+    };
+    let ids = |set: &[(String, [u8; 32])]| set.iter().map(|(id, _)| id.clone()).collect::<Vec<_>>();
+    let ruby = package("ruby", "both", "minecraft:iron_block");
+    std::fs::write(dir.join("ruby.hmod"), &ruby).unwrap();
+    std::fs::write(
+        dir.join("amber.hmod"),
+        package("amber", "client", "minecraft:stone"),
+    )
+    .unwrap();
+    let mut server = Mods::load_server(&[], |_| true, |_| false);
+    assert!(server.sync_server_directory(&dir, |_| false).unwrap());
+    assert!(server.entries().iter().all(|e| e.status == Status::Running));
+    // Content has no hooks: the server's per-tick mod work stays skipped.
+    assert!(!server.is_running());
+    let set = server.approved_content().unwrap();
+    assert_eq!(ids(&set), ["amber", "ruby"]);
+    assert_eq!(set[1].1, horizon_mods::package_digest(&ruby));
+
+    // A new version is another set; so is a removal.
+    std::fs::write(
+        dir.join("ruby.hmod"),
+        package("ruby", "both", "minecraft:gold_block"),
+    )
+    .unwrap();
+    assert!(server.sync_server_directory(&dir, |_| false).unwrap());
+    let updated = server.approved_content().unwrap();
+    assert_eq!(ids(&updated), ["amber", "ruby"]);
+    assert_ne!(updated[1].1, set[1].1);
+    std::fs::remove_file(dir.join("amber.hmod")).unwrap();
+    assert!(server.sync_server_directory(&dir, |_| false).unwrap());
+    assert_eq!(ids(&server.approved_content().unwrap()), ["ruby"]);
+
+    // A damaged package says nothing about the content until it reads again.
+    std::fs::write(dir.join("ruby.hmod"), b"half a zip").unwrap();
+    server.sync_server_directory(&dir, |_| false).unwrap();
+    assert_eq!(server.approved_content(), None);
+    std::fs::write(dir.join("ruby.hmod"), &ruby).unwrap();
+    server.sync_server_directory(&dir, |_| false).unwrap();
+    assert_eq!(server.approved_content().unwrap(), set[1..]);
+    std::fs::remove_dir_all(&dir).unwrap();
+}
+
 #[test]
 fn double_jump_nudges_through_the_movement_capability() {
     let mut mods = load("double_jump.hmod");

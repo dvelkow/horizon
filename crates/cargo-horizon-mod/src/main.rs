@@ -1,11 +1,13 @@
 //! `cargo horizon-mod`: make Horizon mods in Rust (`docs/mods.md`).
 //!
 //! - `new <path> [--name "Name"] [--sdk-path <dir>]`: a mod crate from the template.
-//! - `build [--debug]`: the `.hmod` in `target/horizon-mod/`.
+//! - `build [--debug]`: the `.hmod` in `target/horizon-mod/`, with the
+//!   folder's `assets/` and `data/` for a content mod (API 0.2); a content
+//!   mod without `Cargo.toml` has no code to build.
 //! - `run [--game <horizon-client>] [-- <game args>]`: build, then play with
 //!   the mod; run `build` again and the game reloads it.
 use horizon_mods::{
-    Manifest, Package,
+    Capability, Content, Manifest, Package,
     manifest::{MANIFEST, component_imports, componentize},
 };
 use std::{
@@ -102,11 +104,42 @@ fn new(args: &[String]) -> Result<(), String> {
     Ok(())
 }
 
+/// The `.hmod` bytes for the mod folder `dir`: its manifest, `wasm` if it
+/// has code, and its content, checked as the game checks it.
+fn package(dir: &Path, manifest_text: &str, wasm: Option<&[u8]>) -> Result<Vec<u8>, String> {
+    let manifest = Manifest::parse(manifest_text)?;
+    let content = Content::read(dir, &manifest)?;
+    let files = content
+        .files
+        .iter()
+        .map(|name| Ok((name.as_str(), content.file(name)?)))
+        .collect::<Result<Vec<_>, String>>()?;
+    let files: Vec<(&str, &[u8])> = files.iter().map(|(n, b)| (*n, b.as_slice())).collect();
+    Package::write_files(manifest_text, wasm, &files)
+}
+
+/// Writes `bytes` as `<dir>/<id>.hmod`, then renames it, so a running game
+/// never reads half a file.
+fn write_package(dir: &Path, id: &str, bytes: &[u8]) -> Result<PathBuf, String> {
+    std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
+    let path = dir.join(format!("{id}.hmod"));
+    let partial = path.with_extension("hmod.partial");
+    std::fs::write(&partial, bytes).map_err(|e| e.to_string())?;
+    std::fs::rename(&partial, &path).map_err(|e| e.to_string())?;
+    Ok(path)
+}
+
 /// Builds the crate in the current folder and packs `target/horizon-mod/<id>.hmod`.
 fn build(release: bool) -> Result<PathBuf, String> {
     let manifest_text = std::fs::read_to_string(MANIFEST)
         .map_err(|e| format!("{MANIFEST}: {e} (run this in a mod's folder)"))?;
     let manifest = Manifest::parse(&manifest_text)?;
+    if !Path::new("Cargo.toml").exists() && manifest.capabilities.contains(&Capability::Registries)
+    {
+        // Content only: nothing to compile.
+        let bytes = package(Path::new("."), &manifest_text, None)?;
+        return write_package(Path::new("target/horizon-mod"), &manifest.id, &bytes);
+    }
     let cargo = std::env::var("CARGO").unwrap_or_else(|_| "cargo".into());
     let mut cmd = Command::new(cargo);
     cmd.args([
@@ -140,14 +173,8 @@ fn build(release: bool) -> Result<PathBuf, String> {
     // The game refuses a component importing capabilities the manifest lacks.
     manifest.check_imports(component_imports(&wasm)?.iter().map(String::as_str))?;
     let target_dir = core.ancestors().nth(3).ok_or("unexpected target folder")?;
-    let dir = target_dir.join("horizon-mod");
-    std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
-    let path = dir.join(format!("{}.hmod", manifest.id));
-    // Write then rename, so a running game never reads half a file.
-    let partial = path.with_extension("hmod.partial");
-    std::fs::write(&partial, Package::write(&manifest_text, &wasm)?).map_err(|e| e.to_string())?;
-    std::fs::rename(&partial, &path).map_err(|e| e.to_string())?;
-    Ok(path)
+    let bytes = package(Path::new("."), &manifest_text, Some(&wasm))?;
+    write_package(&target_dir.join("horizon-mod"), &manifest.id, &bytes)
 }
 
 fn run(args: &[String]) -> Result<(), String> {
@@ -197,5 +224,26 @@ mod tests {
             "never overwrites"
         );
         std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    /// The content-only example packs into a `.hmod` the game reads back.
+    #[test]
+    fn content_mods_pack_their_assets_and_data() {
+        let dir =
+            Path::new(env!("CARGO_MANIFEST_DIR")).join("../horizon-mod-sdk/examples/ruby-content");
+        let text = std::fs::read_to_string(dir.join(MANIFEST)).unwrap();
+        let bytes = package(&dir, &text, None).unwrap();
+        let out = std::env::temp_dir().join(format!("horizon-mod-pack-{}", std::process::id()));
+        let path = write_package(&out, "ruby", &bytes).unwrap();
+        let read = Package::read(&path).unwrap();
+        assert!(read.wasm.is_none());
+        let content = Content::read(&path, &read.manifest).unwrap();
+        assert_eq!(
+            content.files,
+            Content::read(&dir, &read.manifest).unwrap().files
+        );
+        assert_eq!(content.blocks[0].id, "ruby:ruby_block");
+        assert_eq!(content.items[0].id, "ruby:ruby");
+        std::fs::remove_dir_all(&out).unwrap();
     }
 }
