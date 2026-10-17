@@ -14,6 +14,14 @@ configuration and must never be uploaded to a served directory.
 
 ## Make a mod with an agent
 
+While playing in the browser, press **Esc** to open the classic Minecraft pause
+menu. **Options** opens the game settings. The gold **DEV MODE** button below
+Disconnect opens the Mod workshop in a separate tab, keeping your world tab
+connected. The workshop uses your existing friend session; publishing a mod
+still requires the owner's separate approval. **Back to Game** resumes play.
+If Chrome releases the mouse without sending Escape to the game, the pause
+menu still opens. Native menu preferences remain available as before.
+
 Read [the existing SDK and WIT](mods.md) first. An agent can create/build a mod
 using `cargo horizon-mod new` and `cargo horizon-mod build`, then hand its `.hmod`
 to the Mod workshop linked from the play page. Native `cargo horizon-mod run`

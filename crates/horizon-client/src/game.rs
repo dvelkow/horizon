@@ -9923,6 +9923,17 @@ impl ApplicationHandler for Game<'_> {
                     #[cfg(target_arch = "wasm32")]
                     {
                         self.captured = horizon_client::browser::pointer_captured();
+                        // Chrome can consume Esc while releasing pointer lock.
+                        // A real lock loss must still open the in-game menu.
+                        if horizon_client::browser::take_pointer_pause_request()
+                            && self.screen == Screen::Playing
+                            && self.title.is_none()
+                            && self.sign_edit.is_none()
+                            && self.book.is_none()
+                            && !self.remote_chat_open()
+                        {
+                            self.key_pressed(KeyCode::Escape)?;
+                        }
                     }
                     self.observe_fullscreen();
                     let now = Instant::now();
