@@ -11,12 +11,17 @@ use horizon_platform as std;
 
 /// PauseScreen buttons: (x, y, width, label key, action id, active).
 /// https://mcsrc.dev/2/26.3/net/minecraft/client/gui/screens/PauseScreen
-fn pause_buttons(w: f32, h: f32, remote: bool) -> Vec<(f32, f32, f32, &'static str, u8, bool)> {
+fn pause_buttons(
+    w: f32,
+    h: f32,
+    remote: bool,
+    workshop: bool,
+) -> Vec<(f32, f32, f32, &'static str, u8, bool)> {
     // GridLayout of two 98px columns (padding 4), aligned at (0.5, 0.25).
     let (grid_w, grid_h) = (212.0, 166.0);
     let x0 = ((w - grid_w) * 0.5).floor();
     let y0 = ((h - grid_h) * 0.25).floor();
-    vec![
+    let mut buttons = vec![
         (x0 + 4.0, y0 + 50.0, 204.0, "menu.returnToGame", 0, true),
         (x0 + 4.0, y0 + 74.0, 98.0, "gui.advancements", 4, true),
         (x0 + 110.0, y0 + 74.0, 98.0, "gui.stats", 3, true),
@@ -41,7 +46,87 @@ fn pause_buttons(w: f32, h: f32, remote: bool) -> Vec<(f32, f32, f32, &'static s
             2,
             true,
         ),
-    ]
+    ];
+    if workshop {
+        buttons.push((x0 + 4.0, y0 + 178.0, 204.0, "DEV MODE", 13, true));
+    }
+    buttons
+}
+
+/// The hosted client uses the familiar Minecraft pause layout.
+fn horizon_pause_style() -> bool {
+    !cfg!(target_arch = "wasm32") && horizon_client::ui_theme::horizon()
+}
+
+fn dev_mode_button(
+    batch: &mut HudBatch,
+    atlas: &horizon_client::hud::HudAtlas,
+    x: f32,
+    y: f32,
+    w: f32,
+    hover: bool,
+    seconds: f32,
+) {
+    horizon_client::widgets::record("DEV MODE", [x, y, w, 20.0], true);
+    // Pixel bevel and a narrow travelling glint keep the vanilla button shape.
+    batch.fill(atlas, x - 1.0, y - 1.0, w + 2.0, 22.0, rgba(43, 29, 9, 255));
+    batch.fill_gradient(
+        atlas,
+        (x, y, w, 20.0),
+        if hover {
+            rgba(255, 235, 146, 255)
+        } else {
+            rgba(239, 200, 91, 255)
+        },
+        if hover {
+            rgba(205, 148, 40, 255)
+        } else {
+            rgba(158, 106, 25, 255)
+        },
+    );
+    batch.fill(atlas, x, y, w, 1.0, rgba(255, 245, 184, 255));
+    batch.fill(atlas, x, y + 1.0, 1.0, 18.0, rgba(255, 226, 135, 255));
+    batch.fill(
+        atlas,
+        x + w - 1.0,
+        y + 1.0,
+        1.0,
+        19.0,
+        rgba(103, 65, 16, 255),
+    );
+    batch.fill(
+        atlas,
+        x + 1.0,
+        y + 19.0,
+        w - 2.0,
+        1.0,
+        rgba(103, 65, 16, 255),
+    );
+    let glint = (seconds % 3.5) / 3.5 * (w + 52.0) - 26.0;
+    for row in 1..19 {
+        let left = glint - row as f32 * 0.7;
+        let start = left.max(1.0);
+        let end = (left + 16.0).min(w - 1.0);
+        if end > start {
+            batch.fill(
+                atlas,
+                x + start,
+                y + row as f32,
+                end - start,
+                1.0,
+                rgba(255, 255, 220, 65),
+            );
+        }
+    }
+    let label = "DEV MODE";
+    batch.text(
+        atlas,
+        label,
+        (x + (w - atlas.font.width(label)) / 2.0).floor(),
+        y + 6.0,
+        rgba(44, 29, 9, 255),
+        false,
+    );
 }
 
 /// The icon row: report bugs, feedback, friends, player reporting.
@@ -76,7 +161,7 @@ impl Game<'_> {
         self.screen == Screen::Paused
             && self.pause_menu
             && self.title.is_none()
-            && horizon_client::ui_theme::horizon()
+            && horizon_pause_style()
     }
     fn pause_labels(&self) -> (String, &'static str) {
         if let Some(server) = &self.integrated {
@@ -89,7 +174,7 @@ impl Game<'_> {
         }
     }
     pub(super) fn draw_pause_menu(&mut self, batch: &mut HudBatch) {
-        if horizon_client::ui_theme::horizon() {
+        if horizon_pause_style() {
             let opened = *self.pause_since.get_or_insert_with(std::time::Instant::now);
             let (world, quit) = self.pause_labels();
             self.tick_friends();
@@ -119,8 +204,22 @@ impl Game<'_> {
             u32::MAX,
             true,
         );
-        for (x, y, bw, key, _, active) in pause_buttons(w, h, self.external_server()) {
+        for (x, y, bw, key, action, active) in
+            pause_buttons(w, h, self.external_server(), cfg!(target_arch = "wasm32"))
+        {
             let hover = active && ui::hovered(self.cursor, x, y, bw, 20.0);
+            if action == 13 {
+                dev_mode_button(
+                    batch,
+                    atlas,
+                    x,
+                    y,
+                    bw,
+                    hover,
+                    self.started.elapsed().as_secs_f32(),
+                );
+                continue;
+            }
             ui::button(
                 batch,
                 atlas,
@@ -150,7 +249,7 @@ impl Game<'_> {
             let b = HudBatch::new(size);
             (b.width, b.height)
         };
-        let hit = if horizon_client::ui_theme::horizon() {
+        let hit = if horizon_pause_style() {
             let size = self
                 .renderer
                 .as_ref()
@@ -168,7 +267,7 @@ impl Game<'_> {
                 self.external_server(),
             )
         } else {
-            pause_buttons(w, h, self.external_server())
+            pause_buttons(w, h, self.external_server(), cfg!(target_arch = "wasm32"))
                 .into_iter()
                 .find(|b| b.5 && ui::hovered(self.cursor, b.0, b.1, b.2, 20.0))
                 .map(|b| b.4)
@@ -189,10 +288,12 @@ impl Game<'_> {
             }
             Some(11) => self.friends_copy(),
             Some(12) => self.friends_stop(),
+            #[cfg(target_arch = "wasm32")]
+            Some(13) => horizon_client::browser::open_mod_portal(),
             Some(2) => self.close_world()?,
             _ => {}
         }
-        if hit.is_some() && !horizon_client::ui_theme::horizon() {
+        if hit.is_some() && !horizon_pause_style() {
             self.audio.play_button_click();
         }
         Ok(())
@@ -336,7 +437,7 @@ mod tests {
     #[test]
     fn pause_menu_uses_disconnect_for_servers_and_keeps_world_options() {
         for (remote, label) in [(false, "menu.returnToMenu"), (true, "menu.disconnect")] {
-            let buttons = pause_buttons(427.0, 240.0, remote);
+            let buttons = pause_buttons(427.0, 240.0, remote, false);
             let quit = buttons.iter().find(|b| b.4 == 2).unwrap();
             assert_eq!(quit.3, label);
             assert!(quit.5);

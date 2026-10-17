@@ -22,6 +22,10 @@ extern "C" {
     fn set_pointer_capture(capture: bool) -> bool;
     #[wasm_bindgen(js_name = pointerCaptured)]
     pub fn pointer_captured() -> bool;
+    #[wasm_bindgen(js_name = takePointerPauseRequest)]
+    pub fn take_pointer_pause_request() -> bool;
+    #[wasm_bindgen(js_name = openModPortal)]
+    pub fn open_mod_portal();
     #[wasm_bindgen(catch, js_name = browserOptions)]
     fn browser_options() -> Result<JsValue, JsValue>;
     #[wasm_bindgen(catch, js_name = loadResourceIndex)]

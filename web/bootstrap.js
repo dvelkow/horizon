@@ -15,6 +15,8 @@ let pointerWanted = false;
 let pointerPending = false;
 let pointerGesture = 0;
 let requestedPointerGesture = -1;
+let pointerWasCaptured = false;
+let pointerPauseRequested = false;
 
 function pointerHint(show) {
   let hint = document.getElementById("horizon-pointer-hint");
@@ -33,7 +35,21 @@ export function pointerCaptured() {
 }
 function pointerChanged() {
   globalThis.horizonPointerCaptured = pointerCaptured();
+  if (pointerWasCaptured && !globalThis.horizonPointerCaptured && pointerWanted) {
+    pointerPauseRequested = true;
+  }
+  pointerWasCaptured = globalThis.horizonPointerCaptured;
   pointerHint(pointerWanted && !globalThis.horizonPointerCaptured);
+}
+export function takePointerPauseRequest() {
+  const requested = pointerPauseRequested;
+  pointerPauseRequested = false;
+  return requested;
+}
+export function openModPortal() {
+  // Called synchronously from the in-game click, retaining browser activation.
+  // The portal uses the existing same-origin session; owner approval stays separate.
+  window.open("/portal.html", "_blank", "noopener,noreferrer");
 }
 export function setPointerCapture(capture) {
   if (!pointerHandlersInstalled) {
@@ -49,6 +65,7 @@ export function setPointerCapture(capture) {
   pointerWanted = capture === true;
   const canvas = document.getElementById("horizon");
   if (!pointerWanted) {
+    pointerPauseRequested = false;
     if (pointerCaptured()) document.exitPointerLock();
     pointerHint(false); return false;
   }
