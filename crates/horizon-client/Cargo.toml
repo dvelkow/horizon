@@ -17,7 +17,7 @@ horizon-server-files = { path = "../horizon-server-files" }
 horizon-friends = { path = "../horizon-friends" }
 # Horizon mods: sandboxed WebAssembly components, off unless installed and turned on (docs/mods.md).
 horizon-mods = { path = "../horizon-mods" }
-wgpu = { version = "30.0.1", default-features = false, features = ["std", "parking_lot", "vulkan", "metal", "wgsl"] }
+wgpu = { version = "30.0.1", default-features = false, features = ["std", "parking_lot", "wgsl"] }
 winit = "0.30.13"
 pollster = "0.4"
 bytemuck = { version = "1.24", features = ["derive"] }
@@ -50,6 +50,14 @@ gilrs = "0.11"
 horizon-dualsense = { path = "../horizon-dualsense" }
 # HTTPS to the Minecraft services (online-mode session join).
 ureq = { version = "2", default-features = false, features = ["tls"] }
+
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+wgpu = { version = "30.0.1", default-features = false, features = ["vulkan", "metal"] }
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+# Phase 0: select the browser GPU backend. This is necessary, but the native
+# dependencies and application startup still need porting; see docs/browser-spike.md.
+wgpu = { version = "30.0.1", default-features = false, features = ["webgpu"] }
 
 [target.'cfg(windows)'.build-dependencies]
 # The icon resource in the .exe (build.rs).
