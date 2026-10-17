@@ -1638,6 +1638,10 @@ impl Game<'_> {
                 if p.event == 9 && self.remote.as_ref().is_some_and(|r| r.entity_id == p.id) {
                     self.remote_use_complete();
                 }
+                // EntityEvent.PROTECTED_FROM_DEATH: a totem saved a player or mob.
+                if p.event == 35 {
+                    self.remote_totem(p.id);
+                }
                 // EntityEvent.DEATH: start the death animation.
                 if p.event == 3
                     && let Some(m) = self.mobs.iter_mut().find(|m| m.id == p.id as u32)
@@ -3338,6 +3342,37 @@ impl Game<'_> {
             self.using = None;
         } else {
             self.using = Some((slot, ticks));
+        }
+    }
+    /// ClientPacketListener.handleEntityEvent 35: the totem's particles where
+    /// it fired, and the controller's rumble on this player.
+    fn remote_totem(&mut self, id: i32) {
+        use horizon_client::particles::{ParticleOptions, ParticleType};
+        let me = self.remote.as_ref().is_some_and(|r| r.entity_id == id);
+        let (at, height) = if me {
+            match self.player.as_ref() {
+                Some(p) => (
+                    [p.position.x, p.position.y, p.position.z],
+                    f64::from(p.dimensions.height),
+                ),
+                None => return,
+            }
+        } else {
+            match self.mobs.iter().find(|m| m.id == id as u32) {
+                Some(m) => ([m.position.x, m.position.y, m.position.z], 1.8),
+                None => return,
+            }
+        };
+        self.particles.tracking_emitter_for(
+            ParticleOptions::simple(ParticleType::TotemOfUndying),
+            at,
+            0.6,
+            height,
+            30,
+        );
+        // The sound comes from the server with the others it plays.
+        if me {
+            self.pad_rumble(horizon_client::gamepad::Rumble::Totem);
         }
     }
     /// LivingEntity.completeUsingItem on the client: the last crumbs.

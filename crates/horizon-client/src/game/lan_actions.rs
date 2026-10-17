@@ -192,8 +192,30 @@ impl Game<'_> {
         self.lan_acting = Some(conn);
         self.lan_acting_name = Some(g.name.clone());
         self.lan_acting_uuid = Some(g.uuid);
+        // A totem in either of the guest's hands is ready for what hurts them.
+        self.update_totem_ready();
+        // A bed the guest uses is their own respawn point, not the world's.
+        let world_spawn = (self.spawn, self.level.spawn, self.respawn_config.take());
 
         let result = f(self);
+        if self.spawn != world_spawn.0 {
+            if let Some(bed) = self.spawn {
+                let head = [
+                    bed.x.floor() as i32,
+                    bed.y.floor() as i32,
+                    bed.z.floor() as i32,
+                ];
+                host.hub.guests[i].respawn_bed = Some(head);
+            }
+        }
+        (self.spawn, self.level.spawn, self.respawn_config) = world_spawn;
+        // LivingEntity.checkTotemDeathProtection: a totem saved the guest. It
+        // is used up and everyone sees it (EntityEvent.PROTECTED_FROM_DEATH).
+        if self.player.as_ref().is_some_and(|p| p.health.totem_used) {
+            self.apply_totem();
+            let g = &host.hub.guests[i];
+            host.hub.entity_event(g.entity_id, 35, g.position);
+        }
         self.lan_acting = None;
         self.lan_acting_name = None;
         self.lan_acting_uuid = None;
@@ -997,13 +1019,38 @@ impl Game<'_> {
     }
 
     fn guest_respawn(&mut self, host: &mut LanHost, conn: u32) {
-        let spawn = self.spawn.map_or([0.5, 80.0, 0.5], |s| [s.x, s.y, s.z]);
+        let world_spawn = self.spawn.map_or([0.5, 80.0, 0.5], |s| [s.x, s.y, s.z]);
         let Some(i) = host.hub.guests.iter().position(|g| g.conn == conn) else {
             return;
         };
         if !host.hub.guests[i].dead {
             return;
         }
+        // ServerPlayer.findRespawnPositionAndUseSpawnBlock: their bed while it
+        // stands (on it, as BedBlock.findStandUpPosition's fallback), else the
+        // world spawn with vanilla's notice.
+        let bed = host.hub.guests[i].respawn_bed.filter(|b| {
+            self.res
+                .facts
+                .get(self.world.block(b[0], b[1], b[2]))
+                .name
+                .ends_with("_bed")
+        });
+        if bed.is_none() && host.hub.guests[i].respawn_bed.take().is_some() {
+            super::lan_tpa::tell(
+                host,
+                conn,
+                "You have no home bed or charged respawn anchor, or it was obstructed",
+                "white",
+            );
+        }
+        let spawn = bed.map_or(world_spawn, |b| {
+            [
+                f64::from(b[0]) + 0.5,
+                f64::from(b[1]) + 0.5625,
+                f64::from(b[2]) + 0.5,
+            ]
+        });
         self.respawn_level(host);
         let g = &mut host.hub.guests[i];
         g.dead = false;

@@ -104,6 +104,8 @@ pub struct Guest {
     pub craft_result: Option<ItemStack>,
     /// The ender chest inventory (`PlayerEnderChestContainer`, 27 slots).
     pub ender_items: Vec<Option<ItemStack>>,
+    /// ServerPlayer.respawnConfig: the head of the bed they last used, if any.
+    pub respawn_bed: Option<[i32; 3]>,
     pub health: f32,
     pub food: i32,
     pub saturation: f32,
@@ -214,6 +216,7 @@ impl Guest {
             craft_grid: Default::default(),
             craft_result: None,
             ender_items: vec![None; 27],
+            respawn_bed: None,
             health: 20.0,
             food: 20,
             saturation: 5.0,

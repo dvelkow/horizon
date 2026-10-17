@@ -106,6 +106,7 @@ impl Game<'_> {
                 // SetWorldSpawnCommand: the level's spawn (saved with the world)
                 // and the one respawning players use.
                 let block = at.map(f64::floor);
+                self.level.world_spawn = Some(block.map(|v| v as i32));
                 self.level.spawn = Some(block);
                 self.spawn = Some(Vec3::new(block[0] + 0.5, block[1], block[2] + 0.5));
                 tell(host, conn, &format!("Spawn set at {}.", shown(at)), "green");

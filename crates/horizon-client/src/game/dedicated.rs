@@ -433,6 +433,19 @@ impl Game<'_> {
         self.settings.simulation_distance = props.simulation_distance.clamp(2, 32);
         self.streaming.radius = self.settings.render_distance;
         self.settle_spawn()?;
+        // Level.read_player took the newest player file as the level's player:
+        // its bed must not become everyone's spawn. Players respawn at their
+        // own beds (lan_actions::guest_respawn) or here, the world spawn.
+        if let Some([x, y, z]) = self.level.world_spawn {
+            self.spawn = Some(horizon_core::geometry::Vec3::new(
+                f64::from(x) + 0.5,
+                f64::from(y),
+                f64::from(z) + 0.5,
+            ));
+            self.level.spawn = Some([f64::from(x), f64::from(y), f64::from(z)]);
+        }
+        self.respawn_config = None;
+        self.level.respawn_elsewhere = None;
         let gate_lists = lists.clone();
         let gate: LoginGate = Arc::new(move |address, uuid, name| {
             let user = NameAndId {

@@ -79,6 +79,11 @@ pub fn apply(guest: &mut Guest, level: &Level) {
     if level.ender_items.len() == 27 {
         guest.ender_items = level.ender_items.clone();
     }
+    guest.respawn_bed = level
+        .respawn_elsewhere
+        .as_ref()
+        .filter(|(dimension, ..)| dimension == "minecraft:overworld")
+        .map(|(_, block, ..)| *block);
     for (slot, item, count, damage) in &level.inventory {
         let mut stack = ItemStack {
             item: Arc::from(item.as_str()),
@@ -135,6 +140,9 @@ pub fn store(guest: &Guest, level: &mut Level) {
     level.player_extra = guest.saved.clone();
     level.recipe_book = guest.recipe_book.clone();
     level.ender_items = guest.ender_items.clone();
+    level.respawn_elsewhere = guest
+        .respawn_bed
+        .map(|block| ("minecraft:overworld".to_owned(), block, 0.0, false));
     level.inventory.clear();
     level.inventory_components.clear();
     let mut put = |slot: u8, stack: &Option<ItemStack>| {
