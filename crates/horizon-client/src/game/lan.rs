@@ -769,6 +769,23 @@ impl Game<'_> {
                 equipment: Vec::new(),
             });
         }
+        // Experience orbs: ExperienceOrb.DATA_VALUE is their size.
+        for o in self.orbs.iter().filter(|o| o.id != 0) {
+            out.push(EntityState {
+                id: o.id as i32,
+                uuid: entity_uuid(o.id),
+                kind: "minecraft:experience_orb".to_owned(),
+                position: [o.position.x, o.position.y, o.position.z],
+                yaw: 0.0,
+                pitch: 0.0,
+                head_yaw: 0.0,
+                on_ground: o.on_ground,
+                velocity: [o.velocity.x, o.velocity.y, o.velocity.z],
+                data: 0,
+                meta: vec![(8, serializer::INT, Value::Int(o.value as i32))],
+                equipment: Vec::new(),
+            });
+        }
         out
     }
 

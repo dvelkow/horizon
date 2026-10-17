@@ -5256,14 +5256,23 @@ impl Game<'_> {
         let Some((ty, slots)) = self.inv_drag.take() else {
             return;
         };
-        // Online the server's menu runs the drag: vanilla's QUICK_CRAFT clicks.
+        // Online the drag is vanilla's QUICK_CRAFT clicks, predicted on the
+        // client's copy of the menu and sent to the server's.
         if self.remote.is_some() {
             match slots.as_slice() {
                 [] => {}
                 [slot] => {
-                    self.remote_slot_click(*slot, ty as i8, 0);
+                    self.remote_menu_ops(&[(Some(*slot), ty, Input::Pickup)]);
                 }
-                _ => self.remote_quick_craft(ty, &slots),
+                _ => {
+                    let mask = |header: i32| header | (ty << 2);
+                    let mut ops = vec![(None, mask(0), Input::QuickCraft)];
+                    ops.extend(slots.iter().map(|&slot| (Some(slot), mask(1), Input::QuickCraft)));
+                    ops.push((None, mask(2), Input::QuickCraft));
+                    if !self.remote_menu_ops(&ops) {
+                        self.remote_quick_craft(ty, &slots);
+                    }
+                }
             }
             return;
         }
@@ -7437,7 +7446,9 @@ impl Game<'_> {
         let mut r = dispenser::entity_random();
         let _yaw = r.next_float();
         let p = Vec3::new(at[0], at[1], at[2]);
+        self.next_entity += 1;
         self.orbs.push(ExperienceOrb {
+            id: self.next_entity,
             position: p,
             previous: p,
             velocity: Vec3::new(
@@ -7496,52 +7507,115 @@ impl Game<'_> {
         if self.xp_delay > 0 {
             self.xp_delay -= 1;
         }
+        // Orbs loaded or summoned without an id get one, for network players.
+        for o in self.orbs.iter_mut().filter(|o| o.id == 0) {
+            self.next_entity += 1;
+            o.id = self.next_entity;
+        }
         let spectator = self.spectator();
         let player = self
             .player
             .as_ref()
             .filter(|p| !p.health.dead_or_dying() && !spectator);
-        let target = player.map(|p| {
-            [
-                p.position.x,
-                p.position.y + f64::from(p.dimensions.eye_height) / 2.0,
-                p.position.z,
-            ]
-        });
-        let bounds = player.map(|p| {
+        // Who an orb can follow and touch: (follow point, box min, box max,
+        // the guest's connection), the local player first.
+        let mut players: Vec<([f64; 3], [f64; 3], [f64; 3], Option<u32>)> = Vec::new();
+        if let Some(p) = player {
             let w = f64::from(p.dimensions.width) / 2.0;
-            (
+            players.push((
+                [
+                    p.position.x,
+                    p.position.y + f64::from(p.dimensions.eye_height) / 2.0,
+                    p.position.z,
+                ],
                 [p.position.x - w, p.position.y, p.position.z - w],
                 [
                     p.position.x + w,
                     p.position.y + f64::from(p.dimensions.height),
                     p.position.z + w,
                 ],
-            )
-        });
+                None,
+            ));
+        }
+        if let Some(host) = &self.lan {
+            for g in host
+                .hub
+                .guests
+                .iter()
+                .filter(|g| g.placed && !g.dead && !g.spectator())
+            {
+                let p = g.position;
+                let height = if g.sneaking { 1.5 } else { 1.8 };
+                players.push((
+                    [p[0], p[1] + g.eye_height() / 2.0, p[2]],
+                    [p[0] - 0.3, p[1], p[2] - 0.3],
+                    [p[0] + 0.3, p[1] + height, p[2] + 0.3],
+                    Some(g.conn),
+                ));
+            }
+        }
         let mut orbs = std::mem::take(&mut self.orbs);
-        orbs.retain_mut(|o| o.tick(&self.world, &self.res.facts, self.collision, target));
+        orbs.retain_mut(|o| {
+            // ExperienceOrb.followingPlayer: the nearest player within 8 blocks.
+            let target = players
+                .iter()
+                .map(|(t, ..)| {
+                    let d = (t[0] - o.position.x).powi(2)
+                        + (t[1] - o.position.y).powi(2)
+                        + (t[2] - o.position.z).powi(2);
+                    (d, *t)
+                })
+                .filter(|(d, _)| *d < 64.0)
+                .min_by(|a, b| a.0.total_cmp(&b.0))
+                .map(|(_, t)| t);
+            o.tick(&self.world, &self.res.facts, self.collision, target)
+        });
         let mut gained = 0;
         let mut taken = Vec::new();
-        if let Some((min, max)) = bounds {
-            orbs.retain(|o| {
+        let mut guest_taken: Vec<(u32, ExperienceOrb)> = Vec::new();
+        let mut guest_delays: HashMap<u32, u32> = self.lan.as_ref().map_or_else(HashMap::new, |h| {
+            h.play.iter().map(|(conn, p)| (*conn, p.xp_delay)).collect()
+        });
+        orbs.retain(|o| {
+            for (_, min, max, guest) in &players {
                 let touching = o.position.x + 0.25 > min[0]
                     && o.position.x - 0.25 < max[0]
                     && o.position.y + 0.5 > min[1]
                     && o.position.y < max[1]
                     && o.position.z + 0.25 > min[2]
                     && o.position.z - 0.25 < max[2];
-                if touching && self.xp_delay == 0 {
-                    // ExperienceOrb.playerTouch: one orb every 2 ticks.
-                    self.xp_delay = 2;
-                    gained += o.value;
-                    taken.push(o.clone());
-                    return false;
+                if !touching {
+                    continue;
                 }
-                true
-            });
-        }
+                // ExperienceOrb.playerTouch: one orb every 2 ticks a player.
+                match guest {
+                    None if self.xp_delay == 0 => {
+                        self.xp_delay = 2;
+                        gained += o.value;
+                        taken.push(o.clone());
+                        return false;
+                    }
+                    Some(conn) if guest_delays.get(conn).copied().unwrap_or(0) == 0 => {
+                        guest_delays.insert(*conn, 2);
+                        guest_taken.push((*conn, o.clone()));
+                        return false;
+                    }
+                    _ => {}
+                }
+            }
+            true
+        });
         self.orbs = orbs;
+        if let Some(mut host) = self.lan.take() {
+            // Player.tick counts each player's takeXpDelay down.
+            for (conn, delay) in guest_delays {
+                host.play.entry(conn).or_default().xp_delay = delay.saturating_sub(1);
+            }
+            for (conn, o) in guest_taken {
+                self.guest_take_orb(&mut host, conn, &o);
+            }
+            self.lan = Some(host);
+        }
         for o in taken {
             self.add_pickup(pickups::Taken::Orb(Box::new(o)), pickups::Collector::Player);
         }

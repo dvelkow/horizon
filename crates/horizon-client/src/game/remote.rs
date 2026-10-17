@@ -985,6 +985,19 @@ impl Game<'_> {
             self.mobs.retain(|m| m.id != id as u32);
             self.mobs.push(mob);
         }
+        if kind == "minecraft:experience_orb" {
+            // Its size comes with the entity data (ExperienceOrb.DATA_VALUE).
+            self.orbs.retain(|o| o.id != id as u32);
+            self.orbs.push(horizon_client::entities::ExperienceOrb {
+                id: id as u32,
+                position: at,
+                previous: at,
+                velocity: Vec3::new(0.0, 0.0, 0.0),
+                value: 1,
+                age: 0,
+                on_ground: false,
+            });
+        }
         if let Some(r) = self.remote.as_mut() {
             if kind == "minecraft:item" {
                 r.pending_items.insert(
@@ -1015,7 +1028,7 @@ impl Game<'_> {
         // Items simulate between the server's infrequent position corrections.
         // Their packet base remains in Tracked, independent of prediction.
         let item = self.dropped.iter_mut().find(|d| d.id == id as u32);
-        let is_item = item.is_some()
+        let mut is_item = item.is_some()
             || self
                 .remote
                 .as_ref()
@@ -1023,6 +1036,12 @@ impl Game<'_> {
         if let Some(item) = item {
             item.position = Vec3::new(position[0], position[1], position[2]);
             item.on_ground = on_ground;
+        }
+        // Orbs move on their own between corrections, as items do.
+        if let Some(o) = self.orbs.iter_mut().find(|o| o.id == id as u32) {
+            o.position = Vec3::new(position[0], position[1], position[2]);
+            o.on_ground = on_ground;
+            is_item = true;
         }
         if let Some(r) = self.remote.as_mut() {
             if let Some(t) = r.entities.get_mut(&id) {
@@ -1055,6 +1074,9 @@ impl Game<'_> {
         if let Some(item) = self.dropped.iter_mut().find(|d| d.id == id as u32) {
             item.velocity = Vec3::new(velocity[0], velocity[1], velocity[2]);
         }
+        if let Some(o) = self.orbs.iter_mut().find(|o| o.id == id as u32) {
+            o.velocity = Vec3::new(velocity[0], velocity[1], velocity[2]);
+        }
         if let Some(pending) = self
             .remote
             .as_mut()
@@ -1066,6 +1088,7 @@ impl Game<'_> {
     fn remove_entity(&mut self, id: i32) {
         self.mobs.retain(|m| m.id != id as u32);
         self.dropped.retain(|d| d.id != id as u32);
+        self.orbs.retain(|o| o.id != id as u32);
         if let Some(r) = self.remote.as_mut() {
             r.entities.remove(&id);
             r.lerps.remove(&id);
@@ -1417,6 +1440,14 @@ impl Game<'_> {
                 }
             }
             C::SetEntityData(p) => {
+                // ExperienceOrb.DATA_VALUE: the orb's size.
+                if let Some(o) = self.orbs.iter_mut().find(|o| o.id == p.id as u32) {
+                    for (index, _, value) in &p.values {
+                        if let (8, Value::Int(v)) = (index, value) {
+                            o.value = (*v).max(1) as u32;
+                        }
+                    }
+                }
                 if let Some(m) = self.mobs.iter_mut().find(|m| m.id == p.id as u32)
                     && m.species() == horizon_client::mobs::Species::Rabbit
                 {
@@ -1500,6 +1531,26 @@ impl Game<'_> {
                         }
                     }
                 }
+            }
+            // ClientPacketListener.handleTakeItemEntity for an experience orb:
+            // its own sound for the one who took it, and the orb flies to them.
+            C::TakeItemEntity(p) if self.orbs.iter().any(|o| o.id == p.item as u32) => {
+                let me = self.remote.as_ref().is_some_and(|r| r.entity_id == p.player);
+                if me && let Some(eye) = self.eye_position() {
+                    let pitch =
+                        (self.world.random.next_float() - self.world.random.next_float()) * 0.35 + 0.9;
+                    self.audio
+                        .play("minecraft:entity.experience_orb.pickup", Some(eye), 0.1, pitch);
+                }
+                if let Some(orb) = self.orbs.iter().find(|o| o.id == p.item as u32).cloned() {
+                    let collector = if me {
+                        super::pickups::Collector::Player
+                    } else {
+                        super::pickups::Collector::Mob(p.player as u32)
+                    };
+                    self.add_pickup(super::pickups::Taken::Orb(Box::new(orb)), collector);
+                }
+                self.remove_entity(p.item);
             }
             C::TakeItemEntity(p) => {
                 if self
@@ -2511,6 +2562,22 @@ impl Game<'_> {
         self.tick_avatar(before, false);
         // The player's own model (third person, the inventory's preview).
         self.tick_player_model();
+        // ExperienceOrb.tick on the client: orbs fall and drift toward this
+        // player between the server's corrections; only the server takes them.
+        if !self.orbs.is_empty() {
+            let target = self.player.as_ref().map(|p| {
+                [
+                    p.position.x,
+                    p.position.y + f64::from(p.dimensions.eye_height) / 2.0,
+                    p.position.z,
+                ]
+            });
+            let mut orbs = std::mem::take(&mut self.orbs);
+            for o in &mut orbs {
+                let _ = o.tick(&self.world, &self.res.facts, self.collision, target);
+            }
+            self.orbs = orbs;
+        }
         if !dead {
             self.remote_mining();
             // Minecraft.continueAttack/startUseItem: no new use while one runs.
@@ -3593,6 +3660,112 @@ impl Game<'_> {
         }
         self.remote_menu_click(-999, mask(2), QUICK_CRAFT);
     }
+    /// The menu engine's kind for a server menu the client predicts clicks
+    /// on: the inventory, the crafting table and the storage menus.
+    fn predicted_menu_kind(menu: &str) -> Option<horizon_client::menu::Kind> {
+        use horizon_client::menu::Kind;
+        Some(match menu {
+            "inventory" => Kind::Inventory,
+            "minecraft:crafting" => Kind::Crafting,
+            "minecraft:generic_9x1" => Kind::Chest(1),
+            "minecraft:generic_9x2" => Kind::Chest(2),
+            "minecraft:generic_9x3" => Kind::Chest(3),
+            "minecraft:generic_9x4" => Kind::Chest(4),
+            "minecraft:generic_9x5" => Kind::Chest(5),
+            "minecraft:generic_9x6" => Kind::Chest(6),
+            "minecraft:shulker_box" => Kind::Shulker,
+            "minecraft:generic_3x3" => Kind::Dispenser,
+            "minecraft:hopper" => Kind::Hopper,
+            "minecraft:furnace" => Kind::Furnace("smelting"),
+            "minecraft:blast_furnace" => Kind::Furnace("blasting"),
+            "minecraft:smoker" => Kind::Furnace("smoking"),
+            _ => return None,
+        })
+    }
+    /// MultiPlayerGameMode.handleContainerInput: `clicks` (network slot,
+    /// button, ContainerInput) run on a copy of the open menu as shown, the
+    /// slots and the cursor take the result, and each click goes to the server
+    /// with the slots it changed and the cursor after it. False (nothing sent)
+    /// when the menu is not one the client models or a click is invalid.
+    fn remote_predict_clicks(&mut self, container: i32, menu: &str, clicks: &[(i16, i8, i32)]) -> bool {
+        use horizon_client::menu::{Env, Input, Menu};
+        let Some(kind) = Self::predicted_menu_kind(menu) else {
+            return false;
+        };
+        let mut m = Menu::new(kind);
+        let n = m.slot_count();
+        let shown: Vec<Option<ItemStack>> = (0..n)
+            .map(|s| Self::menu_slot(menu, s as i32).and_then(|i| self.slot_view(i)))
+            .collect();
+        let state = self.remote.as_ref().map_or(0, |r| r.state_id);
+        let mut packets = Vec::new();
+        {
+            let env = Env {
+                items: &self.res.items,
+                recipes: &self.res.recipes,
+                brewing: &self.res.stations.brewing,
+                banners: &self.res.stations.banners,
+                trade: None,
+                stations: None,
+            };
+            m.creative = self.creative;
+            m.selected = self.selected;
+            for (i, stack) in shown.iter().enumerate() {
+                m.set_slot(&env, i, stack.clone());
+            }
+            if kind != horizon_client::menu::Kind::Inventory {
+                // The off hand is the inventory's even where the menu shows no slot.
+                m.set_player_item(40, self.offhand.clone());
+            }
+            m.settle(&env);
+            m.carried = self.carried.clone();
+            m.drops.clear();
+            for &(slot, button, input) in clicks {
+                let ordinal = match input {
+                    0 => Input::Pickup,
+                    1 => Input::QuickMove,
+                    2 => Input::Swap,
+                    3 => Input::Clone,
+                    4 => Input::Throw,
+                    5 => Input::QuickCraft,
+                    _ => Input::PickupAll,
+                };
+                let before: Vec<Option<ItemStack>> = (0..n).map(|s| m.slot(s).cloned()).collect();
+                if m.click(&env, i32::from(slot), i32::from(button), ordinal).is_err() {
+                    return false;
+                }
+                let changed = (0..n)
+                    .filter(|&s| m.slot(s) != before[s].as_ref())
+                    .map(|s| {
+                        let stack = m.slot(s).cloned();
+                        (s as i16, self.to_network(&stack).map(|x| Hashed::of(&x)))
+                    })
+                    .collect();
+                let carried = self.to_network(&m.carried).map(|x| Hashed::of(&x));
+                packets.push(play::ContainerClick {
+                    container,
+                    state,
+                    slot,
+                    button,
+                    input,
+                    changed,
+                    carried,
+                });
+            }
+        }
+        for p in packets {
+            self.send(S::ContainerClick(p));
+        }
+        for (s, was) in shown.iter().enumerate() {
+            let now = m.slot(s).cloned();
+            if now != *was {
+                self.set_menu_slot(container, s as i32, now);
+            }
+        }
+        self.carried = m.carried.take();
+        self.remote_synced();
+        true
+    }
     /// Clicks the screen made on the server's open menu (`slotClicked`; a
     /// quick craft drag is three or more, None the outside of the window),
     /// each a `ContainerClick`; the server answers with the slots. False when
@@ -3628,6 +3801,12 @@ impl Game<'_> {
                 Input::PickupAll => 6,
             };
             clicks.push((slot, button as i8, input));
+        }
+        // AbstractContainerMenu.clicked runs on the client too: the screen
+        // changes at once and each click tells the server what it changed,
+        // so the server only corrects what it disagrees with.
+        if self.remote_predict_clicks(container, &menu, &clicks) {
+            return true;
         }
         let carried = self.to_network(&self.carried).map(|s| Hashed::of(&s));
         let state = self.remote.as_ref().map_or(0, |r| r.state_id);

@@ -45,6 +45,8 @@ pub(super) struct GuestPlay {
     /// its progress since `dig_start` is complete (ServerPlayerGameMode.hasDelayedDestroy).
     delayed: Option<([i32; 3], u64)>,
     last_progress: i32,
+    /// Player.takeXpDelay: ticks before the next experience orb counts.
+    pub(super) xp_delay: u32,
     /// A use that ended on its own last tick (eaten, drunk): the client hears
     /// of it (EntityEvent.USE_ITEM_COMPLETE) after its new food and health.
     use_finished: bool,
@@ -390,6 +392,41 @@ impl Game<'_> {
             && !g.spectator()
         {
             self.container_openers_changed(pos, false);
+        }
+    }
+
+    /// ExperienceOrb.playerTouch for a guest: everyone sees the orb fly to
+    /// them (Player.take), mending repairs with it, the rest is experience.
+    pub(super) fn guest_take_orb(
+        &mut self,
+        host: &mut LanHost,
+        conn: u32,
+        orb: &horizon_client::entities::ExperienceOrb,
+    ) {
+        let Some(id) = host.hub.guest(conn).map(|g| g.entity_id) else {
+            return;
+        };
+        let at = [orb.position.x, orb.position.y, orb.position.z];
+        host.hub.take_item(orb.id as i32, id, 1, at);
+        let value = orb.value;
+        let level_up = self
+            .as_guest(host, conn, |g| {
+                let gained = g.mending(value);
+                gained > 0 && g.experience.give(gained as i32) && g.experience.level % 5 == 0
+            })
+            .unwrap_or(false);
+        // Player.giveExperiencePoints: every fifth level is heard by those near.
+        if level_up && let Some(g) = host.hub.guest(conn) {
+            let level = g.xp_level;
+            let volume = if level > 30 { 1.0 } else { level as f32 / 30.0 };
+            host.hub.sound(
+                "minecraft:entity.player.levelup",
+                g.position,
+                volume * 0.75,
+                1.0,
+                7,
+                None,
+            );
         }
     }
 
