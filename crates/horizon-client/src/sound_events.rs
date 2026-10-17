@@ -12,6 +12,45 @@ use horizon_platform::PathExt;
 use serde_json::Value;
 use std::{collections::HashMap, fs, path::Path};
 
+/// Lazy audio is still a known resource: its size and hash are supplied by the
+/// verified startup bundle, and checked again by the downloader before decode.
+#[cfg(any(target_arch = "wasm32", test))]
+#[derive(Clone, serde::Deserialize)]
+pub(crate) struct SoundAsset {
+    pub bytes: usize,
+    pub sha256: String,
+}
+
+#[cfg(any(target_arch = "wasm32", test))]
+pub(crate) fn sound_index(root: &Path) -> HashMap<String, SoundAsset> {
+    #[derive(serde::Deserialize)]
+    struct Index {
+        schema: u32,
+        sounds: HashMap<String, SoundAsset>,
+    }
+    let mut sounds = fs::read(root.join("browser-sounds.json"))
+        .ok()
+        .and_then(|bytes| serde_json::from_slice::<Index>(&bytes).ok())
+        .filter(|index| index.schema == 1)
+        .map(|index| index.sounds)
+        .unwrap_or_default();
+    sounds.retain(|path, asset| {
+        let parts: Vec<_> = path.split('/').collect();
+        parts.len() >= 4
+            && parts[0] == "assets"
+            && parts[2] == "sounds"
+            && path.ends_with(".ogg")
+            && !path.contains('\\')
+            && parts
+                .iter()
+                .all(|part| !part.is_empty() && *part != "." && *part != "..")
+            && (1..=32 << 20).contains(&asset.bytes)
+            && asset.sha256.len() == 64
+            && asset.sha256.bytes().all(|b| b.is_ascii_hexdigit())
+    });
+    sounds
+}
+
 /// `SoundManager.EMPTY_SOUND_LOCATION`.
 pub const EMPTY: &str = "minecraft:empty";
 /// `SoundManager.INTENTIONALLY_EMPTY_SOUND_LOCATION`.
@@ -232,6 +271,24 @@ impl SoundRegistry {
     /// Every `assets/<namespace>/sounds.json` under a resource root, files
     /// validated against `assets/<namespace>/sounds/`.
     pub fn load(root: &Path) -> Self {
+        #[cfg(target_arch = "wasm32")]
+        return Self::load_browser(root);
+        #[cfg(not(target_arch = "wasm32"))]
+        Self::load_with_exists(root, &|ns, path| {
+            root.join("assets").join(ns).join(path).platform_is_file()
+        })
+    }
+
+    #[cfg(any(target_arch = "wasm32", test))]
+    fn load_browser(root: &Path) -> Self {
+        let lazy = sound_index(root);
+        Self::load_with_exists(root, &|ns, path| {
+            root.join("assets").join(ns).join(path).platform_is_file()
+                || lazy.contains_key(&format!("assets/{ns}/{path}"))
+        })
+    }
+
+    fn load_with_exists(root: &Path, exists: &dyn Fn(&str, &str) -> bool) -> Self {
         let assets = root.join("assets");
         let mut namespaces: Vec<String> = fs::read_dir(&assets)
             .into_iter()
@@ -245,8 +302,7 @@ impl SoundRegistry {
             let Ok(text) = fs::read(assets.join(&namespace).join("sounds.json")) else {
                 continue;
             };
-            let exists = |ns: &str, path: &str| assets.join(ns).join(path).platform_is_file();
-            registry.add_file(&namespace, &text, &exists);
+            registry.add_file(&namespace, &text, exists);
         }
         registry
     }
@@ -367,6 +423,54 @@ impl SoundRegistry {
 mod tests {
     use super::*;
     use horizon_core::random::LegacyRandom;
+
+    #[test]
+    fn browser_registry_accepts_verified_lazy_files_but_rejects_unknown_or_invalid_entries() {
+        use std::sync::atomic::{AtomicU64, Ordering};
+        static SERIAL: AtomicU64 = AtomicU64::new(0);
+        let root = std::env::temp_dir().join(format!(
+            "horizon-lazy-sounds-{}-{}",
+            std::process::id(),
+            SERIAL.fetch_add(1, Ordering::Relaxed)
+        ));
+        fs::create_dir_all(root.join("assets/minecraft")).unwrap();
+        fs::write(
+            root.join("assets/minecraft/sounds.json"),
+            br#"{
+            "known": {"sounds": ["random/click"]},
+            "unknown": {"sounds": ["random/missing"]},
+            "invalid": {"sounds": ["random/invalid"]}
+        }"#,
+        )
+        .unwrap();
+        let manifest = serde_json::json!({"schema":1,"sounds":{
+            "assets/minecraft/sounds/random/click.ogg":{"bytes":5468,"sha256":"ab".repeat(32)},
+            "assets/minecraft/sounds/random/invalid.ogg":{"bytes":5468,"sha256":"invalid"}
+        }});
+        fs::write(
+            root.join("browser-sounds.json"),
+            serde_json::to_vec(&manifest).unwrap(),
+        )
+        .unwrap();
+        assert!(
+            !root
+                .join("assets/minecraft/sounds/random/click.ogg")
+                .platform_exists()
+        );
+        let browser = SoundRegistry::load_browser(&root);
+        assert_eq!(browser.weight("minecraft:known"), 1);
+        assert_eq!(browser.weight("minecraft:unknown"), 0);
+        assert_eq!(browser.weight("minecraft:invalid"), 0);
+        // Native continues to require the actual file on disk.
+        #[cfg(not(target_arch = "wasm32"))]
+        assert_eq!(SoundRegistry::load(&root).weight("minecraft:known"), 0);
+        fs::remove_file(root.join("browser-sounds.json")).unwrap();
+        assert_eq!(
+            SoundRegistry::load_browser(&root).weight("minecraft:known"),
+            0
+        );
+        fs::remove_dir_all(root).unwrap();
+    }
 
     #[test]
     fn references_weigh_as_much_as_their_event() {

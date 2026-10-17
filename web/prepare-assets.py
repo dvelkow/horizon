@@ -22,6 +22,7 @@ def atomic_write(path, data):
     path.parent.mkdir(parents=True, exist_ok=True)
     fd, temporary = tempfile.mkstemp(prefix=".bundle-", dir=path.parent)
     try:
+        os.fchmod(fd, 0o644)
         with os.fdopen(fd, "wb") as stream:
             stream.write(data)
         Path(temporary).replace(path)
@@ -49,6 +50,10 @@ def main():
         if not path.is_file():
             continue
         relative = path.relative_to(source)
+        # Optional audio is fetched and verified on demand from the raw asset
+        # service. Only its small browser-sounds.json index belongs at startup.
+        if len(relative.parts) >= 4 and relative.parts[0] == "assets" and relative.parts[2] == "sounds":
+            continue
         if relative.parts[0] in {"classes", "client-classes"} or path.suffix in {".class", ".java", ".log"}:
             continue
         if path.stat().st_size > 128 * 1024 * 1024:

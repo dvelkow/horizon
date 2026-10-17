@@ -68,6 +68,12 @@ pub struct MixerBackend {
     mixer: Arc<Mutex<Mixer>>,
     root: PathBuf,
     cache: Arc<Mutex<SoundCache>>,
+    #[cfg(target_arch = "wasm32")]
+    browser_sounds: HashMap<String, browser::SoundAsset>,
+    #[cfg(target_arch = "wasm32")]
+    browser_context: Option<web_sys::AudioContext>,
+    #[cfg(target_arch = "wasm32")]
+    browser_pending: Arc<Mutex<HashMap<String, Vec<(ChannelId, bool)>>>>,
     /// The decoder thread for static sounds, started with the first one.
     #[cfg(not(target_arch = "wasm32"))]
     decoder: Option<std::sync::mpsc::Sender<Decode>>,
@@ -165,14 +171,7 @@ fn decode(path: &Path) -> Option<(Vec<f32>, u32)> {
     decode_source(Box::new(fs::File::open(path).ok()?), usize::MAX)
 }
 
-#[cfg(target_arch = "wasm32")]
-fn decode_bytes(bytes: Vec<u8>) -> Option<(Vec<f32>, u32)> {
-    decode_source(
-        Box::new(std::io::Cursor::new(bytes)),
-        (64 << 20) / std::mem::size_of::<f32>(),
-    )
-}
-
+#[cfg(not(target_arch = "wasm32"))]
 fn decode_source(
     source: Box<dyn symphonia::core::io::MediaSource>,
     maximum_samples: usize,
@@ -238,26 +237,57 @@ impl MixerBackend {
             return;
         }
         let file = self.root.join("assets").join(namespace).join(&path);
+        let asset = self
+            .browser_sounds
+            .get(&format!("assets/{namespace}/{path}"))
+            .cloned();
+        let Some(context) = self.browser_context.clone() else {
+            return;
+        };
+        let pending = self.browser_pending.clone();
+        if let Ok(mut pending) = pending.lock() {
+            let waiters = pending.entry(key.clone()).or_default();
+            waiters.push((channel, looping));
+            if waiters.len() > 1 {
+                return;
+            }
+        }
         let (mixer, cache) = (self.mixer.clone(), self.cache.clone());
         let cache_sound = !sound.stream;
         wasm_bindgen_futures::spawn_local(async move {
             let bytes = match fs::read(&file) {
                 Ok(bytes) => Some(bytes),
-                Err(_) => {
-                    crate::auth::browser::get_bytes(
-                        &horizon_platform::resource_url(&file),
-                        32 << 20,
-                    )
-                    .await
-                }
+                Err(_) => match asset {
+                    Some(asset) => {
+                        crate::auth::browser::get_resource_bytes(
+                            &horizon_platform::resource_url(&file),
+                            asset.bytes,
+                            &asset.sha256,
+                        )
+                        .await
+                    }
+                    None => None,
+                },
             };
-            let samples = bytes
-                .and_then(decode_bytes)
-                .map(|(samples, rate)| (Arc::new(samples), rate));
-            if cache_sound && let Ok(mut cache) = cache.lock() {
-                cache.insert(key, samples.clone());
+            let samples = match bytes {
+                Some(bytes) => browser::decode(&context, bytes)
+                    .await
+                    .map(|(samples, rate)| (Arc::new(samples), rate)),
+                None => None,
+            };
+            // A failed fetch can be retried after reconnecting. Do not retain a
+            // missing network resource as a permanently silent PCM cache entry.
+            if cache_sound
+                && samples.is_some()
+                && let Ok(mut cache) = cache.lock()
+            {
+                cache.insert(key.clone(), samples.clone());
             }
-            attach(&mixer, channel, samples, looping);
+            if let Ok(mut pending) = pending.lock() {
+                for (channel, looping) in pending.remove(&key).unwrap_or_default() {
+                    attach(&mixer, channel, samples.clone(), looping);
+                }
+            }
         });
     }
 }
@@ -567,6 +597,8 @@ impl Audio {
         };
         let mut engine = SoundEngine::new(registry);
         engine.loaded = live;
+        #[cfg(target_arch = "wasm32")]
+        let browser_context = stream.as_ref().map(browser::context);
         Self {
             #[cfg(target_arch = "wasm32")]
             activation: stream.as_ref().and_then(browser::Activation::new),
@@ -576,6 +608,12 @@ impl Audio {
                 mixer,
                 root: root.to_owned(),
                 cache: Arc::default(),
+                #[cfg(target_arch = "wasm32")]
+                browser_sounds: browser::sound_index(root),
+                #[cfg(target_arch = "wasm32")]
+                browser_context,
+                #[cfg(target_arch = "wasm32")]
+                browser_pending: Arc::default(),
                 #[cfg(not(target_arch = "wasm32"))]
                 decoder: None,
                 next: 0,
@@ -683,9 +721,20 @@ impl Audio {
         self.stop_all();
         self.engine.registry = SoundRegistry::load(root);
         self.backend.root = root.to_owned();
-        let mut cache = self.backend.cache.lock().unwrap();
-        cache.entries.clear();
-        cache.bytes = 0;
+        #[cfg(target_arch = "wasm32")]
+        {
+            self.backend.browser_sounds = browser::sound_index(root);
+            self.backend.browser_pending = Arc::default();
+            // Outstanding async decodes retain the previous cache; their
+            // completion must not repopulate a freshly reloaded resource pack.
+            self.backend.cache = Arc::default();
+        }
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            let mut cache = self.backend.cache.lock().unwrap();
+            cache.entries.clear();
+            cache.bytes = 0;
+        }
     }
     /// Play a sound event at a world position, as `ClientLevel.playLocalSound`
     /// (a `SimpleSoundInstance` seeded from the level random), or relative to

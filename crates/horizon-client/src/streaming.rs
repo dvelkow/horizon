@@ -170,6 +170,8 @@ pub struct Streaming {
     saves: Arc<dyn Saves>,
     /// Results received while `save` waited, for the next `update`.
     deferred: Vec<Done>,
+    #[cfg(target_arch = "wasm32")]
+    browser_save_pending: bool,
     sequence: u64,
     pub center: (i32, i32),
     pub radius: i32,
@@ -450,6 +452,8 @@ impl Streaming {
             written: Default::default(),
             saves,
             deferred: Vec::new(),
+            #[cfg(target_arch = "wasm32")]
+            browser_save_pending: false,
             sequence: 0,
             center: (0, 0),
             radius: 8,
@@ -747,6 +751,12 @@ impl Streaming {
                     uploads.push(((x, sy, z), mesh));
                 }
             }
+        }
+        #[cfg(target_arch = "wasm32")]
+        if self.browser_save_pending {
+            let written: Vec<_> = self.written.drain().collect();
+            self.save_checked_out(written);
+            self.browser_save_pending = self.decorating > 0 || !self.finishing.is_empty();
         }
         // Unload far columns.
         let far: Vec<_> = world
@@ -1175,6 +1185,16 @@ impl Streaming {
     /// the IOWorker too), and those out in jobs are saved later, as they
     /// unload or at the next save.
     pub fn save(&mut self, world: &mut World, wait: bool) {
+        #[cfg(target_arch = "wasm32")]
+        if !thread::is_web_worker_thread() {
+            // The window must keep dispatching browser events while Workers
+            // finish. Subsequent updates save returned decoration; shutdown
+            // hands any outstanding work to a background drain Worker.
+            self.browser_save_pending |= wait;
+            let written: Vec<_> = self.written.drain().collect();
+            self.save_checked_out(written);
+            return;
+        }
         if !wait {
             let written: Vec<(i32, i32)> = self.written.drain().collect();
             self.save_checked_out(written);
@@ -1299,6 +1319,11 @@ impl Ranges<'_> {
 }
 impl Drop for Streaming {
     fn drop(&mut self) {
+        #[cfg(target_arch = "wasm32")]
+        if !thread::is_web_worker_thread() {
+            self.shutdown_browser();
+            return;
+        }
         // Saves in flight hold proto chunks nothing else would save.
         let deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
         while self.saving > 0 {
@@ -1316,9 +1341,177 @@ impl Drop for Streaming {
         }
     }
 }
+#[cfg(target_arch = "wasm32")]
+impl Streaming {
+    fn shutdown_browser(&mut self) {
+        // Generation and rendering can be cancelled; jobs holding modified
+        // proto chunks must finish before their final state is persisted.
+        self.shared.queue.lock().unwrap().retain(|queued| {
+            matches!(
+                queued.job,
+                Job::Decorate(..) | Job::Finish(..) | Job::Save(..)
+            )
+        });
+        if self.decorating == 0
+            && self.finishing.is_empty()
+            && self.saving == 0
+            && self.written.is_empty()
+        {
+            self.shared.stop.store(true, Ordering::Relaxed);
+            self.shared.ready.notify_all();
+            // Dropping a handle detaches; the window never joins a Worker.
+            self.threads.clear();
+            return;
+        }
+        let (_, empty) = mpsc::channel();
+        let results = std::mem::replace(&mut self.results, empty);
+        let threads = std::mem::take(&mut self.threads);
+        let deferred = std::mem::take(&mut self.deferred);
+        let shared = self.shared.clone();
+        let mut drain = BrowserShutdown {
+            saves: self.saves.clone(),
+            protos: std::mem::take(&mut self.protos),
+            written: std::mem::take(&mut self.written),
+            finishing: std::mem::take(&mut self.finishing),
+            decorating: self.decorating,
+            saving: self.saving,
+        };
+        let fallback = shared.clone();
+        if let Err(error) = thread::Builder::new()
+            .name("horizon-save-drain".into())
+            .spawn(move || {
+                for done in deferred {
+                    drain.receive(done);
+                }
+                let deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
+                while drain.decorating > 0 || !drain.finishing.is_empty() || drain.saving > 0 {
+                    let left = deadline.saturating_duration_since(std::time::Instant::now());
+                    match results.recv_timeout(left) {
+                        Ok(done) => drain.receive(done),
+                        Err(_) => {
+                            log::warn!(
+                                "Horizon: background generation did not finish before shutdown"
+                            );
+                            break;
+                        }
+                    }
+                }
+                shared.stop.store(true, Ordering::Relaxed);
+                shared.ready.notify_all();
+                for worker in threads {
+                    let _ = worker.join();
+                }
+                // A job already running at cancellation may have returned last.
+                for done in results.try_iter() {
+                    drain.receive(done);
+                }
+                drain.persist();
+            })
+        {
+            fallback.stop.store(true, Ordering::Relaxed);
+            fallback.ready.notify_all();
+            log::error!("Horizon: could not finish pending background saves: {error}");
+        }
+    }
+}
+
+#[cfg(any(target_arch = "wasm32", test))]
+struct BrowserShutdown {
+    saves: Arc<dyn Saves>,
+    protos: FxHashMap<(i32, i32), Option<Proto>>,
+    written: FxHashSet<(i32, i32)>,
+    finishing: FxHashSet<(i32, i32)>,
+    decorating: usize,
+    saving: usize,
+}
+#[cfg(any(target_arch = "wasm32", test))]
+impl BrowserShutdown {
+    fn persist(&self) {
+        let protos: Vec<_> = self
+            .written
+            .iter()
+            .filter_map(|key| self.protos.get(key)?.as_ref())
+            .collect();
+        if !protos.is_empty() {
+            self.saves.save_protos(&protos);
+        }
+    }
+    fn receive(&mut self, done: Done) {
+        match done {
+            Done::Decorated(x, z, region) => {
+                self.decorating = self.decorating.saturating_sub(1);
+                for (index, proto) in region.into_iter().enumerate() {
+                    let key = (x + (index % 3) as i32 - 1, z + (index / 3) as i32 - 1);
+                    self.protos.insert(key, Some(proto));
+                    self.written.insert(key);
+                }
+            }
+            Done::Generated(chunk) => {
+                self.finishing.remove(&(chunk.x, chunk.z));
+                if chunk.fresh {
+                    self.saves.save_finished(chunk);
+                }
+            }
+            Done::Saved(protos) => {
+                self.saving = self.saving.saturating_sub(1);
+                for (key, proto) in protos {
+                    self.protos.insert(key, Some(proto));
+                }
+            }
+            _ => {}
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn browser_shutdown_preserves_decorated_neighbors_and_finished_columns() {
+        #[derive(Default)]
+        struct Recorded {
+            protos: Mutex<Vec<usize>>,
+            chunks: Mutex<Vec<(i32, i32)>>,
+        }
+        impl Saves for Recorded {
+            fn save_protos(&self, protos: &[&Proto]) {
+                self.protos.lock().unwrap().extend(
+                    protos
+                        .iter()
+                        .map(|proto| *proto.downcast_ref::<usize>().unwrap()),
+                );
+            }
+            fn save_finished(&self, chunk: Chunk) {
+                self.chunks.lock().unwrap().push((chunk.x, chunk.z));
+            }
+        }
+        let saves = Arc::new(Recorded::default());
+        let mut drain = BrowserShutdown {
+            saves: saves.clone(),
+            protos: Default::default(),
+            written: Default::default(),
+            finishing: [(8, 9)].into_iter().collect(),
+            decorating: 1,
+            saving: 1,
+        };
+        drain.receive(Done::Decorated(
+            2,
+            3,
+            Box::new(std::array::from_fn(|i| Box::new(i) as Proto)),
+        ));
+        drain.receive(Done::Saved(vec![((10, 10), Box::new(99usize))]));
+        let mut chunk = Chunk::empty(8, 9);
+        chunk.fresh = true;
+        drain.receive(Done::Generated(chunk));
+        drain.persist();
+        let mut recorded = saves.protos.lock().unwrap().clone();
+        recorded.sort_unstable();
+        assert_eq!(recorded, (0..9).collect::<Vec<_>>());
+        assert_eq!(*saves.chunks.lock().unwrap(), vec![(8, 9)]);
+        assert_eq!((drain.decorating, drain.saving), (0, 0));
+        assert!(drain.finishing.is_empty());
+    }
 
     #[test]
     fn view_distance_is_vanillas_shape() {

@@ -64,7 +64,7 @@ js-sys = "0.3"
 console_error_panic_hook = "0.1"
 console_log = "1"
 cpal = { version = "0.16", features = ["wasm-bindgen"] }
-web-sys = { version = "0.3", features = ["Window", "Document", "Element", "HtmlElement", "HtmlCanvasElement", "Node", "Location", "Storage", "WebSocket", "BinaryType", "MessageEvent", "CloseEvent", "Event", "EventTarget", "Navigator", "Request", "RequestInit", "RequestMode", "RequestCredentials", "RequestRedirect", "Response", "Headers", "Url", "AbortController", "AbortSignal", "ReadableStream", "ReadableStreamDefaultReader", "Clipboard", "ClipboardEvent", "DataTransfer", "AudioContext", "AudioContextState", "Performance"] }
+web-sys = { version = "0.3", features = ["Window", "Document", "Element", "HtmlElement", "HtmlCanvasElement", "Node", "Location", "Storage", "WebSocket", "BinaryType", "MessageEvent", "CloseEvent", "Event", "EventTarget", "Navigator", "Request", "RequestInit", "RequestMode", "RequestCredentials", "RequestRedirect", "Response", "Headers", "Url", "AbortController", "AbortSignal", "ReadableStream", "ReadableStreamDefaultReader", "Clipboard", "ClipboardEvent", "DataTransfer", "AudioContext", "AudioContextState", "AudioBuffer", "Performance", "Cache", "CacheStorage"] }
 # Phase 0: select the browser GPU backend. This is necessary, but the native
 # dependencies and application startup still need porting; see docs/browser-spike.md.
 wgpu = { version = "30.0.1", default-features = false, features = ["webgpu"] }
