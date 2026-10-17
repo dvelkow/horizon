@@ -848,8 +848,14 @@ impl Renderer {
                 fragment: Some(wgpu::FragmentState {
                     module: &shader,
                     entry_point: Some(fragment),
+                    // Only the stages that sample sprites name the overrides: Chrome
+                    // refuses a constant its entry point does not use.
                     compilation_options: wgpu::PipelineCompilationOptions {
-                        constants: &sprite_constants,
+                        constants: if matches!(fragment, "fs_solid" | "fs_translucent") {
+                            &sprite_constants
+                        } else {
+                            &[]
+                        },
                         ..Default::default()
                     },
                     targets: &[Some(wgpu::ColorTargetState {
