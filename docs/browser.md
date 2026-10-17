@@ -207,6 +207,15 @@ gateway is stopped; later symlink switches are atomic. A failed service restart
 restores the previous link. A healthy process is not sufficient verification:
 check the HTTPS `/healthz`, login, resource loading and an actual world join.
 
+Open pages follow a client release on their own. The gateway names its release
+(a digest of the page, its scripts, the WASM and the mod runtime) in `/api/session`,
+`/api/release` and each `/mods/events` message. A page running an older one says so
+in chat, reloads once the player stands on the ground (30 seconds at most, at once
+in a hidden tab) and rejoins the world; a click recaptures the mouse. Each page
+reloads once per release, so a stale cache cannot loop. Approved mods need no
+reload: they reach connected pages live. Pages from before this mechanism need one
+manual reload.
+
 Old releases and their hashed resources are retained; unchanged resources use
 hardlinks to avoid another full copy. Do not use `--delete` or `--inplace` on these
 trees. Keep old hashes while tabs or caches may reference them, and prune only
