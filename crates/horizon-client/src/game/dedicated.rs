@@ -523,6 +523,8 @@ impl Game<'_> {
         let mut next = Instant::now();
         while !state.stop {
             let tick_start = Instant::now();
+            #[cfg(not(target_arch = "wasm32"))]
+            self.poll_server_mods();
             while let Ok(line) = state.console.try_recv() {
                 self.console_command(&mut state, &line);
             }
@@ -965,6 +967,7 @@ impl Game<'_> {
                 if let Some(h) = &self.lan {
                     h.hub.say("Server", &message);
                 }
+                self.mods_chat(&format!("[Server] {message}"));
             }
             _ => {
                 // The game's dispatcher, captured for the console.

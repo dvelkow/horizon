@@ -4,6 +4,8 @@ use crate::manifest::{Manifest, Package, Side};
 use horizon_platform as std;
 #[allow(unused_imports)]
 use horizon_platform::PathExt;
+use sha2::{Digest, Sha256};
+use std::io::Read;
 use std::{
     path::{Path, PathBuf},
     sync::Arc,
@@ -87,6 +89,7 @@ pub struct Entry {
     pub cost: Duration,
     run: Option<Running>,
     modified: Option<SystemTime>,
+    fingerprint: Option<[u8; 32]>,
 }
 
 struct Running {
@@ -96,6 +99,7 @@ struct Running {
 }
 
 struct State {
+    side: Side,
     name: String,
     id: String,
     snapshot: Arc<Snapshot>,
@@ -108,6 +112,7 @@ struct State {
 /// the state with none: no engine, and every hook a no-op.
 #[derive(Default)]
 pub struct Mods {
+    side: Side,
     engine: Option<(Engine, Linker<State>)>,
     entries: Vec<Entry>,
     snapshot: Arc<Snapshot>,
@@ -140,7 +145,29 @@ impl Mods {
         enabled: impl Fn(&str) -> bool,
         reserved: impl Fn(&str) -> bool,
     ) -> Mods {
-        let mut mods = Mods::default();
+        Self::load_for(Side::Client, paths, enabled, reserved)
+    }
+
+    /// Native server instances accept Server and Both packages. Their game
+    /// snapshot has a clock and no implicit local player.
+    pub fn load_server(
+        paths: &[PathBuf],
+        enabled: impl Fn(&str) -> bool,
+        reserved: impl Fn(&str) -> bool,
+    ) -> Mods {
+        Self::load_for(Side::Server, paths, enabled, reserved)
+    }
+
+    fn load_for(
+        side: Side,
+        paths: &[PathBuf],
+        enabled: impl Fn(&str) -> bool,
+        reserved: impl Fn(&str) -> bool,
+    ) -> Mods {
+        let mut mods = Mods {
+            side,
+            ..Mods::default()
+        };
         for path in paths {
             let modified = modified(path);
             let mut entry = Entry {
@@ -150,23 +177,25 @@ impl Mods {
                 cost: Duration::ZERO,
                 run: None,
                 modified,
+                fingerprint: None,
             };
             match Package::read(path) {
                 Err(e) => entry.status = Status::Failed(e),
                 Ok(package) => {
-                    let on = enabled(&package.manifest.id);
+                    let on = enabled(&package.manifest.id) && mods.accepts(package.manifest.side);
                     entry.manifest = Some(package.manifest.clone());
                     if on {
                         // Content is read before the world loads; a mod whose
                         // content is refused stays off, with the reason.
                         let content = crate::Content::read(path, &package.manifest);
-                        entry.status = match content.and_then(|_| mods.start(&package, &reserved)) {
-                            Ok(run) => {
-                                entry.run = run;
-                                Status::Running
-                            }
-                            Err(e) => Status::Failed(e),
-                        };
+                        entry.status =
+                            match content.and_then(|_| mods.start(&package, &reserved, None)) {
+                                Ok(run) => {
+                                    entry.run = run;
+                                    Status::Running
+                                }
+                                Err(e) => Status::Failed(e),
+                            };
                     }
                 }
             }
@@ -176,6 +205,10 @@ impl Mods {
             mods.entries.push(entry);
         }
         mods
+    }
+
+    fn accepts(&self, side: Side) -> bool {
+        side == Side::Both || side == self.side
     }
 
     fn engine(&mut self) -> Result<&(Engine, Linker<State>), String> {
@@ -197,21 +230,38 @@ impl Mods {
         &mut self,
         package: &Package,
         reserved: &dyn Fn(&str) -> bool,
+        replacing: Option<usize>,
     ) -> Result<Option<Running>, String> {
         let m = &package.manifest;
+        if !self.accepts(m.side) {
+            return Err(format!(
+                "mod side {:?} does not run on {:?}",
+                m.side, self.side
+            ));
+        }
+        if self.entries.iter().enumerate().any(|(index, entry)| {
+            Some(index) != replacing
+                && entry.run.is_some()
+                && entry
+                    .manifest
+                    .as_ref()
+                    .is_some_and(|manifest| manifest.id == m.id)
+        }) {
+            return Err(format!("mod {} is already running", m.id));
+        }
         let Some(wasm) = &package.wasm else {
             return Ok(None);
         };
-        if m.side == Side::Server {
-            return Err("server mods do not run yet".into());
-        }
         let taken: Vec<String> = self
             .entries
             .iter()
-            .filter_map(|e| e.run.as_ref())
+            .enumerate()
+            .filter(|(index, _)| Some(*index) != replacing)
+            .filter_map(|(_, e)| e.run.as_ref())
             .flat_map(|r| r.hooks.commands.iter().cloned())
             .collect();
         let snapshot = self.snapshot.clone();
+        let side = self.side;
         let (engine, linker) = self.engine()?;
         let component =
             Component::new(engine, wasm).map_err(|e| format!("not a component: {e}"))?;
@@ -222,6 +272,7 @@ impl Mods {
             .collect();
         m.check_imports(imports.iter().map(String::as_str))?;
         let state = State {
+            side,
             name: m.name.clone(),
             id: m.id.clone(),
             snapshot,
@@ -392,40 +443,164 @@ impl Mods {
         std::mem::take(&mut self.out)
     }
 
-    /// Restarts the mods whose file changed since they loaded (mod
-    /// development: rebuild, and the game picks it up). True when any did.
+    /// Reload changed development files. A candidate must validate and finish
+    /// init before it replaces an active instance; failed rebuilds keep it live.
     pub fn reload_changed(&mut self, reserved: impl Fn(&str) -> bool) -> bool {
         let mut any = false;
         for i in 0..self.entries.len() {
             let entry = &self.entries[i];
             let now = modified(&entry.path);
-            let was_on = entry.status != Status::Off;
-            if now == entry.modified || !was_on {
+            if now == entry.modified || entry.status == Status::Off {
                 continue;
             }
-            any = true;
             self.entries[i].modified = now;
-            self.entries[i].run = None;
-            let started = Package::read(&self.entries[i].path).and_then(|p| {
-                self.entries[i].manifest = Some(p.manifest.clone());
-                self.start(&p, &reserved)
+            let path = self.entries[i].path.clone();
+            let candidate = Package::read(&path).and_then(|package| {
+                crate::Content::read(&path, &package.manifest)?;
+                self.start(&package, &reserved, Some(i))
+                    .map(|run| (package.manifest, run))
             });
-            let entry = &mut self.entries[i];
-            let id = entry.manifest.as_ref().map_or("?", |m| m.id.as_str());
-            match started {
-                Ok(run) => {
-                    log::info!("Horizon: mod {id} reloaded");
-                    entry.run = run;
-                    entry.status = Status::Running;
-                }
-                Err(e) => {
-                    log::warn!("Horizon: mod {id} did not reload: {e}");
-                    entry.status = Status::Failed(e);
-                }
-            }
+            any |= self.replace_candidate(i, candidate);
         }
         any
     }
+
+    fn replace_candidate(
+        &mut self,
+        index: usize,
+        candidate: Result<(Manifest, Option<Running>), String>,
+    ) -> bool {
+        let entry = &mut self.entries[index];
+        match candidate {
+            Ok((manifest, run)) => {
+                log::info!("Horizon: mod {} loaded on {:?}", manifest.id, self.side);
+                entry.manifest = Some(manifest);
+                entry.run = run;
+                entry.status = Status::Running;
+                entry.cost = Duration::ZERO;
+                true
+            }
+            Err(error) => {
+                log::warn!(
+                    "Horizon: mod {} update rejected: {error}; previous instance retained",
+                    entry.path.display()
+                );
+                if entry.run.is_none() {
+                    entry.status = Status::Failed(error);
+                }
+                false
+            }
+        }
+    }
+
+    /// Reconcile the private approval mirror. The publisher writes a temporary
+    /// file then atomically renames it to `<id>.hmod`; uploads never live here.
+    /// Directory/read failures preserve the last known working set. Removal
+    /// from a successfully listed directory withdraws that mod.
+    pub fn sync_server_directory(
+        &mut self,
+        directory: &Path,
+        reserved: impl Fn(&str) -> bool,
+    ) -> Result<bool, String> {
+        if self.side != Side::Server {
+            return Err("approval mirror requires a server runtime".into());
+        }
+        let mut paths = Vec::new();
+        for entry in std::fs::read_dir(directory).map_err(|e| e.to_string())? {
+            let entry = entry.map_err(|e| e.to_string())?;
+            if entry
+                .path()
+                .extension()
+                .is_some_and(|extension| extension == "hmod")
+            {
+                if !entry.file_type().map_err(|e| e.to_string())?.is_file() {
+                    return Err("approved mods must be regular .hmod files".into());
+                }
+                paths.push(entry.path());
+            }
+        }
+        if paths.len() > 256 {
+            return Err("approved mod directory exceeds 256 packages".into());
+        }
+        paths.sort();
+        let mut changed = false;
+        for path in &paths {
+            let fingerprint = match fingerprint(path) {
+                Ok(hash) => hash,
+                Err(error) => {
+                    log::warn!("Horizon: approved mod read failed: {error}");
+                    continue;
+                }
+            };
+            let index = self
+                .entries
+                .iter()
+                .position(|entry| entry.path == *path)
+                .unwrap_or_else(|| {
+                    self.entries.push(Entry {
+                        path: path.clone(),
+                        manifest: None,
+                        status: Status::Off,
+                        cost: Duration::ZERO,
+                        run: None,
+                        modified: modified(path),
+                        fingerprint: None,
+                    });
+                    self.entries.len() - 1
+                });
+            if self.entries[index].fingerprint == Some(fingerprint) {
+                continue;
+            }
+            let candidate = Package::read(path).and_then(|package| {
+                if path.file_stem().and_then(|name| name.to_str())
+                    != Some(package.manifest.id.as_str())
+                {
+                    return Err("approved filename must match the manifest id".into());
+                }
+                if package.manifest.api != "0.1"
+                    || package
+                        .manifest
+                        .capabilities
+                        .contains(&crate::Capability::Registries)
+                {
+                    return Err(
+                        "live server approvals accept API 0.1 code; content needs a restart".into(),
+                    );
+                }
+                crate::Content::read(path, &package.manifest)?;
+                // Recheck after parsing so an atomic publish racing this scan
+                // cannot associate one package's bytes with another's hash.
+                if self::fingerprint(path)? != fingerprint {
+                    return Err(
+                        "approved package changed during validation; retrying next scan".into(),
+                    );
+                }
+                self.start(&package, &reserved, Some(index))
+                    .map(|run| (package.manifest, run))
+            });
+            // The digest only suppresses identical attempts; it grants no trust.
+            // Manifest, content, import and init/fuel checks still run above.
+            self.entries[index].fingerprint = Some(fingerprint);
+            changed |= self.replace_candidate(index, candidate);
+        }
+        let before = self.entries.len();
+        self.entries
+            .retain(|entry| paths.binary_search(&entry.path).is_ok());
+        Ok(changed || self.entries.len() != before)
+    }
+}
+
+fn fingerprint(path: &Path) -> Result<[u8; 32], String> {
+    const MAX_PACKAGE: u64 = 64 << 20;
+    let file = std::fs::File::open(path).map_err(|e| e.to_string())?;
+    let mut bytes = Vec::new();
+    file.take(MAX_PACKAGE + 1)
+        .read_to_end(&mut bytes)
+        .map_err(|e| e.to_string())?;
+    if bytes.len() as u64 > MAX_PACKAGE {
+        return Err("approved package exceeds 64 MiB".into());
+    }
+    Ok(Sha256::digest(bytes).into())
 }
 
 fn modified(path: &Path) -> Option<SystemTime> {
@@ -470,7 +645,11 @@ impl mod_log::Host for State {
 }
 impl game::Host for State {
     fn get_player(&mut self) -> Option<Player> {
-        self.snapshot.player.clone()
+        if self.side == Side::Server {
+            None
+        } else {
+            self.snapshot.player.clone()
+        }
     }
     fn get_clock(&mut self) -> Option<Clock> {
         self.snapshot.clock
@@ -494,6 +673,9 @@ impl chat::Host for State {
 }
 impl hud::Host for State {
     fn set_panel(&mut self, corner: Corner, lines: Vec<Line>) {
+        if self.side == Side::Server {
+            return;
+        }
         let lines = lines
             .into_iter()
             .take(HUD_LINES)

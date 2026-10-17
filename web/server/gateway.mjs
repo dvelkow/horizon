@@ -7,6 +7,7 @@ import { isIP } from 'node:net';
 import { WebSocketServer } from 'ws';
 import { Sessions, RateLimit, validSecretHash, verifySecret, cookieValue, sessionCookie, equalToken } from './security.mjs';
 import { bridgeGame } from './bridge.mjs';
+import { ReadonlyModCatalog } from './readonly-mod-catalog.mjs';
 
 class HttpError extends Error { constructor(status, message) { super(message); this.status = status; } }
 const fail = (status, message) => { throw new HttpError(status, message); };
@@ -73,7 +74,7 @@ function validateConfig(input) {
   if (!Number.isInteger(config.gamePort) || config.gamePort < 1 || config.gamePort > 65535) throw new Error('A fixed gamePort is required');
   for (const field of ['privateDir', 'publicDir', 'assetsDir']) if (typeof config[field] !== 'string') throw new Error(`${field} is required`);
   const privateDir = resolve(config.privateDir);
-  for (const directory of [config.publicDir, config.assetsDir].filter(Boolean).map(value => resolve(value))) {
+  for (const directory of [config.publicDir, config.assetsDir, config.modsRuntimeDir].filter(Boolean).map(value => resolve(value))) {
     if (privateDir === directory || privateDir.startsWith(`${directory}${sep}`) || directory.startsWith(`${privateDir}${sep}`)) throw new Error('Private storage must be separate from every served directory');
   }
   config.originHost = origin.host; config.secure = origin.protocol === 'https:';
@@ -87,8 +88,9 @@ export async function createGateway(input) {
   // never turn private state into a static asset tree.
   await fs.mkdir(input.privateDir, { recursive: true, mode: 0o700 });
   const roots = { ...input };
-  for (const key of ['privateDir', 'publicDir', 'assetsDir']) if (roots[key]) roots[key] = await fs.realpath(roots[key]);
+  for (const key of ['privateDir', 'publicDir', 'assetsDir', 'modsRuntimeDir']) if (roots[key]) roots[key] = await fs.realpath(roots[key]);
   const config = validateConfig(roots);
+  const catalog = await ReadonlyModCatalog.open(config.privateDir);
   const friends = new Sessions({ capacity: config.maxSessions ?? 128 });
   const friendCookie = config.secure ? '__Host-horizon_session' : 'horizon_session';
   const logins = new RateLimit({ limit: config.loginAttempts ?? 10, windowMs: 60_000 });
@@ -143,8 +145,11 @@ export async function createGateway(input) {
         const session = friend(request); csrf(request, session); friends.delete(session.id); closeSession(session.id);
         return json(response, 200, {ok: true}, {'Set-Cookie': sessionCookie(friendCookie, '', 0, config.secure)});
       }
+      if (request.method === 'GET' && path === '/mods/index.json') { friend(request); return json(response, 200, catalog.index); }
       if (!['GET', 'HEAD'].includes(request.method)) fail(405, 'Method not allowed');
       if (path.startsWith('/api/') || path === '/game' || path === '/mods/events') fail(404, 'Not found');
+      if (path.startsWith('/mods/')) { friend(request); const file = catalog.files.get(path); if (!file) fail(404, 'Not found'); return await staticFile(request, response, config.privateDir, file, {immutable: true}); }
+      if (path.startsWith('/mods-runtime/')) { friend(request); return await staticFile(request, response, config.modsRuntimeDir, path.slice('/mods-runtime/'.length)); }
       if (path.startsWith('/assets/')) { friend(request); return await staticFile(request, response, config.assetsDir, path.slice('/assets/'.length)); }
       return await staticFile(request, response, config.publicDir, path === '/' ? 'index.html' : path.slice(1));
     } catch (error) {
@@ -159,7 +164,7 @@ export async function createGateway(input) {
     try {
       host(request); origin(request);
       const path = new URL(request.url, config.origin).pathname;
-      if (path !== '/game') fail(404, 'Not found');
+      if (!['/game', '/mods/events'].includes(path)) fail(404, 'Not found');
       if (new URL(request.url, config.origin).search) fail(400, 'WebSocket query parameters are not accepted');
       const session = friend(request);
       if (!upgrades.take(session.id) || wss.clients.size >= (config.maxConnections ?? 32)) fail(429, 'Connection limit reached');
@@ -169,7 +174,8 @@ export async function createGateway(input) {
         ws.on('pong', () => { ws.alive = true; });
         ws.on('close', () => { sockets.delete(ws); });
         ws.on('error', () => ws.terminate());
-        bridgeGame(ws, session, config);
+        if (path === '/game') bridgeGame(ws, session, config);
+        else { ws.send(JSON.stringify({type: 'mods-changed', revision: catalog.index.revision})); ws.on('message', () => ws.close(1008, 'Read-only mod notifications')); }
       });
     } catch (error) {
       const status = error instanceof HttpError ? error.status : 400;

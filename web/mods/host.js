@@ -1,0 +1,283 @@
+/* Approved live components. This manager never executes guest code on the UI thread. */
+const MAX_MODS = 32;
+const MAX_BROWSER_MODS = 8;
+const MAX_FILES = 128;
+const MAX_BUNDLE = 64 * 1024 * 1024;
+const MAX_OUTPUT = 64;
+const MAX_QUEUE = 32;
+const LIMITS = {initialize: 15000, tick: 1000, frame: 1000, chat: 1000, command: 1500};
+const clip = (value, maximum = 256) => Array.from(String(value).slice(0, maximum * 2)).slice(0, maximum).join("");
+const hex = value => typeof value === "string" && /^[a-f0-9]{64}$/.test(value);
+const errorText = error => clip(error?.message ?? error);
+const allowedCapabilities = new Set(["game-read", "chat", "hud", "registries"]);
+
+function modUrl(value, hash) {
+  const url = new URL(value, location.origin);
+  if (url.origin !== location.origin || !url.pathname.startsWith(`/mods/bundles/${hash}/`) || url.search || url.hash
+      || url.username || url.password) throw new Error("Unexpected mod file URL");
+  return url.href;
+}
+function pathName(path) {
+  if (typeof path !== "string" || !/^[a-zA-Z0-9_.\/-]+$/.test(path) || path.startsWith("/")
+      || path.split("/").some(p => !p || p === "." || p === "..")) throw new Error("Unsafe mod file path");
+  return path;
+}
+function manifest(entry) {
+  const m = entry.manifest;
+  if (!m || !/^[a-z0-9_]{1,64}$/.test(m.id) || entry.id !== m.id || !["0.1", "0.2"].includes(m.api)
+      || !Array.isArray(m.capabilities) || m.capabilities.some(c => !allowedCapabilities.has(c))) throw new Error("Invalid approved mod manifest");
+  if (typeof m.name !== "string" || !m.name || m.name.length > 128 || typeof m.version !== "string" || m.version.length > 64) throw new Error("Invalid approved mod identity");
+  if (!hex(entry.sha256)) throw new Error("Invalid approved mod hash");
+  const side = m.side ?? "client";
+  if (!["client", "server", "both"].includes(side)) throw new Error("Invalid mod side");
+  if (entry.capabilities && JSON.stringify([...new Set(entry.capabilities)].sort()) !== JSON.stringify([...new Set(m.capabilities)].sort())) throw new Error("Published capability lists differ");
+  return {id: m.id, name: m.name, version: m.version, api: m.api, side,
+    description: clip(m.description ?? "", 4096), authors: Array.isArray(m.authors) ? m.authors.slice(0, 16).map(a => clip(a, 128)) : [],
+    capabilities: [...new Set(m.capabilities)]};
+}
+async function boundedFetch(url, limit) {
+  const abort = new AbortController(); const timeout = setTimeout(() => abort.abort(), 30000);
+  try {
+    const response = await fetch(url, {credentials: "same-origin", cache: "no-store", redirect: "error", signal: abort.signal});
+    if (!response.ok) throw new Error(`Mod request failed (${response.status})`);
+    const reader = response.body?.getReader(); if (!reader) throw new Error("Mod response has no body");
+    const pieces = []; let count = 0;
+    for (;;) {
+      const {done, value} = await reader.read(); if (done) break;
+      count += value.byteLength;
+      if (count > limit) { await reader.cancel(); throw new Error("Mod response exceeds size limit"); }
+      pieces.push(value);
+    }
+    const bytes = new Uint8Array(count); let offset = 0;
+    for (const piece of pieces) { bytes.set(piece, offset); offset += piece.byteLength; }
+    return bytes;
+  } finally { clearTimeout(timeout); }
+}
+async function verifiedFiles(entry) {
+  if (!Array.isArray(entry.files) || !entry.files.length || entry.files.length > MAX_FILES) throw new Error("Invalid mod bundle files");
+  const seen = new Set(); const files = []; let total = 0; let entryPath;
+  const entryUrl = modUrl(entry.entry, entry.sha256);
+  for (const file of entry.files) {
+    const path = pathName(file.path);
+    if (seen.has(path) || !hex(file.sha256) || !Number.isSafeInteger(file.size) || file.size < 0) throw new Error("Invalid mod artifact");
+    seen.add(path); total += file.size;
+    if (total > MAX_BUNDLE) throw new Error("Mod bundle exceeds browser memory budget");
+    const url = modUrl(file.url, entry.sha256);
+    const bytes = await boundedFetch(url, file.size);
+    if (bytes.byteLength !== file.size) throw new Error("Mod file size mismatch");
+    const hash = Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256", bytes)), b => b.toString(16).padStart(2, "0")).join("");
+    if (hash !== file.sha256) throw new Error("Mod file checksum mismatch");
+    if (url === entryUrl) entryPath = path;
+    files.push({path, bytes: bytes.buffer});
+  }
+  if (!entryPath?.endsWith(".js")) throw new Error("Missing verified JavaScript instantiator");
+  return {entryPath, files};
+}
+function boundedPanel(panel) {
+  if (panel === null || panel === undefined) return null;
+  if (!["top-left", "top-right", "bottom-left", "bottom-right"].includes(panel.corner) || !Array.isArray(panel.lines)) throw new Error("Invalid mod HUD panel");
+  return {corner: panel.corner, lines: panel.lines.slice(0, 16).map(line => ({text: clip(line.text), color: Number(line.color) >>> 0}))};
+}
+
+class Instance {
+  constructor(manager, entry, normalized) {
+    this.manager = manager; this.entry = entry; this.manifest = normalized; this.hash = entry.sha256;
+    this.status = "loading"; this.error = ""; this.panel = null; this.hooks = {commands: []};
+    this.queue = []; this.busy = null; this.serial = 0; this.worker = null; this.deadline = null; this.committed = false;
+    this.initialOutput = [];
+    this.logWindow = 0; this.logCount = 0;
+  }
+  async initialize() {
+    const verified = await verifiedFiles(this.entry);
+    if (this.manager.closed) throw new Error("Mod host stopped");
+    return new Promise((resolve, reject) => {
+      this.resolve = resolve; this.reject = reject;
+      this.worker = new Worker("/mods-runtime/worker.js", {type: "module", name: `horizon-mod-${this.manifest.id}`});
+      this.worker.onmessage = event => this.receive(event.data);
+      this.worker.onerror = event => { event.preventDefault(); this.fail("Worker failed: " + event.message); };
+      this.worker.onmessageerror = () => this.fail("Invalid Worker message");
+      this.deadline = setTimeout(() => this.fail("Initialization exceeded its time budget"), LIMITS.initialize);
+      this.worker.postMessage({kind: "initialize", manifest: this.manifest, snapshot: this.manager.snapshot,
+        entry: verified.entryPath, files: verified.files}, verified.files.map(file => file.bytes));
+    });
+  }
+  receive(message) {
+    try {
+      if (this.status === "failed" || this.status === "off") return;
+      if (message.kind === "failed") { this.fail(message.reason); return; }
+      if (message.kind === "ready" && this.status === "loading") {
+        clearTimeout(this.deadline);
+        const hooks = message.hooks;
+        if (!hooks || !Array.isArray(hooks.commands)) throw new Error("Invalid mod registration");
+        this.hooks = {commands: [...new Set(hooks.commands.filter(c => typeof c === "string" && /^[a-z][a-z0-9_:-]{0,63}$/.test(c)))].slice(0, 128),
+          tick: hooks.tick === true, frame: hooks.frame === true, chat: hooks.chat === true};
+        this.panel = boundedPanel(message.panel); this.initialOutput = this.sanitizeOutput(message.out);
+        this.status = "running"; this.resolve(this); return;
+      }
+      if (message.kind !== "result" || !this.busy || message.call !== this.busy.call) throw new Error("Unexpected mod response");
+      clearTimeout(this.deadline); this.busy = null;
+      this.panel = boundedPanel(message.panel); this.manager.addOutput(this.sanitizeOutput(message.out));
+      this.pump();
+    } catch (error) { this.fail(errorText(error)); }
+  }
+  sanitizeOutput(rows) {
+    if (!Array.isArray(rows)) throw new Error("Invalid mod output");
+    const result = [];
+    for (const row of rows.slice(0, 32)) {
+      if (row.kind === "chat" && this.manifest.capabilities.includes("chat")) result.push({kind: "chat", name: this.manifest.name, text: clip(row.text)});
+      else if (row.kind === "feedback") result.push({kind: "feedback", text: clip(row.text), error: row.error === true});
+      else if (row.kind === "log") {
+        const now = performance.now();
+        if (now - this.logWindow >= 1000) { this.logWindow = now; this.logCount = 0; }
+        if (++this.logCount <= 16) console.info(`[mod ${this.manifest.id}] ${clip(row.text)}`);
+      }
+    }
+    return result.slice(0, 8);
+  }
+  commit() {
+    this.committed = true; this.manager.addOutput(this.initialOutput); this.initialOutput = [];
+  }
+  enqueue(method, payload) {
+    if (this.status !== "running") return false;
+    if (method !== "command" && !this.hooks[method]) return false;
+    if (method === "tick" || method === "frame") {
+      const existing = this.queue.find(item => item.method === method);
+      if (existing) { existing.payload = payload; return true; }
+    }
+    if (this.queue.length >= MAX_QUEUE) {
+      if (method === "command") this.manager.addOutput([{kind: "feedback", text: `${this.manifest.name} is busy; try again shortly`, error: true}]);
+      return false;
+    }
+    this.queue.push({method, payload}); this.pump(); return true;
+  }
+  pump() {
+    if (this.busy || this.status !== "running" || !this.queue.length) return;
+    const item = this.queue.shift(); const call = ++this.serial;
+    this.busy = {call, method: item.method};
+    this.deadline = setTimeout(() => this.fail(`${item.method} exceeded its time budget`), LIMITS[item.method]);
+    this.worker.postMessage({kind: "call", call, ...item, snapshot: this.manager.snapshot});
+  }
+  fail(reason) {
+    if (this.status === "failed" || this.status === "off") return;
+    this.error = clip(reason); this.status = "failed"; this.panel = null; this.queue = [];
+    clearTimeout(this.deadline); this.worker?.terminate();
+    if (!this.committed) this.reject?.(new Error(this.error));
+    else { this.manager.revision++; this.manager.addOutput([{kind: "stopped", name: this.manifest.name, reason: this.error}]); }
+  }
+  stop() { clearTimeout(this.deadline); this.worker?.terminate(); this.status = "off"; this.panel = null; this.queue = []; }
+}
+
+class ModManager {
+  constructor() {
+    this.instances = new Map(); this.snapshot = {player: null, clock: null}; this.output = [];
+    this.revision = 1; this.indexRevision = null; this.closed = false; this.refreshing = false; this.refreshAgain = false;
+    this.socket = null; this.reconnect = null; this.pollTimer = null;
+    this.refreshPromise = null;
+    this.failedUpdates = new Map();
+  }
+  addOutput(rows) {
+    this.output.push(...rows);
+    if (this.output.length > MAX_OUTPUT) this.output.splice(0, this.output.length - MAX_OUTPUT);
+  }
+  refresh() {
+    if (this.closed) return Promise.resolve();
+    this.refreshAgain = true;
+    if (this.refreshPromise) return this.refreshPromise;
+    this.refreshPromise = (async () => {
+      while (this.refreshAgain && !this.closed) { this.refreshAgain = false; await this.refreshOnce(); }
+    })().finally(() => { this.refreshPromise = null; });
+    return this.refreshPromise;
+  }
+  async refreshOnce() {
+    this.refreshing = true;
+    try {
+      const bytes = await boundedFetch("/mods/index.json", 2 * 1024 * 1024);
+      const index = JSON.parse(new TextDecoder("utf-8", {fatal: true}).decode(bytes));
+      if (index.schema !== 1 || !Array.isArray(index.mods) || index.mods.length > MAX_MODS || !["number", "string"].includes(typeof index.revision)) throw new Error("Invalid approved-mod index");
+      const entries = index.mods.map(entry => ({entry, manifest: manifest(entry)}));
+      if (new Set(entries.map(row => row.manifest.id)).size !== entries.length) throw new Error("Duplicate approved mod identifier");
+      if (entries.filter(row => row.manifest.side !== "server").length > MAX_BROWSER_MODS) throw new Error("This world exceeds the limit of 8 active browser mods; ask the host to remove an older mod");
+      const retained = new Set();
+      for (const row of entries) {
+        const id = row.manifest.id; retained.add(id);
+        const old = this.instances.get(id);
+        if (old?.hash === row.entry.sha256 && ["running", "failed", "off"].includes(old.status)) continue;
+        if (this.failedUpdates.get(id) === row.entry.sha256) continue;
+        if (row.manifest.side === "server" || row.manifest.capabilities.includes("registries")) {
+          if (old) old.stop();
+          this.instances.set(id, {manifest: row.manifest, hash: row.entry.sha256, status: "off", error: "Server/content mods require coordinated world support", panel: null, hooks: {commands: []}, stop() {}});
+          this.revision++; continue;
+        }
+        const candidate = new Instance(this, row.entry, row.manifest);
+        try {
+          await candidate.initialize();
+          if (this.closed) { candidate.stop(); return; }
+          // Commit the new worker and retained UI first; retire the old instance
+          // only after successful init. Each completed call is generation-bound.
+          this.instances.set(id, candidate); candidate.commit(); old?.stop(); this.revision++;
+          this.failedUpdates.delete(id);
+        } catch (error) {
+          candidate.stop();
+          this.failedUpdates.set(id, row.entry.sha256);
+          if (!old || old.status !== "running") { candidate.status = "failed"; candidate.error = errorText(error); this.instances.set(id, candidate); this.revision++; }
+          this.addOutput([{kind: "feedback", text: `${row.manifest.name} update failed: ${errorText(error)}`, error: true}]);
+        }
+      }
+      for (const [id, old] of this.instances) if (!retained.has(id)) { old.stop(); this.instances.delete(id); this.failedUpdates.delete(id); this.revision++; }
+      this.indexRevision = index.revision;
+    } catch (error) { this.addOutput([{kind: "feedback", text: "Approved mods unavailable: " + errorText(error), error: true}]); }
+    finally {
+      this.refreshing = false;
+    }
+  }
+  connect() {
+    if (this.closed) return;
+    const url = new URL("/mods/events", location.href); url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
+    this.socket = new WebSocket(url);
+    this.socket.onopen = () => this.refresh();
+    this.socket.onmessage = event => {
+      if (typeof event.data === "string" && event.data.length <= 4096) this.refresh();
+    };
+    this.socket.onclose = () => { if (!this.closed) this.reconnect = setTimeout(() => this.connect(), 3000 + Math.random() * 2000); };
+    this.socket.onerror = () => this.socket?.close();
+  }
+  view(drain = false) {
+    const entries = [], panels = [], commands = new Set();
+    for (const instance of this.instances.values()) {
+      entries.push({manifest: instance.manifest, status: instance.status, error: instance.error});
+      if (instance.status !== "running") continue;
+      if (instance.panel) panels.push(instance.panel);
+      for (const command of instance.hooks.commands) if (commands.size < 128) commands.add(command);
+    }
+    return {revision: this.revision, entries, panels, commands: [...commands], out: drain ? this.output.splice(0, MAX_OUTPUT) : []};
+  }
+  dispatch(method, payload) {
+    if (method === "view" || method === "poll") return this.view(method === "poll");
+    if (method === "snapshot") {
+      this.snapshot = payload && typeof payload === "object" ? {player: payload.player ?? null, clock: payload.clock ?? null} : {player: null, clock: null};
+      return {};
+    }
+    if (method === "command") {
+      const line = clip(payload, 4160).replace(/^\//, "").trim();
+      const name = line.split(/\s/, 1)[0]; const args = line.slice(name.length).trimStart();
+      for (const instance of this.instances.values()) if (instance.status === "running" && instance.hooks.commands.includes(name)) return {handled: instance.enqueue("command", {name, args})};
+      return {handled: false};
+    }
+    if (["tick", "frame", "chat"].includes(method)) {
+      for (const instance of this.instances.values()) if (instance.status === "running") instance.enqueue(method, payload);
+    }
+    return {};
+  }
+  close() {
+    this.closed = true; clearTimeout(this.reconnect); clearInterval(this.pollTimer); this.socket?.close();
+    for (const instance of this.instances.values()) instance.stop();
+  }
+}
+export async function startMods() {
+  if (globalThis.horizonMods) return globalThis.horizonMods;
+  const manager = new ModManager(); globalThis.horizonMods = manager;
+  await manager.refresh(); manager.connect();
+  manager.pollTimer = setInterval(() => manager.refresh(), 30000);
+  addEventListener("pagehide", () => manager.close(), {once: true});
+  return manager;
+}

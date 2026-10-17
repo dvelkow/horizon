@@ -1589,6 +1589,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "horizon-mod-validator"
+version = "0.1.0"
+dependencies = [
+ "horizon-mods",
+ "serde_json",
+ "sha2",
+ "wasm-encoder 0.239.0",
+ "wasmparser 0.239.0",
+ "zip",
+]
+
+[[package]]
 name = "horizon-mods"
 version = "0.1.0"
 dependencies = [
@@ -1597,6 +1609,7 @@ dependencies = [
  "log",
  "serde",
  "serde_json",
+ "sha2",
  "toml",
  "wasm-bindgen",
  "wasmtime",
@@ -4227,6 +4240,7 @@ dependencies = [
  "hashbrown 0.15.5",
  "indexmap",
  "semver",
+ "serde",
 ]
 
 [[package]]

@@ -1,5 +1,5 @@
-# Browser architecture through Phase 2
+# Browser architecture through Phase 3
 
-The real client runs through WebGPU and shared-memory Workers, with verified prepared resources and OPFS settings. The authenticated gateway translates binary WebSocket stream bytes to the original TCP codec without changing game packets. Its destination is fixed loopback configuration. The native dedicated engine owns the world and saves.
+The existing client runs through WebGPU and shared-memory Workers with verified resources, OPFS settings and authenticated WebSocket-to-TCP multiplayer. Browser components use Jco bindings with dedicated browser Workers; native server components retain Wasmtime. Both receive the existing API 0.1 hooks and retain last-good instances during replacement.
 
-Phases 3–4 remain unimplemented: no active browser mod runtime or upload/approval portal is served. Native mods retain the original runtime until the server integration in Phase 3.
+This phase serves only a readonly operator-installed mod catalog whose artifact hashes are checked before service and again in the browser. See [component setup and boundaries](browser-mods.md). Phase 4 upload, exact-hash owner approval and atomic live publication remain unimplemented.

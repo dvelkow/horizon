@@ -3140,7 +3140,9 @@ impl Game<'_> {
         self.tick_debug_keys()?;
         self.tick_debug_charts();
         if self.remote.is_some() {
-            return self.tick_remote();
+            self.tick_remote()?;
+            self.tick_mods();
+            return Ok(());
         }
         // LevelLoadingScreen.tick.
         self.loading_progress = match self.loading_reason() {

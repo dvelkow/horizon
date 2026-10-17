@@ -8,6 +8,7 @@ User=horizon
 Group=horizon
 WorkingDirectory=/var/lib/horizon/game
 ExecStart=/opt/horizon/bin/horizon-server --dir /var/lib/horizon/game run
+Environment=HORIZON_APPROVED_MODS=/var/lib/horizon-portal/approved-server
 Environment=MALLOC_ARENA_MAX=2
 Restart=on-failure
 RestartSec=5

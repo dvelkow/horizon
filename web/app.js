@@ -38,6 +38,7 @@ async function play(join = true) {
   globalThis.horizonOptions = Object.freeze({name: session?.name, join});
   started = true; $("launcher").hidden = true; $("horizon").hidden = false;
   loadingStatus("Opening your world…", 0);
+  if (join) { const {startMods} = await import("/mods-runtime/host.js"); await startMods(); }
   const {default: init} = await import("/pkg/horizon_client.js");
   await init();
 }
