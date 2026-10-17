@@ -3689,7 +3689,8 @@ impl Game<'_> {
     /// when the menu is not one the client models or a click is invalid.
     fn remote_predict_clicks(&mut self, container: i32, menu: &str, clicks: &[(i16, i8, i32)]) -> bool {
         use horizon_client::menu::{Env, Input, Menu};
-        let Some(kind) = Self::predicted_menu_kind(menu) else {
+        // The creative inventory edits slots its own way (SetCreativeModeSlot).
+        let Some(kind) = Self::predicted_menu_kind(menu).filter(|_| !self.creative) else {
             return false;
         };
         let mut m = Menu::new(kind);
