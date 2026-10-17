@@ -28,6 +28,8 @@ extern "C" {
     pub fn open_mod_portal();
     #[wasm_bindgen(catch, js_name = browserOptions)]
     fn browser_options() -> Result<JsValue, JsValue>;
+    #[wasm_bindgen(js_name = selectedPlayerSkin)]
+    fn selected_player_skin(uuid: &str) -> String;
     #[wasm_bindgen(catch, js_name = loadResourceIndex)]
     async fn load_resource_index() -> Result<JsValue, JsValue>;
     #[wasm_bindgen(catch, js_name = fetchVerified)]
@@ -50,6 +52,21 @@ extern "C" {
     pub fn hide_loading();
     #[wasm_bindgen(js_name = schedulePersistence)]
     fn schedule_persistence(callback: &js_sys::Function);
+}
+
+/// The hosted wardrobe only selects prepared wide-model textures. Never accept
+/// arbitrary URLs or resource paths from page state.
+pub fn player_skin(uuid: Option<u128>) -> Option<String> {
+    let key = uuid
+        .map(|value| format!("{value:032x}"))
+        .unwrap_or_default();
+    let path = selected_player_skin(&key);
+    let name = path.strip_prefix("entity/player/wide/")?;
+    [
+        "steve", "alex", "ari", "efe", "kai", "makena", "noor", "sunny", "zuri",
+    ]
+    .contains(&name)
+    .then_some(path)
 }
 
 const MAX_FILE: u64 = 128 * 1024 * 1024;

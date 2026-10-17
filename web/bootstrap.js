@@ -148,6 +148,27 @@ export function browserOptions() {
     ? {name: value.name, join: value.join === true} : {join: false});
 }
 
+const wardrobeSkins = new Set(['steve', 'alex', 'ari', 'efe', 'kai', 'makena', 'noor', 'sunny', 'zuri']);
+let playerSkins = new Map(), localSkin = '', skinTimer;
+export async function startPlayerSkins(name) {
+  async function refresh() {
+    const response = await fetch('/api/players/skins', {credentials: 'same-origin', cache: 'no-store', redirect: 'error'});
+    if (!response.ok) throw new Error('Your player profile could not be loaded. Sign in again.');
+    const data = await response.json(), next = new Map();
+    for (const [uuid, player] of Object.entries(data.players ?? {})) {
+      if (/^[a-f0-9]{32}$/.test(uuid) && wardrobeSkins.has(player.skin)) {
+        const texture = `entity/player/wide/${player.skin}`;
+        next.set(uuid, texture); if (player.name === name) localSkin = texture;
+      }
+    }
+    playerSkins = next;
+  }
+  await refresh();
+  clearInterval(skinTimer);
+  skinTimer = setInterval(() => refresh().catch(() => {}), 15_000);
+}
+export function selectedPlayerSkin(uuid) { return uuid ? playerSkins.get(uuid) ?? '' : localSkin; }
+
 export function loadingStatus(message, percent) {
   if (gpuFailure) { message = "Graphics stopped: " + gpuFailure; percent = 0; }
   let box = document.getElementById("horizon-loading");

@@ -8,6 +8,8 @@ import { WebSocketServer } from 'ws';
 import { Sessions, RateLimit, validSecretHash, verifySecret, cookieValue, sessionCookie, equalToken } from './security.mjs';
 import { ModStore } from './mod-store.mjs';
 import { bridgeGame } from './bridge.mjs';
+import { Accounts, ProfileError, SKINS, SESSION_SECONDS } from './accounts.mjs';
+import { DiscordAuth, oauthCookie } from './discord.mjs';
 
 class HttpError extends Error { constructor(status, message) { super(message); this.status = status; } }
 const fail = (status, message) => { throw new HttpError(status, message); };
@@ -70,7 +72,7 @@ function validateConfig(input) {
   const origin = new URL(config.origin);
   const local = ['localhost', '127.0.0.1', '[::1]'].includes(origin.hostname);
   if (origin.origin !== config.origin || (origin.protocol !== 'https:' && !(config.allowInsecureLocalhost === true && local && origin.protocol === 'http:'))) throw new Error('Use an HTTPS origin, or explicitly allow loopback HTTP for development');
-  if (!validSecretHash(config.inviteHash) || !validSecretHash(config.adminHash) || config.inviteHash === config.adminHash) throw new Error('Distinct scrypt invite and admin hashes are required');
+  if (!validSecretHash(config.adminHash) || (!config.discord && !validSecretHash(config.inviteHash)) || config.inviteHash === config.adminHash) throw new Error('An owner hash and Discord credentials (or legacy invite hash) are required');
   if (!Number.isInteger(config.gamePort) || config.gamePort < 1 || config.gamePort > 65535) throw new Error('A fixed gamePort is required');
   for (const field of ['privateDir', 'publicDir', 'assetsDir']) if (typeof config[field] !== 'string') throw new Error(`${field} is required`);
   const privateDir = resolve(config.privateDir);
@@ -83,7 +85,7 @@ function validateConfig(input) {
 }
 
 /** One process owns the candidate/index writes. Run one instance against this privateDir. */
-export async function createGateway(input) {
+export async function createGateway(input, { discordFetch } = {}) {
   // Resolve roots before comparing them: a symlinked "public" directory must
   // never turn private state into a static asset tree.
   await fs.mkdir(input.privateDir, { recursive: true, mode: 0o700 });
@@ -91,10 +93,14 @@ export async function createGateway(input) {
   for (const key of ['privateDir', 'publicDir', 'assetsDir', 'modsRuntimeDir']) if (roots[key]) roots[key] = await fs.realpath(roots[key]);
   const config = validateConfig(roots);
   const store = new ModStore(config); await store.init();
-  const friends = new Sessions({ capacity: config.maxSessions ?? 128 });
+  const accounts = config.discord ? new Accounts(config.privateDir, { protectedNames: [...config.protectedNames], ownerIds: config.discord.ownerIds ?? [] }) : null;
+  if (accounts) await accounts.init();
+  const discord = config.discord ? new DiscordAuth(config.discord, config.origin, discordFetch) : null;
+  const friends = accounts ?? new Sessions({ capacity: config.maxSessions ?? 128 });
   const admins = new Sessions({ capacity: 8, lifetimeMs: 20 * 60 * 1000 });
   const friendCookie = config.secure ? '__Host-horizon_session' : 'horizon_session';
   const adminCookie = config.secure ? '__Host-horizon_admin' : 'horizon_admin';
+  const flowCookie = config.secure ? '__Host-modcraft_oauth' : 'modcraft_oauth';
   const logins = new RateLimit({ limit: config.loginAttempts ?? 10, windowMs: 60_000 });
   const writes = new RateLimit({ limit: 30, windowMs: 60_000 });
   const upgrades = new RateLimit({ limit: 30, windowMs: 60_000 });
@@ -112,7 +118,12 @@ export async function createGateway(input) {
   };
   const host = request => { if (request.headers.host !== config.originHost) fail(421, 'Unexpected host'); };
   const origin = request => { if (request.headers.origin !== config.origin) fail(403, 'Origin rejected'); };
-  const friend = request => friends.get(cookieValue(request, friendCookie)) ?? fail(401, 'Sign in with your invite first');
+  const signedIn = request => friends.get(cookieValue(request, friendCookie)) ?? fail(401, 'Sign in with Discord first');
+  const friend = request => { const session = signedIn(request); if (!session.name) fail(403, 'Choose your in-game name and skin first'); return session; };
+  const publicSession = session => session ? { authenticated: true, name: session.name, skin: session.skin, displayName: session.displayName,
+    needsProfile: !session.name, csrf: session.csrf, expires: session.expires, authProvider: discord ? 'discord' : 'invite' }
+    : { authenticated: false, discordAvailable: !!discord };
+  const redirect = (response, location, cookies = []) => { response.writeHead(303, { Location: location, 'Cache-Control': 'no-store', ...(cookies.length ? { 'Set-Cookie': cookies } : {}) }); response.end(); };
   const admin = request => admins.get(cookieValue(request, adminCookie)) ?? fail(401, 'Owner sign-in required');
   const csrf = (request, session) => { origin(request); if (!equalToken(request.headers['x-csrf-token'], session.csrf)) fail(403, 'CSRF token rejected'); };
   const closeSession = id => { for (const [ws, value] of sockets) if (value === id) ws.close(1008, 'Signed out'); };
@@ -131,16 +142,47 @@ export async function createGateway(input) {
       let path;
       try { path = decodeURIComponent(new URL(request.url, config.origin).pathname); } catch { fail(400, 'Invalid request path'); }
       if (request.method === 'GET' && path === '/healthz') return json(response, 200, { ok: true });
+      if (request.method === 'GET' && path === '/auth/discord') {
+        if (!discord) fail(503, 'Discord sign-in is being connected. Please try again shortly');
+        if (!logins.take(`${peer(request)}:discord`)) fail(429, 'Too many sign-in attempts; retry later');
+        if (friends.get(cookieValue(request, friendCookie))) return redirect(response, '/');
+        const flow = discord.begin();
+        return redirect(response, flow.url, [oauthCookie(flowCookie, flow.binding, 600, config.secure)]);
+      }
+      if (request.method === 'GET' && path === '/auth/discord/callback') {
+        if (!discord) fail(404, 'Not found');
+        if (!logins.take(`${peer(request)}:discord-callback`)) fail(429, 'Too many sign-in attempts; retry later');
+        const cookies = [oauthCookie(flowCookie, '', 0, config.secure)];
+        try {
+          const identity = await discord.finish(new URL(request.url, config.origin).searchParams, cookieValue(request, flowCookie));
+          if (!identity) return redirect(response, '/?auth=cancelled', cookies);
+          const previous = cookieValue(request, friendCookie);
+          const session = await accounts.signIn(identity, previous);
+          if (previous) closeSession(previous);
+          cookies.push(sessionCookie(friendCookie, session.id, SESSION_SECONDS, config.secure));
+          return redirect(response, '/', cookies);
+        } catch { return redirect(response, '/?auth=failed', cookies); }
+      }
       if (request.method === 'GET' && path === '/api/session') {
         const session = friends.get(cookieValue(request, friendCookie));
-        return json(response, 200, session ? { authenticated: true, name: session.name, csrf: session.csrf, expires: session.expires } : { authenticated: false });
+        return json(response, 200, publicSession(session));
       }
+      if (request.method === 'GET' && path === '/api/skins') return json(response, 200, { skins: SKINS.map(id => ({ id, name: id[0].toUpperCase() + id.slice(1), url: `/skins/${id}.png` })) });
+      if (request.method === 'POST' && path === '/api/profile') {
+        if (!accounts) fail(404, 'Not found');
+        const session = signedIn(request); csrf(request, session);
+        if (!writes.take(session.id)) fail(429, 'Too many profile changes; retry shortly');
+        const updated = await accounts.saveProfile(session, await jsonBody(request), !!admins.get(cookieValue(request, adminCookie)));
+        return json(response, 200, publicSession(updated));
+      }
+      if (request.method === 'GET' && path === '/api/players/skins') { friend(request); return json(response, 200, accounts?.skins() ?? { revision: 0, players: {} }); }
       if (request.method === 'GET' && path === '/api/admin/session') {
         const session = admins.get(cookieValue(request, adminCookie));
         return json(response, 200, session ? { authenticated: true, csrf: session.csrf, expires: session.expires } : { authenticated: false });
       }
       if (request.method === 'POST' && ['/api/login', '/api/admin/login'].includes(path)) {
         origin(request);
+        if (path === '/api/login' && discord) fail(410, 'Invite sign-in has been replaced by Discord');
         if (!logins.take(`${peer(request)}:${path}`) || passwordChecks >= 2) fail(429, 'Too many sign-in attempts; retry later');
         const value = await jsonBody(request), owner = path === '/api/admin/login';
         if (!value || typeof value !== 'object' || Array.isArray(value)) fail(400, 'A sign-in object is required');
@@ -152,15 +194,15 @@ export async function createGateway(input) {
         if (!owner && (typeof value.name !== 'string' || !/^[A-Za-z0-9_]{1,16}$/.test(value.name))) fail(400, 'Use a player name with 1–16 letters, digits or underscores');
         if (!owner && config.protectedNames.has(value.name.toLowerCase()) && !admins.get(cookieValue(request, adminCookie))) fail(403, 'That player name is reserved for the owner');
         const collection = owner ? admins : friends, cookie = owner ? adminCookie : friendCookie;
-        const previous = cookieValue(request, cookie); collection.delete(previous); if (!owner && previous) closeSession(previous);
+        const previous = cookieValue(request, cookie); await collection.delete(previous); if (!owner && previous) closeSession(previous);
         const session = collection.create(owner ? {} : { name: value.name });
         return json(response, 200, { authenticated: true, name: session.name, csrf: session.csrf, expires: session.expires }, {
           'Set-Cookie': sessionCookie(cookie, session.id, owner ? 1200 : 28800, config.secure),
         });
       }
       if (request.method === 'POST' && ['/api/logout', '/api/admin/logout'].includes(path)) {
-        const owner = path === '/api/admin/logout', session = owner ? admin(request) : friend(request); csrf(request, session);
-        (owner ? admins : friends).delete(session.id); if (!owner) closeSession(session.id);
+        const owner = path === '/api/admin/logout', session = owner ? admin(request) : signedIn(request); csrf(request, session);
+        await (owner ? admins : friends).delete(session.id); if (!owner) closeSession(session.id);
         return json(response, 200, { ok: true }, { 'Set-Cookie': sessionCookie(owner ? adminCookie : friendCookie, '', 0, config.secure) });
       }
       if (request.method === 'POST' && path === '/api/mods/upload') {
@@ -201,7 +243,7 @@ export async function createGateway(input) {
       return await staticFile(request, response, config.publicDir, path === '/' ? 'index.html' : path.slice(1));
     } catch (error) {
       if (response.headersSent || response.destroyed) { response.destroy(); return; }
-      const status = error instanceof HttpError ? error.status : 500;
+      const status = error instanceof HttpError || error instanceof ProfileError ? error.status : 500;
       json(response, status, { error: status === 500 ? 'Gateway request failed' : error.message }, { Connection: 'close' });
     }
   });

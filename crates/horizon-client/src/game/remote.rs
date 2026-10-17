@@ -1875,6 +1875,11 @@ impl Game<'_> {
             .filter_map(|u| r.tab_players.get(u).cloned())
             .collect();
         for p in &mut players {
+            #[cfg(target_arch = "wasm32")]
+            if let Some(skin) = horizon_client::browser::player_skin(Some(p.uuid)) {
+                p.skin = skin;
+                continue;
+            }
             let Some(textures) = r.skin_textures.get(&p.uuid) else {
                 continue;
             };
@@ -2240,6 +2245,13 @@ impl Game<'_> {
         let mut lerps = std::mem::take(&mut r.lerps);
         let players = &r.level_players;
         for m in &mut self.mobs {
+            #[cfg(target_arch = "wasm32")]
+            if let Some(uuid) = players.get(&(m.id as i32))
+                && let Some(skin) = horizon_client::browser::player_skin(Some(*uuid))
+                && m.kind.texture != skin
+            {
+                Arc::make_mut(&mut m.kind).texture = skin;
+            }
             if !running && !players.contains_key(&(m.id as i32)) {
                 continue;
             }

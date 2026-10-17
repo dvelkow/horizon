@@ -8,12 +8,23 @@
     <header class="welcome"><h1>(dev)Modcraft</h1><p>Build with friends. Make ridiculous mods.</p></header>
     <section class="entry-panel" aria-label="Join the world">
       <p id="connection-status" role="status">Connecting to your world…</p>
-      <form id="login-form" hidden>
-        <label for="player-name">Your player name</label><input id="player-name" name="name" autocomplete="username" pattern="[A-Za-z0-9_]{1,16}" maxlength="16" required placeholder="BlockExplorer" aria-describedby="name-help"><small id="name-help">1–16 letters, numbers, or underscores.</small>
-        <label for="invite">Invite code</label><input id="invite" name="invite" type="password" autocomplete="off" required maxlength="256" placeholder="The one your friend sent you">
-        <button type="submit" class="primary">Join the world</button>
+      <div id="discord-login" hidden>
+        <h2>Your friends are in here.</h2><p>One Discord login. A world of bad ideas.</p>
+        <a id="discord-sign-in" class="primary discord-button" href="/auth/discord">Continue with Discord <span aria-hidden="true">↗</span></a>
+        <small>We'll remember you on this device.</small>
+      </div>
+      <form id="profile-form" hidden>
+        <h2 id="profile-title">Make yourself at home.</h2>
+        <label for="player-name">Your in-game name</label><input id="player-name" name="name" autocomplete="username" pattern="[A-Za-z0-9_]{1,16}" maxlength="16" required placeholder="BlockExplorer" aria-describedby="name-help"><small id="name-help">1–16 letters, numbers, or underscores. This name keeps your world progress together.</small>
+        <fieldset class="wardrobe"><legend>Pick your look</legend>
+          <div class="skin-stage"><button id="skin-prev" type="button" class="skin-arrow" aria-label="Previous skin">‹</button><canvas id="skin-preview" width="96" height="144" aria-label="Selected character preview"></canvas><button id="skin-next" type="button" class="skin-arrow" aria-label="Next skin">›</button></div>
+          <p id="skin-name" role="status"></p><div id="skin-options" class="skin-options" role="radiogroup" aria-label="Character skins"></div>
+        </fieldset>
+        <button type="submit" id="save-profile" class="primary">That's me — let's play</button>
+        <button id="cancel-profile" type="button" class="quiet" hidden>Back</button>
       </form>
-      <div id="signed-in" hidden><h2>Hey, <span id="session-name"></span>.</h2><p>Your next bad idea starts here.</p><button id="play" class="primary">Play (dev)Modcraft</button><button id="logout" class="quiet">Use a different name</button></div>
+      <div id="signed-in" hidden><canvas id="saved-skin" width="64" height="96" aria-label="Your character"></canvas><h2>Hey, <span id="session-name"></span>.</h2><p>Your next bad idea starts here.</p><button id="play" class="primary">Play (dev)Modcraft</button><button id="edit-profile" class="quiet">Change skin</button></div>
+      <button id="logout" class="quiet" hidden>Sign out</button>
       <p id="entry-error" class="error" role="alert" hidden></p>
       <a class="menu-link secondary" href="/portal.html" target="_blank" rel="noopener">Mod workshop</a>
       <p class="desktop-note">Play on a computer with Chrome or Edge.</p>

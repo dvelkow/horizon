@@ -41,7 +41,7 @@ Create a JSON file readable only by the service account (`0600`), outside every 
   "privateDir": "/var/lib/horizon-gateway",
   "validatorExecutable": "/srv/horizon/bin/horizon-mod-validator",
   "jcoExecutable": "/srv/horizon/web/node_modules/.bin/jco",
-  "inviteHash": "REPLACE_WITH_SCRYPT_HASH",
+  "discord": {"clientId": "APPLICATION_ID", "clientSecret": "CLIENT_SECRET", "ownerIds": ["HOST_DISCORD_USER_ID"]},
   "adminHash": "REPLACE_WITH_DIFFERENT_SCRYPT_HASH",
   "protectedNames": ["OwnerPlayerName"],
   "trustLoopbackProxy": true,
@@ -54,9 +54,11 @@ Create a JSON file readable only by the service account (`0600`), outside every 
 
 `publicDir`, `assetsDir` and `modsRuntimeDir` must already exist. Roots are resolved through symlinks before checking that private state is separate. Static reads also check the real file path, rejecting hidden files, parent traversal and links outside their root. `/assets/` and `/mods-runtime/` require a friend session. Only the launcher files under `publicDir` are public.
 
-Generate two distinct, high-entropy secrets and pass each to `node hash-secret.mjs` on standard input; it prints a salted scrypt hash. Do not put the plaintext secrets in command arguments, committed files or browser configuration. The invite is shared with friends; the separate owner secret grants approval. The portal sends login secrets to the same HTTPS origin, then uses Secure, HttpOnly, SameSite=Strict session cookies. Friend sessions last eight hours; owner sessions twenty minutes; both are memory-only and expire on restart. The CSRF value returned by the session API is not the session cookie or an owner password.
+Configure Discord's authorization-code flow with the exact callback `${origin}/auth/discord/callback`. Request only `identify`; store the application secret in this private configuration. Generate a separate owner secret with `node hash-secret.mjs` on standard input and put only its scrypt hash in `adminHash`. Never put plaintext secrets in command arguments, committed files or browser configuration.
 
-**`protectedNames` must include every operator name in the native server.** The shared invite authenticates membership, not unique ownership of ordinary player names. The gateway prevents a session from sending another name/UUID during login, and requires an owner session before issuing a friend session for a protected name. Never expose the offline native TCP port to the Internet. Keep server administration on a separate private/loopback endpoint.
+Discord friend sessions use Secure, HttpOnly, SameSite=Strict cookies for 30 days. The one-time OAuth binding cookie uses SameSite=Lax so Discord's top-level callback can send it. Profiles and hashed session tokens persist atomically in private mode-0600 `accounts.json`; raw session tokens and Discord access tokens are not persisted. Owner sessions remain independent, twenty-minute, memory-only sessions. Every account must choose a case-insensitively unique, permanent IGN and one of the nine skin IDs before joining or uploading. Skins can be changed later.
+
+**`protectedNames` must include every operator name in the native server.** A matching name can only be claimed by `discord.ownerIds` or with an independently authenticated owner session. The native TCP server stays loopback-only. Installations without a `discord` configuration can still use the legacy `inviteHash` API; the hosted Discord launcher does not expose that flow. Configuring Discord disables legacy `/api/login`.
 
 Cloud provisioning credentials are not part of this configuration, service environment, browser build, game world or public assets. The application never needs them. Provisioning, if performed, belongs in a separate operator process.
 
@@ -74,8 +76,13 @@ Every mutation requires the exact same Origin. Authenticated mutations also requ
 
 | Endpoint | Role | Request / response |
 |---|---|---|
-| `GET /api/session` | Public | `{authenticated,name,csrf,expires}` or `{authenticated:false}` |
-| `POST /api/login` | Public | `{invite,name}`; returns friend session metadata and sets its cookie |
+| `GET /api/session` | Public | Profile status, IGN, skin, CSRF and expiry; no Discord ID or credentials |
+| `GET /auth/discord` | Public | Start the Discord authorization-code flow |
+| `GET /auth/discord/callback` | OAuth state + cookie | Consume the code and establish a remembered session |
+| `GET /api/skins` | Public | Nine wardrobe IDs and local preview URLs |
+| `POST /api/profile` | Signed in + CSRF | Claim a unique IGN once; choose/change an allowed skin |
+| `GET /api/players/skins` | Complete profile | UUID-to-IGN/skin mapping, without Discord IDs |
+| `POST /api/login` | Legacy only | Disabled (410) when Discord is configured |
 | `POST /api/logout` | Friend | Revokes the session and closes its WebSockets |
 | `GET /api/admin/session` | Public | `{authenticated,csrf,expires}` or `{authenticated:false}` |
 | `POST /api/admin/login` | Public | `{secret}`; sets independent owner cookie |
@@ -142,3 +149,5 @@ Use service-level memory/task limits for the Node process and its validator chil
 The default network bounds are 32 concurrent WebSockets, four per friend session, 2 MiB per message, bounded fragments/chunks, and 4 MiB upstream/downstream send queues. The bridge pauses reads on backpressure, limits the initial handshake to 16 KiB/ten seconds, closes idle native connections after ninety seconds, and expires sessions even while connected. [The ws API](https://github.com/websockets/ws/blob/master/doc/ws.md) documents the explicit upgrade authentication, payload bounds and pause/resume primitives used here.
 
 [Measured native-engine memory results](deploy/memory-results.md) document the compact gameplay loader's reduction from roughly 1,082 MiB to 556 MiB idle RSS with one worker. Those local idle results are separate from deployed two-player capacity.
+
+The provider implementation follows [Discord's OAuth2 authorization-code documentation](https://docs.discord.com/developers/topics/oauth2). The `discordFetch` dependency passed only by tests simulates Discord responses without adding an authentication bypass or configurable provider URL to production configuration.

@@ -7655,7 +7655,7 @@ impl Game<'_> {
                 let Some(arm) = self.res.player_arm.clone() else {
                     continue;
                 };
-                let Some(r) = self.atlas.sprites.get("entity/player/wide/steve").copied() else {
+                let Some(r) = self.atlas.sprites.get(&self.local_player_skin()).copied() else {
                     continue;
                 };
                 // renderPlayerArm (right arm)

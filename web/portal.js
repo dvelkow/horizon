@@ -11,10 +11,11 @@ async function request(path, options = {}) {
 }
 function element(tag, text, className) { const node = document.createElement(tag); if (text !== undefined) node.textContent = text; if (className) node.className = className; return node; }
 function showSessions() {
-  $("upload-form").hidden = !friend.authenticated; $("friend-login").hidden = friend.authenticated;
-  status("friend-status", friend.authenticated ? `Signed in as ${friend.name}.` : "You'll need a player invite to share a mod.");
+  const ready = friend.authenticated && !friend.needsProfile;
+  $("upload-form").hidden = !ready; $("friend-login").hidden = ready;
+  status("friend-status", ready ? `Signed in as ${friend.name}.` : "Sign in with Discord and choose your player name to share a mod.");
   $("owner-form").hidden = owner.authenticated; $("owner-signed-in").hidden = !owner.authenticated;
-  $("review-section").hidden = !owner.authenticated; $("active-section").hidden = !friend.authenticated;
+  $("review-section").hidden = !owner.authenticated; $("active-section").hidden = !ready;
 }
 const capabilityLabels = {"game-read": "Read position and time", chat: "Write in local chat", hud: "Draw on your screen", registries: "Add world content"};
 const checkLabels = {manifest: "Manifest", imports: "Permissions", content: "Content rules", archiveCaps: "File size limits", sandboxInitFuel: "Sandbox startup"};
@@ -64,7 +65,7 @@ async function decide(item, decision, row) {
 async function refresh() {
   if (loading) return; loading = true; $("refresh").disabled = true;
   try {
-    const [pending, active] = await Promise.all([owner.authenticated ? request("/api/mods/pending") : null, friend.authenticated ? request("/mods/index.json") : null]);
+    const [pending, active] = await Promise.all([owner.authenticated ? request("/api/mods/pending") : null, friend.authenticated && !friend.needsProfile ? request("/mods/index.json") : null]);
     if (pending) { const rows = [...pending.candidates].reverse(); $("pending-list").replaceChildren(...rows.map(row => modRow(row))); if (!rows.length) $("pending-list").append(element("li", "No uploads yet. Share a .hmod file to start a review.", "empty")); }
     if (active) { $("active-list").replaceChildren(...active.mods.map(row => modRow(row, true))); if (!active.mods.length) $("active-list").append(element("li", "No approved mods yet.", "empty")); }
   } catch (error) { status("review-status", error.message, true); }
