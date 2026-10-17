@@ -54,6 +54,9 @@ pub struct HubConfig {
     /// the owner's level from `ops`, the others' from Allow Commands and
     /// the guests' command access, and the integrated-only commands.
     pub integrated: bool,
+    /// No creative or spectator mode for anyone (they become survival) and
+    /// no flight: the hosted world's rule.
+    pub survival_only: bool,
 }
 
 /// The host player as the other players see them.
@@ -1422,6 +1425,17 @@ impl Hub {
 
     /// ServerPlayer.doTick: health, food, experience and the inventory menu.
     fn sync_player_state(&mut self, i: usize) {
+        // The hosted world's rule: whatever set it (a command, saved player
+        // data, the default), creative and spectator become survival.
+        if self.config.survival_only
+            && matches!(
+                self.guests[i].game_mode,
+                super::guest::CREATIVE | super::guest::SPECTATOR
+            )
+        {
+            let conn = self.guests[i].conn;
+            self.set_game_mode(conn, super::guest::SURVIVAL);
+        }
         // ServerEntity.sendDirtyEntityData on the player's first tick: the
         // health its creation set is still dirty, and goes to the player too.
         if self.guests[i].sent_health.is_none() {
@@ -1676,9 +1690,16 @@ impl Hub {
             if p.iter().any(|v| !v.is_finite() || v.abs() > 3.0e7) {
                 return;
             }
-            // A jump of more than a hundred blocks is a rejected move.
+            // ServerGamePacketListenerImpl's "moved too quickly": more than
+            // 10 blocks in one move (about 17 gliding) is put back.
             let d2: f64 = (0..3).map(|k| (p[k] - g.position[k]).powi(2)).sum();
-            if d2 > 100.0 * 100.0 {
+            let limit = if g.fall_flying { 300.0 } else { 100.0 };
+            if d2 > limit {
+                log::warn!(
+                    "Horizon: {} moved too quickly ({:.1} blocks)",
+                    g.name,
+                    d2.sqrt()
+                );
                 let at = g.position;
                 self.teleport(i, Some(at));
                 return;

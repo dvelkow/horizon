@@ -486,6 +486,7 @@ impl Game<'_> {
             max_players: props.max_players.max(0) as usize,
             dedicated: true,
             integrated: false,
+            survival_only: true,
         };
         let settings = LanSettings {
             port,
@@ -930,6 +931,31 @@ impl Game<'_> {
                         ));
                     }
                 }
+            }
+            // KillCommand for an online player by name (the console's
+            // selectors do not reach players connected to this server).
+            "kill" if rest.len() == 1 => {
+                let Some(h) = self.lan.as_mut() else {
+                    return;
+                };
+                let Some(g) = h
+                    .hub
+                    .guests
+                    .iter_mut()
+                    .find(|g| g.name.eq_ignore_ascii_case(rest[0]) && !g.dead)
+                else {
+                    self.console_reply(Text::translate("argument.entity.notfound.player", &[]));
+                    return;
+                };
+                let name = g.name.clone();
+                g.health = 0.0;
+                if let Some(m) = g.motion.as_mut() {
+                    let _ = m.set_health(0.0, false);
+                }
+                self.console_reply(Text::translate(
+                    "commands.kill.success.single",
+                    &[lit(&name)],
+                ));
             }
             "kick" if !rest.is_empty() => {
                 let user = self.resolve(rest[0]);

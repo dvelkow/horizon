@@ -1135,6 +1135,30 @@ impl Game<'_> {
         }
         let in_wall = !g.sleeping && self.in_wall(g.position, g.eye_height());
         let at = g.position;
+        // ServerGamePacketListenerImpl's flying check: floating (not falling,
+        // off the ground, only air around) for more than 80 ticks kicks.
+        if !moves.is_empty() {
+            let allowed = g.creative()
+                || g.fall_flying
+                || g.sleeping
+                || g.effects.get("levitation").is_some();
+            let height = g.eye_height() + 0.2;
+            let allowed = allowed && !(g.creative() && host.hub.config.survival_only);
+            let floating = !allowed
+                && moves.iter().all(|(m, on_ground)| !on_ground && m[1] >= -0.03125)
+                && self.only_air_around(at, height);
+            let g = host.hub.guest_mut(conn).expect("found above");
+            g.floating = if floating { g.floating + 1 } else { 0 };
+            if g.floating > 80 {
+                g.floating = 0;
+                log::warn!("Horizon: {} was kicked for flying", g.name);
+                host.hub.kick(
+                    conn,
+                    horizon_protocol::text::translatable("multiplayer.disconnect.flying", &[]),
+                );
+                return;
+            }
+        }
         let sounds = self.as_guest(host, conn, |game| {
             let (rules, motion) = (game.world.health_rules, game.motion);
             let health = &motion.health;
@@ -1205,6 +1229,18 @@ impl Game<'_> {
         }
     }
 
+    /// `ServerGamePacketListenerImpl.noBlocksAround`: only air in the
+    /// player's box grown by 0.0625 and reaching 0.55 lower.
+    fn only_air_around(&self, at: [f64; 3], height: f64) -> bool {
+        let (half, grow) = (0.3 + 0.0625, 0.0625);
+        let range = |lo: f64, hi: f64| lo.floor() as i32..=hi.floor() as i32;
+        range(at[0] - half, at[0] + half).all(|x| {
+            range(at[1] - grow - 0.55, at[1] + height + grow).all(|y| {
+                range(at[2] - half, at[2] + half)
+                    .all(|z| self.res.facts.is_air(self.world.block(x, y, z)))
+            })
+        })
+    }
     /// `Player.isInWall`: a suffocating block in the 0.48-wide box at the
     /// eyes. Suffocating is a full collision box that is also a full render
     /// cube (`BlockBehaviour.isSuffocating`'s default; glass and the like

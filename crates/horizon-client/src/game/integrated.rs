@@ -276,6 +276,7 @@ impl Game<'_> {
             // No player of its own: the hub runs without a host.
             dedicated: true,
             integrated: true,
+            survival_only: false,
         };
         let owner = launch.owner;
         let published = flags.clone();

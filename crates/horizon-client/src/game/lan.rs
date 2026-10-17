@@ -439,6 +439,7 @@ impl Game<'_> {
             max_players: MAX_PLAYERS,
             dedicated: false,
             integrated: false,
+            survival_only: false,
         };
         let net = NetConfig::lan(settings.port, motd, MAX_PLAYERS);
         self.lan_host(settings, net, config, Some(host_uuid))
