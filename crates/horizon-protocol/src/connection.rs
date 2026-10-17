@@ -304,6 +304,25 @@ impl ConnWriter {
             .fetch_add(framed.len() as i64, Ordering::Relaxed);
         Ok(())
     }
+    /// Send several packet bodies in one write, in order.
+    pub fn send_all(&mut self, bodies: &[Vec<u8>]) -> Result<()> {
+        let mut out = Vec::new();
+        for body in bodies {
+            let mut framed = frame::encode(body, self.threshold)?;
+            if let Some(c) = &mut self.encrypt {
+                c.encrypt(&mut framed);
+            }
+            out.extend_from_slice(&framed);
+        }
+        self.stream.write_all(&out)?;
+        self.counters
+            .sent
+            .fetch_add(bodies.len() as i64, Ordering::Relaxed);
+        self.counters
+            .bytes_out
+            .fetch_add(out.len() as i64, Ordering::Relaxed);
+        Ok(())
+    }
     pub fn shutdown(&self) {
         self.stream.shutdown();
     }

@@ -685,12 +685,15 @@ fn play(c: Connection, shared: &Arc<Shared>, parts: Parts, address: std::net::So
     let pending = Arc::new(AtomicUsize::new(0));
     let latency = Arc::new(AtomicI32::new(0));
     let alive = Arc::new(AtomicI64::new(-1));
+    // Keep-alive ids are milliseconds since this instant, so the reader can
+    // time a reply the moment it arrives.
+    let start = Instant::now();
     let sender = PlayerSender::new(tx.clone(), pending.clone());
     let writer_thread = {
-        let (alive, latency, pending) = (alive.clone(), latency.clone(), pending.clone());
+        let (alive, pending) = (alive.clone(), pending.clone());
         std::thread::Builder::new()
             .name(format!("horizon-lan-out-{conn_id}"))
-            .spawn(move || write_loop(writer, rx, alive, latency, pending))
+            .spawn(move || write_loop(writer, rx, alive, start, pending))
             .ok()
     };
     let joined = Joined {
@@ -701,11 +704,11 @@ fn play(c: Connection, shared: &Arc<Shared>, parts: Parts, address: std::net::So
         info: parts.info,
         brand: parts.brand,
         sender,
-        latency,
+        latency: latency.clone(),
         address,
     };
     let reason = if events.send(NetEvent::Joined(Box::new(joined))).is_ok() {
-        read_loop(&mut reader, conn_id, &events, &alive)
+        read_loop(&mut reader, conn_id, &events, &alive, start, &latency)
     } else {
         "server closed".to_owned()
     };
@@ -722,6 +725,8 @@ fn read_loop(
     conn: u32,
     events: &Sender<NetEvent>,
     alive: &AtomicI64,
+    start: Instant,
+    latency: &AtomicI32,
 ) -> String {
     loop {
         let (id, payload) = match reader.recv() {
@@ -738,7 +743,18 @@ fn read_loop(
             Err(e) => return e.to_string(),
         };
         match play::Serverbound::decode(id, &payload) {
-            Ok(play::Serverbound::KeepAlive(k)) => alive.store(k.id, Ordering::Relaxed),
+            Ok(play::Serverbound::KeepAlive(k)) => {
+                // ServerCommonPacketListenerImpl.handleKeepAlive: the round trip,
+                // timed here rather than whenever the writer next wakes.
+                let now = i64::try_from(start.elapsed().as_millis()).unwrap_or(i64::MAX);
+                if let Ok(ms) = i32::try_from(now - k.id)
+                    && ms >= 0
+                {
+                    let old = latency.load(Ordering::Relaxed);
+                    latency.store((old * 3 + ms) / 4, Ordering::Relaxed);
+                }
+                alive.store(k.id, Ordering::Relaxed);
+            }
             Ok(p) => {
                 if events.send(NetEvent::Packet(conn, Box::new(p))).is_err() {
                     return "server closed".to_owned();
@@ -754,10 +770,9 @@ fn write_loop(
     mut writer: ConnWriter,
     rx: Receiver<Out>,
     alive: Arc<AtomicI64>,
-    latency: Arc<AtomicI32>,
+    start: Instant,
     pending: Arc<AtomicUsize>,
 ) {
-    let start = Instant::now();
     let mut sent_at: Option<(i64, Instant)> = None;
     let mut next = Instant::now() + KEEP_ALIVE_EVERY;
     loop {
@@ -771,8 +786,13 @@ fn write_loop(
                     break;
                 }
             }
+            // A tick's packets leave in one write: one TCP segment train and
+            // one WebSocket message through the gateway, not one per packet.
             Ok(Out::Packets(bodies)) => {
-                if !bodies.into_iter().all(&mut write) {
+                let size: usize = bodies.iter().map(Vec::len).sum();
+                pending.fetch_sub(size, Ordering::Relaxed);
+                if writer.send_all(&bodies).is_err() || pending.load(Ordering::Relaxed) > MAX_PENDING
+                {
                     break;
                 }
             }
@@ -788,9 +808,6 @@ fn write_loop(
         let now = Instant::now();
         if let Some((id, at)) = sent_at {
             if alive.load(Ordering::Relaxed) == id {
-                let ms = i32::try_from(at.elapsed().as_millis()).unwrap_or(i32::MAX);
-                let old = latency.load(Ordering::Relaxed);
-                latency.store((old * 3 + ms) / 4, Ordering::Relaxed);
                 sent_at = None;
             } else if at.elapsed() > KEEP_ALIVE_TIMEOUT {
                 let _ = writer.send(
