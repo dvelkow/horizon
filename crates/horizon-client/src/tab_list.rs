@@ -234,6 +234,18 @@ pub fn name_for_display(p: &TabPlayer, board: &Scoreboard) -> Text {
 }
 
 /// `PlayerTabOverlay.extractPingIcon`'s sprite.
+/// Horizon's tab list also writes each player's ping in milliseconds, beside
+/// the bars, coloured like them: `None` while unknown.
+pub fn ping_text(latency: i32) -> Option<(String, u32)> {
+    let color = match latency {
+        i32::MIN..=-1 => return None,
+        0..100 => 0xFF55_FF55,
+        100..200 => 0xFFFF_FF55,
+        200..400 => 0xFFFF_AA00,
+        _ => 0xFFFF_5555,
+    };
+    Some((format!("{latency} ms"), color))
+}
 pub fn ping_sprite(latency: i32) -> &'static str {
     match latency {
         i32::MIN..=-1 => "icon/ping_unknown",
@@ -391,7 +403,14 @@ impl TabList {
         };
         let sw = i.screen_width;
         let head = if show_head { 9 } else { 0 };
-        let slot_width = (cols * (head + max_name + width_for_score + 13)).min(sw - 50) / cols;
+        let max_ping = players
+            .iter()
+            .filter_map(|p| ping_text(p.latency))
+            .map(|(text, _)| spacer + font.width(&text) as i32)
+            .max()
+            .unwrap_or(0);
+        let slot_width =
+            (cols * (head + max_name + width_for_score + max_ping + 13)).min(sw - 50) / cols;
         let xxo = sw / 2 - (slot_width * cols + (cols - 1) * 5) / 2;
         let mut yyo = 10;
         let mut max_line = slot_width * cols + (cols - 1) * 5;
@@ -489,6 +508,16 @@ impl TabList {
                         });
                     }
                 }
+            }
+            if let Some((text, color)) = ping_text(p.latency) {
+                let w = font.width(&text) as i32;
+                out.push(GuiDraw::Text {
+                    text: Text::literal(text),
+                    x: xo - head + slot_width - 12 - w,
+                    y: yo,
+                    color,
+                    shadow: true,
+                });
             }
             out.push(sprite(
                 ping_sprite(p.latency),
@@ -629,6 +658,8 @@ mod tests {
             .collect();
         assert_eq!(names, ["carl", "bob", "Alice"]);
         assert_eq!(ping_sprite(-1), "icon/ping_unknown");
+        assert_eq!(ping_text(-1), None);
+        assert_eq!(ping_text(42).unwrap().0, "42 ms");
         assert_eq!(ping_sprite(149), "icon/ping_5");
         assert_eq!(ping_sprite(1000), "icon/ping_1");
         // UUID.hashCode of 0 is 0: the first default skin.
