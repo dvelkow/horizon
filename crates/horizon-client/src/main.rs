@@ -61,6 +61,7 @@ fn main() {
             );
             return;
         }
+        horizon_client::browser::start_persistence();
         if let Err(error) = game::run() {
             log::error!("Horizon: {error}");
             horizon_client::browser::startup_error(&error.to_string());

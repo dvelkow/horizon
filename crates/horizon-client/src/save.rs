@@ -1455,6 +1455,21 @@ struct Writer {
 struct Outstanding {
     count: Mutex<usize>,
     done: Condvar,
+    #[cfg(target_arch = "wasm32")]
+    flush_scheduled: std::sync::atomic::AtomicBool,
+}
+impl Outstanding {
+    fn wait(&self) {
+        let Ok(mut count) = self.count.lock() else {
+            return;
+        };
+        while *count > 0 {
+            count = match self.done.wait(count) {
+                Ok(count) => count,
+                Err(_) => return,
+            };
+        }
+    }
 }
 /// One dimension folder (`dimensions/minecraft/<name>`). Region files are
 /// read lazily by worker threads.
@@ -1565,8 +1580,8 @@ impl SaveDir {
         }
         out
     }
-    /// Queue `records` for the writer thread; with `wait`, return once
-    /// they and every earlier write are on disk.
+    /// Queue `records` for the writer thread. Native `wait` returns after
+    /// earlier writes; the browser window schedules that checkpoint instead.
     fn write_records(
         &self,
         folder: &str,
@@ -1645,17 +1660,36 @@ impl SaveDir {
             .expect("spawn region writer");
         Writer { send, thread }
     }
-    /// Wait until every queued write is on disk.
+    /// Wait until queued region writes finish on native/Worker threads. The
+    /// browser window schedules a background checkpoint and returns promptly;
+    /// its VFS changes become durable only after browser persistence completes.
     pub fn flush(&self) {
-        let Ok(mut count) = self.outstanding.count.lock() else {
+        #[cfg(target_arch = "wasm32")]
+        if !std::thread::is_web_worker_thread() {
+            if self.outstanding.count.lock().is_ok_and(|count| *count == 0)
+                || self
+                    .outstanding
+                    .flush_scheduled
+                    .swap(true, Ordering::AcqRel)
+            {
+                return;
+            }
+            let outstanding = self.outstanding.clone();
+            let reset = outstanding.clone();
+            if let Err(error) = std::thread::Builder::new()
+                .name("horizon-region-checkpoint".into())
+                .spawn(move || {
+                    outstanding.wait();
+                    outstanding.flush_scheduled.store(false, Ordering::Release);
+                    log::debug!("Horizon: region writes ready for browser persistence");
+                })
+            {
+                reset.flush_scheduled.store(false, Ordering::Release);
+                log::warn!("Horizon: could not schedule region checkpoint: {error}");
+            }
             return;
-        };
-        while *count > 0 {
-            count = match self.outstanding.done.wait(count) {
-                Ok(c) => c,
-                Err(_) => return,
-            };
         }
+        self.outstanding.wait();
     }
     /// Rewrite every region touched by `chunks`, keeping their other chunks.
     pub fn save(
@@ -1726,10 +1760,17 @@ impl SaveDir {
 }
 
 impl Drop for SaveDir {
-    /// Finish queued writes before the world is let go.
+    /// Finish queued writes before releasing native worlds. On the browser
+    /// window, detach the writer: its owned caches and pending records keep
+    /// queued writes alive until the closed channel has been drained.
     fn drop(&mut self) {
         if let Some(writer) = self.writer.get_mut().ok().and_then(Option::take) {
             drop(writer.send);
+            #[cfg(target_arch = "wasm32")]
+            if !std::thread::is_web_worker_thread() {
+                drop(writer.thread);
+                return;
+            }
             let _ = writer.thread.join();
         }
     }

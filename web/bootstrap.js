@@ -1,6 +1,13 @@
-/* Same-origin resource loading for the browser title. */
+/* Same-origin resource loading and browser-owned save persistence. No credentials. */
+const CACHE = "horizon-resources-v1";
 const MAX_FILE = 256 * 1024 * 1024;
 const MAX_STATE = 16 * 1024 * 1024;
+const MAX_SAVED_BYTES = 512 * 1024 * 1024;
+const encoder = new TextEncoder();
+let rootPromise;
+let timerStarted = false;
+let restorePending = false;
+let releaseRestore;
 let gpuFailure;
 let gpuGuardInstalled = false;
 let pointerHandlersInstalled = false;
@@ -143,6 +150,20 @@ export function loadingStatus(message, percent) {
 }
 
 export function hideLoading() { if (!gpuFailure) document.getElementById("horizon-loading")?.remove(); }
+export function persistenceWarning(message) {
+  console.error("Horizon storage:", message);
+  let warning = document.getElementById("horizon-storage-warning");
+  if (!warning) {
+    warning = document.createElement("div"); warning.id = "horizon-storage-warning";
+    warning.setAttribute("role", "alert");
+    Object.assign(warning.style, { position: "fixed", bottom: "12px", left: "12px", right: "12px", zIndex: "30",
+      background: "#5a2b16", color: "white", padding: "12px", font: "14px system-ui" });
+    document.body.append(warning);
+  }
+  warning.textContent = "Local changes are not saved yet: " + message;
+}
+export function persistenceHealthy() { document.getElementById("horizon-storage-warning")?.remove(); }
+
 function checkedHash(hash) {
   if (typeof hash !== "string" || !/^[a-f0-9]{64}$/.test(hash)) throw new Error("Invalid resource hash");
   return hash;
@@ -180,9 +201,21 @@ async function boundedResponse(response, expected) {
 export async function fetchVerified(value, hash, size) {
   const url = assetUrl(value); checkedHash(hash); checkedSize(size);
   if (!new URL(url).pathname.includes(hash)) throw new Error("Resource URL/hash mismatch");
+  let cache;
+  try { cache = await caches.open(CACHE); } catch (_) { /* Network loading remains usable without cache. */ }
+  const cached = await cache?.match(url);
+  if (cached) {
+    try {
+      const bytes = await boundedResponse(cached, size);
+      if (await sha256(bytes) === hash) return bytes;
+    } catch (_) { /* Evict incomplete/corrupt cache entries and retry the network. */ }
+    await cache.delete(url);
+  }
   const response = await fetch(url, {credentials: "same-origin", cache: "no-store", redirect: "error"});
   const bytes = await boundedResponse(response, size);
   if (await sha256(bytes) !== hash) throw new Error("Resource hash mismatch");
+  try { await cache?.put(url, new Response(bytes, {headers: {"Content-Type": "application/octet-stream"}})); }
+  catch (_) { /* Cache quota does not invalidate verified resource bytes. */ }
   return bytes;
 }
 export async function loadResourceIndex() {
@@ -202,4 +235,136 @@ export async function loadResourceIndex() {
   if (pointer.schema !== 1) throw new Error("Unsupported resource index schema");
   checkedSize(pointer.bytes, MAX_STATE);
   return new TextDecoder("utf-8", {fatal: true}).decode(await fetchVerified(pointer.url, pointer.sha256, pointer.bytes));
+}
+
+function savePath(path) {
+  if (typeof path !== "string" || !path.startsWith("/") || path === "/" || path.length > 4096
+      || path.includes("\\") || path.includes("\0") || path.split("/").slice(1).some(p => !p || p === "." || p === "..")
+      || path === "/resources" || path.startsWith("/resources/")) throw new Error("Invalid saved path");
+  return path;
+}
+async function storageRoot() {
+  if (!navigator.storage?.getDirectory || !navigator.locks?.request) throw new Error("This browser does not support Horizon's local save storage");
+  if (!rootPromise) rootPromise = navigator.storage.getDirectory().then(root => root.getDirectoryHandle("horizon-v1", {create: true}));
+  return rootPromise;
+}
+async function readState(root) {
+  let handle;
+  try { handle = await root.getFileHandle("state.json"); }
+  catch (error) { if (error.name === "NotFoundError") return {schema: 1, revision: 0, entries: {}}; throw error; }
+  const file = await handle.getFile();
+  if (file.size > MAX_STATE) throw new Error("Saved file catalog is too large");
+  const state = JSON.parse(await file.text());
+  if (state.schema !== 1 || !Number.isSafeInteger(state.revision) || typeof state.entries !== "object" || !state.entries) throw new Error("Invalid saved file catalog");
+  for (const [path, entry] of Object.entries(state.entries)) {
+    savePath(path);
+    if (entry.kind === "file") { checkedHash(entry.hash); checkedSize(entry.bytes); }
+    else if (entry.kind !== "directory") throw new Error("Invalid saved entry");
+  }
+  return state;
+}
+async function atomicFile(root, name, bytes) {
+  const handle = await root.getFileHandle(name, {create: true});
+  const writable = await handle.createWritable();
+  try { await writable.write(bytes); await writable.close(); }
+  catch (error) { await writable.abort().catch(() => {}); throw error; }
+}
+export async function loadSavedIndex() {
+  const root = await storageRoot();
+  return navigator.locks.request("horizon-storage-v1", {mode: "shared"}, async () => JSON.stringify(await readState(root)));
+}
+// Hold this shared lock until Rust has read every blob in this catalog. Writers
+// and their collector take the exclusive lock, so another tab cannot delete a
+// snapshot's files halfway through restoring it. Context destruction releases
+// browser locks automatically; normal success/error paths call finishRestore.
+export async function beginRestore() {
+  if (restorePending || releaseRestore) throw new Error("A local save restore is already running");
+  restorePending = true;
+  try {
+    const root = await storageRoot();
+    return await new Promise((resolve, reject) => {
+      navigator.locks.request("horizon-storage-v1", {mode: "shared"}, async () => {
+        const index = JSON.stringify(await readState(root));
+        await new Promise(release => {
+          releaseRestore = release; restorePending = false; resolve(index);
+        });
+      }).catch(error => { releaseRestore = undefined; reject(error); });
+    });
+  } finally { restorePending = false; }
+}
+export function finishRestore() {
+  const release = releaseRestore; releaseRestore = undefined; release?.();
+}
+export async function loadSavedFile(hash, size) {
+  checkedHash(hash); checkedSize(size);
+  const root = await storageRoot();
+  const blobs = await root.getDirectoryHandle("blobs");
+  const file = await (await blobs.getFileHandle(hash)).getFile();
+  if (file.size !== size) throw new Error("Saved file size mismatch");
+  const bytes = new Uint8Array(await file.arrayBuffer());
+  if (await sha256(bytes) !== hash) throw new Error("Saved file checksum mismatch");
+  return bytes;
+}
+
+async function collectObsolete(blobs, entries) {
+  const referenced = new Set(Object.values(entries).filter(entry => entry.kind === "file").map(entry => entry.hash));
+  for await (const [name, handle] of blobs.entries()) {
+    if (handle.kind === "file" && /^[a-f0-9]{64}$/.test(name) && !referenced.has(name)) await blobs.removeEntry(name);
+  }
+}
+
+// Immutable blobs are committed before the catalog. Closing state.json publishes
+// the whole batch atomically; interrupted writes leave only unreferenced blobs.
+// Failed batches are retried by Rust before later VFS changes are drained.
+export async function persistBatch(changes) {
+  if (!Array.isArray(changes) || changes.length > 100000) throw new Error("Invalid storage batch");
+  const root = await storageRoot();
+  await navigator.locks.request("horizon-storage-v1", async () => {
+    const state = await readState(root);
+    const entries = Object.assign(Object.create(null), state.entries);
+    const blobs = await root.getDirectoryHandle("blobs", {create: true});
+    // Clear orphaned writes from interrupted batches before allocating another
+    // generation. The last committed catalog remains authoritative until close.
+    await collectObsolete(blobs, state.entries);
+    for (const change of changes) {
+      const path = savePath(change.path);
+      if (change.op === "remove") {
+        for (const name of Object.keys(entries)) if (name === path || name.startsWith(path + "/")) delete entries[name];
+      } else if (change.op === "directory") {
+        entries[path] = {kind: "directory"};
+      } else if (change.op === "write") {
+        const bytes = change.bytes;
+        if (!(bytes instanceof Uint8Array)) throw new Error("Invalid save bytes");
+        checkedSize(bytes.byteLength);
+        const hash = await sha256(bytes);
+        let exists = false;
+        try {
+          const file = await (await blobs.getFileHandle(hash)).getFile();
+          exists = file.size === bytes.byteLength && await sha256(await file.arrayBuffer()) === hash;
+        } catch (error) { if (error.name !== "NotFoundError") throw error; }
+        if (!exists) await atomicFile(blobs, hash, bytes);
+        for (const name of Object.keys(entries)) if (name.startsWith(path + "/")) delete entries[name];
+        entries[path] = {kind: "file", hash, bytes: bytes.byteLength};
+      } else throw new Error("Unknown save operation");
+    }
+    let savedBytes = 0;
+    for (const entry of Object.values(entries)) if (entry.kind === "file") savedBytes += entry.bytes;
+    if (savedBytes > MAX_SAVED_BYTES) throw new Error("Local saves exceed the 512 MB browser limit");
+    const encoded = encoder.encode(JSON.stringify({schema: 1, revision: state.revision + 1, entries}));
+    if (encoded.byteLength > MAX_STATE) throw new Error("Saved catalog exceeds storage limit");
+    await atomicFile(root, "state.json", encoded);
+    // Publication succeeded. Cleanup failure cannot roll the commit back; the
+    // next checkpoint retries collection before doing any new writes.
+    try { await collectObsolete(blobs, entries); }
+    catch (error) { console.warn("Horizon will retry old-save cleanup:", error?.message ?? error); }
+  });
+}
+export function schedulePersistence(callback) {
+  if (timerStarted) return;
+  timerStarted = true;
+  setInterval(callback, 2000);
+  document.addEventListener("visibilitychange", () => { if (document.hidden) callback(); });
+  // Browsers may terminate a page before async I/O completes; regular checkpoints
+  // are authoritative. pagehide is only a best effort, not a durability promise.
+  addEventListener("pagehide", callback);
 }

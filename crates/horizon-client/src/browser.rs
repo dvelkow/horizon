@@ -1,11 +1,12 @@
-//! Browser resource bootstrap for the shared in-memory filesystem.
+//! Browser resource bootstrap and asynchronous persistence for the shared VFS.
 //! The executable calls `ready().await` before starting the actual game.
-use horizon_platform::fs;
-use js_sys::Uint8Array;
+use horizon_platform::fs::{self, Change};
+use js_sys::{Array, Object, Reflect, Uint8Array};
 use serde::Deserialize;
 use sha2::{Digest, Sha256};
 use std::{
-    collections::BTreeSet,
+    cell::{Cell, RefCell},
+    collections::{BTreeMap, BTreeSet},
     io::{Cursor, Read},
     path::Path,
 };
@@ -15,26 +16,49 @@ use wasm_bindgen::{JsCast, prelude::*};
 extern "C" {
     #[wasm_bindgen(js_name = installGpuErrorHandling)]
     fn install_gpu_error_handling();
+    #[wasm_bindgen(js_name = recordPerformance)]
+    fn record_performance(fps: f32, frames: u64, world_frames: u64);
     #[wasm_bindgen(js_name = setPointerCapture)]
     fn set_pointer_capture(capture: bool) -> bool;
     #[wasm_bindgen(js_name = pointerCaptured)]
     pub fn pointer_captured() -> bool;
-    #[wasm_bindgen(js_name = recordPerformance)]
-    fn record_performance(fps: f32, frames: u64, world_frames: u64);
     #[wasm_bindgen(catch, js_name = loadResourceIndex)]
     async fn load_resource_index() -> Result<JsValue, JsValue>;
     #[wasm_bindgen(catch, js_name = fetchVerified)]
     async fn fetch_verified(url: &str, hash: &str, size: f64) -> Result<JsValue, JsValue>;
+    #[wasm_bindgen(catch, js_name = beginRestore)]
+    async fn load_saved_index() -> Result<JsValue, JsValue>;
+    #[wasm_bindgen(js_name = finishRestore)]
+    fn finish_restore();
+    #[wasm_bindgen(catch, js_name = loadSavedFile)]
+    async fn load_saved_file(hash: &str, size: f64) -> Result<JsValue, JsValue>;
+    #[wasm_bindgen(catch, js_name = persistBatch)]
+    async fn persist_batch(changes: &Array) -> Result<JsValue, JsValue>;
     #[wasm_bindgen(js_name = loadingStatus)]
     fn loading_status(message: &str, percent: f64);
+    #[wasm_bindgen(js_name = persistenceWarning)]
+    fn persistence_warning(message: &str);
+    #[wasm_bindgen(js_name = persistenceHealthy)]
+    fn persistence_healthy();
     #[wasm_bindgen(js_name = hideLoading)]
     pub fn hide_loading();
+    #[wasm_bindgen(js_name = schedulePersistence)]
+    fn schedule_persistence(callback: &js_sys::Function);
 }
 
 const MAX_FILE: u64 = 128 * 1024 * 1024;
 const MAX_RESOURCES: u64 = 1024 * 1024 * 1024;
 fn fail(message: impl ToString) -> JsValue {
     JsValue::from_str(&message.to_string())
+}
+
+/// Releases the browser's shared snapshot lock on every normal success/error
+/// path, including failures while decoding or verifying an individual file.
+struct RestoreGuard;
+impl Drop for RestoreGuard {
+    fn drop(&mut self) {
+        finish_restore();
+    }
 }
 
 /// Keeps startup failures visible instead of leaving a blank canvas.
@@ -45,6 +69,11 @@ pub fn startup_error(message: &str) {
 /// A lightweight browser-visible measurement for comparing native and web FPS.
 pub fn report_performance(fps: f32, frames: u64, world_frames: u64) {
     record_performance(fps, frames, world_frames);
+}
+
+/// Requests a lock only in a browser gesture and reports actual capture state.
+pub fn capture_pointer(capture: bool) -> bool {
+    set_pointer_capture(capture)
 }
 #[derive(Deserialize)]
 struct ResourceIndex {
@@ -66,6 +95,19 @@ struct ResourceFile {
     path: String,
     bytes: u64,
     sha256: String,
+}
+#[derive(Deserialize)]
+struct SavedIndex {
+    schema: u32,
+    entries: BTreeMap<String, SavedEntry>,
+}
+#[derive(Deserialize)]
+struct SavedEntry {
+    kind: String,
+    #[serde(default)]
+    hash: String,
+    #[serde(default)]
+    bytes: u64,
 }
 fn json<T: serde::de::DeserializeOwned>(value: JsValue) -> Result<T, JsValue> {
     serde_json::from_str(
@@ -98,7 +140,7 @@ fn verify(bytes: &[u8], expected: &str) -> Result<(), JsValue> {
     Ok(())
 }
 
-/// Loads verified resources into the browser filesystem before the title starts.
+/// Loads verified resource bundles, then restores the browser's mutable files.
 /// Does not create a replacement title screen or start gameplay itself.
 pub async fn ready() -> Result<(), JsValue> {
     install_gpu_error_handling();
@@ -196,10 +238,125 @@ pub async fn ready() -> Result<(), JsValue> {
     if names.len() != index.file_count || expanded != index.expanded_bytes {
         return Err(fail("Incomplete game resources"));
     }
+    loading_status("Restoring local settings and saves…", 93.0);
+    let saved_json = load_saved_index().await?;
+    let restore_guard = RestoreGuard;
+    let saved: SavedIndex = json(saved_json)?;
+    if saved.schema != 1 || saved.entries.len() > 100_000 {
+        return Err(fail("Invalid saved-file index"));
+    }
+    let saved_total = saved
+        .entries
+        .values()
+        .try_fold(0_u64, |sum, entry| sum.checked_add(entry.bytes))
+        .ok_or_else(|| fail("Saved-file size overflow"))?;
+    if saved_total > 512 * 1024 * 1024 {
+        return Err(fail("Local saves exceed the browser memory budget"));
+    }
+    for (path, entry) in saved.entries {
+        if !path.starts_with('/')
+            || path == "/"
+            || path.starts_with("/resources/")
+            || path == "/resources"
+        {
+            return Err(fail("Invalid saved path"));
+        }
+        resource_path(path.trim_start_matches('/'))?;
+        match entry.kind.as_str() {
+            "directory" => fs::create_dir_all(&path).map_err(fail)?,
+            "file" => {
+                let bytes = load_saved_file(&entry.hash, entry.bytes as f64)
+                    .await?
+                    .dyn_into::<Uint8Array>()
+                    .map_err(|_| fail("Saved file response is not bytes"))?
+                    .to_vec();
+                if bytes.len() as u64 != entry.bytes {
+                    return Err(fail("Saved file size mismatch"));
+                }
+                verify(&bytes, &entry.hash)?;
+                fs::preload(&path, bytes).map_err(fail)?;
+            }
+            _ => return Err(fail("Invalid saved file kind")),
+        }
+    }
+    drop(restore_guard);
+    // Directory creation during restoration is already persisted in the catalog.
+    fs::drain_changes().map_err(fail)?;
     fs::create_dir_all("/tmp").map_err(fail)?;
     loading_status("Starting Horizon…", 100.0);
     Ok(())
 }
 
-/// Request capture in a browser gesture and return the actual current state.
-pub fn capture_pointer(capture: bool) -> bool { set_pointer_capture(capture) }
+thread_local! {
+    static FLUSHING: Cell<bool> = const { Cell::new(false) };
+    static PENDING: RefCell<Option<Vec<Change>>> = const { RefCell::new(None) };
+    static STARTED: Cell<bool> = const { Cell::new(false) };
+}
+fn field(object: &Object, name: &str, value: &JsValue) -> Result<(), JsValue> {
+    Reflect::set(object, &JsValue::from_str(name), value).map(|_| ())
+}
+fn batch(changes: &[Change]) -> Result<Array, JsValue> {
+    let values = Array::new();
+    for change in changes {
+        let value = Object::new();
+        let (path, operation) = match change {
+            Change::Write { path, bytes } => {
+                field(&value, "bytes", &Uint8Array::from(bytes.as_slice()))?;
+                (path, "write")
+            }
+            Change::CreateDir { path } => (path, "directory"),
+            Change::Remove { path } => (path, "remove"),
+        };
+        field(&value, "path", &JsValue::from_str(&path.to_string_lossy()))?;
+        field(&value, "op", &JsValue::from_str(operation))?;
+        values.push(&value);
+    }
+    Ok(values)
+}
+/// Commits the oldest pending batch; failed writes remain pending for retry.
+pub async fn flush_persistence() -> Result<(), JsValue> {
+    if FLUSHING.replace(true) {
+        return Err(fail("A local-storage checkpoint is already running"));
+    }
+    let result = async {
+        let changes = match PENDING.with(|p| p.borrow_mut().take()) {
+            Some(pending) => pending,
+            None => fs::drain_changes().map_err(fail)?,
+        };
+        if changes.is_empty() {
+            return Ok(());
+        }
+        let result = match batch(&changes) {
+            Ok(values) => persist_batch(&values).await.map(|_| ()),
+            Err(error) => Err(error),
+        };
+        if result.is_err() {
+            PENDING.with(|p| *p.borrow_mut() = Some(changes));
+        }
+        result
+    }
+    .await;
+    FLUSHING.set(false);
+    result
+}
+/// Starts serialized periodic checkpoints. Start once after `ready` succeeds.
+pub fn start_persistence() {
+    if STARTED.replace(true) {
+        return;
+    }
+    let callback = Closure::<dyn FnMut()>::new(|| {
+        if FLUSHING.get() {
+            return;
+        }
+        wasm_bindgen_futures::spawn_local(async {
+            match flush_persistence().await {
+                Ok(()) => persistence_healthy(),
+                Err(error) => {
+                    persistence_warning(&error.as_string().unwrap_or_else(|| format!("{error:?}")))
+                }
+            }
+        });
+    });
+    schedule_persistence(callback.as_ref().unchecked_ref());
+    callback.forget();
+}
