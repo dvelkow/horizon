@@ -357,6 +357,7 @@ impl Game<'_> {
             vz: p.velocity.z,
             on_ground: p.ground.on_ground,
             jumping: self.screen == Screen::Playing
+                && !self.remote.as_ref().is_some_and(|r| r.chat_input.is_some())
                 && self.keys.contains(&winit::keyboard::KeyCode::Space),
             steerable,
             lift_left: if p.ground.on_ground || !steerable {
@@ -490,6 +491,11 @@ impl Game<'_> {
                 }
             };
             // Not through system_message: a mod must not hear its own lines.
+            // On a server the chat on screen is the connection's.
+            if self.remote.is_some() {
+                self.chat_line(line.plain());
+                continue;
+            }
             let focused = self.screen == Screen::Chat;
             self.ui
                 .chat

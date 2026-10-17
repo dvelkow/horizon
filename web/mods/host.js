@@ -25,7 +25,7 @@ function pathName(path) {
 function manifest(entry) {
   const m = entry.manifest;
   if (!m || !/^[a-z0-9_]{1,64}$/.test(m.id) || entry.id !== m.id || !["0.1", "0.2"].includes(m.api)
-      || !Array.isArray(m.capabilities) || m.capabilities.some(c => !allowedCapabilities.has(c))) throw new Error("Invalid approved mod manifest");
+      || !Array.isArray(m.capabilities) || m.capabilities.some(c => typeof c !== "string" || !/^[a-z][a-z-]{0,31}$/.test(c))) throw new Error("Invalid approved mod manifest");
   if (typeof m.name !== "string" || !m.name || m.name.length > 128 || typeof m.version !== "string" || m.version.length > 64) throw new Error("Invalid approved mod identity");
   if (!hex(entry.sha256)) throw new Error("Invalid approved mod hash");
   const side = m.side ?? "client";
@@ -33,7 +33,10 @@ function manifest(entry) {
   if (entry.capabilities && JSON.stringify([...new Set(entry.capabilities)].sort()) !== JSON.stringify([...new Set(m.capabilities)].sort())) throw new Error("Published capability lists differ");
   return {id: m.id, name: m.name, version: m.version, api: m.api, side,
     description: clip(m.description ?? "", 4096), authors: Array.isArray(m.authors) ? m.authors.slice(0, 16).map(a => clip(a, 128)) : [],
-    capabilities: [...new Set(m.capabilities)]};
+    capabilities: [...new Set(m.capabilities)],
+    // A capability this page predates (a newer release went live): that mod
+    // waits for a reload instead of failing the whole index.
+    unsupported: m.capabilities.some(c => !allowedCapabilities.has(c))};
 }
 async function boundedFetch(url, limit) {
   const abort = new AbortController(); const timeout = setTimeout(() => abort.abort(), 30000);
@@ -215,6 +218,13 @@ class ModManager {
         const old = this.instances.get(id);
         if (old?.hash === row.entry.sha256 && ["running", "failed", "off"].includes(old.status)) continue;
         if (this.failedUpdates.get(id) === row.entry.sha256) continue;
+        if (row.manifest.unsupported) {
+          if (old) old.stop();
+          this.instances.set(id, {manifest: row.manifest, hash: row.entry.sha256, status: "off", error: "Needs a newer game: reload the page", panel: null, hooks: {commands: []}, stop() {}});
+          this.revision++;
+          if (old?.hash !== row.entry.sha256) this.addOutput([{kind: "feedback", text: `${row.manifest.name} needs a newer game: reload the page to use it`, error: true}]);
+          continue;
+        }
         if (row.manifest.side === "server" || row.manifest.capabilities.includes("registries")) {
           if (old) old.stop();
           this.instances.set(id, {manifest: row.manifest, hash: row.entry.sha256, status: "off", error: "Server/content mods require coordinated world support", panel: null, hooks: {commands: []}, stop() {}});

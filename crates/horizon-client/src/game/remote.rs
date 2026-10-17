@@ -2212,6 +2212,11 @@ impl Game<'_> {
             self.capture_loaded_world();
         }
         let stick = self.pad_move();
+        let nudge = if self.mods.mods.is_running() {
+            self.take_mod_nudge()
+        } else {
+            None
+        };
         let Some(player) = self.player.as_mut() else {
             return Ok(());
         };
@@ -2245,6 +2250,12 @@ impl Game<'_> {
         player.yaw = self.yaw;
         let dead = self.screen == Screen::Dead;
         if !dead {
+            // Mods' movement nudges (docs/mods.md), bounded, before the step.
+            if let Some(nudge) = nudge
+                && nudge.apply(player)
+            {
+                self.mods.lift_used += 1;
+            }
             MotionWorld {
                 entities: &ghast_collisions,
                 player,
@@ -2915,6 +2926,10 @@ impl Game<'_> {
             return;
         }
         if let Some(command) = message.strip_prefix('/') {
+            // A client mod's command runs in this game, as in single player.
+            if self.mod_command(command) {
+                return;
+            }
             self.send(S::ChatCommand(play::ChatCommand {
                 command: command.to_owned(),
             }));

@@ -3139,8 +3139,10 @@ impl Game<'_> {
         self.tick_debug_keys()?;
         self.tick_debug_charts();
         if self.remote.is_some() {
-            self.tick_remote()?;
+            // Before the movement step, as in single player: mods read the
+            // motion it starts from, and their nudges apply to it.
             self.tick_mods();
+            self.tick_remote()?;
             return Ok(());
         }
         // LevelLoadingScreen.tick.
