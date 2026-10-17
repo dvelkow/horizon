@@ -17,13 +17,14 @@ let pointerGesture = 0;
 let requestedPointerGesture = -1;
 let pointerWasCaptured = false;
 let pointerPauseRequested = false;
+let pointerFullscreenAttempted = false;
 
 function pointerHint(show) {
   let hint = document.getElementById("horizon-pointer-hint");
   if (!show) { hint?.remove(); return; }
   if (hint) return;
   hint = document.createElement("div"); hint.id = "horizon-pointer-hint";
-  hint.setAttribute("role", "status"); hint.textContent = "Click the game to look around. Press Esc to release the mouse.";
+  hint.setAttribute("role", "status"); hint.textContent = "Click the game to look around. Esc pauses. Hold Esc to leave fullscreen.";
   Object.assign(hint.style, {position: "fixed", bottom: "24px", left: "50%", transform: "translateX(-50%)", zIndex: "15",
     background: "#1b2d37e8", color: "white", padding: "12px 18px", borderRadius: "4px", font: "14px system-ui",
     pointerEvents: "none", maxWidth: "calc(100vw - 32px)", textAlign: "center"});
@@ -51,17 +52,51 @@ export function openModPortal() {
   // The portal uses the existing same-origin session; owner approval stays separate.
   window.open("/portal.html", "_blank", "noopener,noreferrer");
 }
+function syncEscapeKey() {
+  // Chrome reserves Escape in a normal tab. Fullscreen keyboard lock lets the
+  // game handle a short press while the browser keeps its hold-Escape exit.
+  // Keep it through the pause menu so the next Escape reaches the game too.
+  const keyboard = navigator.keyboard;
+  if (!keyboard?.lock) return;
+  if (document.fullscreenElement !== document.getElementById("horizon")) {
+    keyboard.unlock(); return;
+  }
+  pointerFullscreenAttempted = true;
+  try {
+    Promise.resolve(keyboard.lock(["Escape"])).then(() => {
+      if (document.fullscreenElement !== document.getElementById("horizon")) keyboard.unlock();
+    }).catch(() => { /* Permission denied: keep normal browser controls. */ });
+  } catch (_) { /* Unsupported by this browser or embedding. */ }
+}
+function enterGameFullscreen(canvas) {
+  // Only the first actual play gesture opts into fullscreen. F11 or holding
+  // Escape to leave must never cause an automatic fullscreen/re-lock loop.
+  if (pointerFullscreenAttempted || document.fullscreenElement || !navigator.userActivation?.isActive
+      || !navigator.keyboard?.lock || !canvas.requestFullscreen) return;
+  pointerFullscreenAttempted = true;
+  try { Promise.resolve(canvas.requestFullscreen()).catch(() => {}); }
+  catch (_) { /* Windowed play remains available. */ }
+}
 export function setPointerCapture(capture) {
   if (!pointerHandlersInstalled) {
     pointerHandlersInstalled = true;
     document.addEventListener("pointerlockchange", pointerChanged);
     document.addEventListener("pointerlockerror", () => { pointerPending = false; pointerChanged(); });
-    // One request per real canvas gesture prevents retry loops after Esc or a
-    // browser refusal. This capture listener runs before winit's input handler.
+    document.addEventListener("fullscreenchange", syncEscapeKey);
+    syncEscapeKey();
+    // Clicks and keyboard resumes are both gestures. Capture listeners run
+    // before winit; held keys and per-frame calls cannot create retry loops.
     document.addEventListener("pointerdown", event => {
       if (event.isTrusted && event.target === document.getElementById("horizon")) pointerGesture++;
     }, true);
+    document.addEventListener("keydown", event => {
+      if (event.isTrusted && !event.repeat && event.target === document.getElementById("horizon")) pointerGesture++;
+    }, true);
   }
+  // A menu-to-game transition is itself a new request. After exitPointerLock,
+  // browsers permit reacquiring without transient activation (Escape does not
+  // supply activation, and the player may have spent minutes in the menu).
+  if (capture === true && !pointerWanted) pointerGesture++;
   pointerWanted = capture === true;
   const canvas = document.getElementById("horizon");
   if (!pointerWanted) {
@@ -71,8 +106,9 @@ export function setPointerCapture(capture) {
   }
   if (pointerCaptured()) { pointerChanged(); return true; }
   pointerHint(true);
-  if (canvas && navigator.userActivation?.isActive && !pointerPending && requestedPointerGesture !== pointerGesture) {
+  if (canvas && document.hasFocus() && !pointerPending && requestedPointerGesture !== pointerGesture) {
     requestedPointerGesture = pointerGesture; pointerPending = true;
+    canvas.focus({preventScroll: true});
     try {
       Promise.resolve(canvas.requestPointerLock()).catch(() => {
         // A denied lock is an ordinary interaction state, never a game failure.
@@ -81,6 +117,8 @@ export function setPointerCapture(capture) {
         if (!pointerWanted && pointerCaptured()) document.exitPointerLock();
         pointerChanged();
       });
+      // Request pointer lock first: fullscreen consumes transient activation.
+      enterGameFullscreen(canvas);
     } catch (_) { pointerPending = false; pointerChanged(); }
   }
   // requestPointerLock is asynchronous. Report the actual browser state only.
