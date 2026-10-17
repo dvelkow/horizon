@@ -1,7 +1,7 @@
 # Playing and updating the hosted browser world
 
 Friends open the HTTPS play URL and sign in with Discord. On their first visit
-they choose an in-game name and a skin from the nine-character wardrobe, then
+they choose an in-game name and a wardrobe skin or link a Minecraft Java username, then
 join the native Horizon world. Returning players keep their profile and a
 remembered sign-in for 30 days; the Change skin button opens their wardrobe. Use a current desktop Chrome or Edge with
 WebGPU enabled. The first visit downloads the game and prepared resources;
@@ -292,10 +292,24 @@ configured. The hosted launcher has no invite form. During migration, preserve
 unclaimed, unprotected offline names can be claimed on the first Discord setup;
 reserve existing operator names before opening sign-in.
 
-The wardrobe uses nine wide-model skins already present in prepared game
-resources. Its preview textures are copied to `web/skins/`; the build and deploy
-allowlist carry those same files. Authenticated browsers refresh the public
-player-name/skin mapping every 15 seconds; it contains no Discord IDs or session
-credentials. The WASM client applies only allowlisted prepared textures to
-first-person hands, third-person/inventory avatars, remote players and tab-list
-faces. Native rendering behavior is unchanged.
+The wardrobe includes nine prepared skins and **Copy Minecraft skin**. Enter a
+Minecraft Java IGN and press Preview, then save the profile. This links the skin
+to that Minecraft username without changing the Modcraft IGN or world identity.
+Active links refresh against Mojang at most once per ten minutes; browsers poll
+the mapping every 15 seconds. Provider failures retain the last good skin and
+retry later. The linked username and last good image survive gateway restarts.
+
+The gateway resolves usernames and profiles only through Mojang's fixed HTTPS
+endpoints and reconstructs texture URLs on `textures.minecraft.net`. Redirects,
+arbitrary URLs, oversized responses and invalid PNGs are rejected. Legacy 64×32
+skins become normalized 64×64 PNGs; classic and slim models are supported. The
+authenticated preview endpoint is CSRF protected and limited to six lookups per
+account per minute, two concurrent provider lookups, 1,024 linked usernames and
+4,096 stored images. Immutable SHA-256 skin images and link metadata live under
+the private `player-skins/` directory; only validated PNG routes are served.
+
+Authenticated browsers refresh the UUID-to-skin mapping without Discord IDs or
+session credentials. Browser and Rust code verify imported skin hashes and size
+before adding them to bounded atlas slots. First-person arms, inventory and
+third-person models, remote players and tab-list faces use the selected skin.
+Native rendering behavior is unchanged.

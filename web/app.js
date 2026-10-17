@@ -5,6 +5,7 @@ const $ = id => document.getElementById(id);
 let session;
 let started = false;
 let skins = [], selectedSkin = 'steve', editing = false;
+let linkedSkin, lookingUp = false;
 function showError(message) { $("entry-error").textContent = message; $("entry-error").hidden = false; }
 function reportFailure(error) {
   const message = error?.message ?? String(error);
@@ -36,6 +37,10 @@ function showSession(value) {
   $("logout").hidden = !value.authenticated;
   $("session-name").textContent = value.name ?? "";
   if (value.authenticated) {
+    linkedSkin = value.customSkin;
+    $("linked-skin").hidden = !linkedSkin;
+    $("minecraft-name").value = linkedSkin?.name ?? '';
+    $("minecraft-skin-status").textContent = '';
     $("player-name").value = value.name ?? (value.displayName ?? '').replace(/[^A-Za-z0-9_]/g, '').slice(0, 16);
     $("player-name").readOnly = !!value.name;
     $("profile-title").textContent = value.name ? 'A fresh look.' : 'Make yourself at home.';
@@ -46,13 +51,28 @@ function showSession(value) {
 }
 async function selectSkin(id) {
   selectedSkin = id;
-  const skin = skins.find(s => s.id === id) ?? skins[0];
+  const skin = linkedSkin?.id === id ? linkedSkin : skins.find(s => s.id === id) ?? skins[0];
   if (!skin) return;
-  $("skin-name").textContent = skin.name;
+  $("skin-name").textContent = skin === linkedSkin ? `${skin.name}'s Minecraft skin` : skin.name;
+  $("linked-skin").setAttribute('aria-pressed', String(skin === linkedSkin));
   for (const button of $("skin-options").children) { const active = button.dataset.skin === id; button.setAttribute('aria-checked', String(active)); button.tabIndex = active ? 0 : -1; }
   const image = await skinImage(skin);
   if (selectedSkin !== id) return;
-  drawCharacter($("skin-preview"), image); drawCharacter($("saved-skin"), image);
+  drawCharacter($("skin-preview"), image, false, skin.model); drawCharacter($("saved-skin"), image, false, skin.model);
+}
+async function previewMinecraftSkin() {
+  if (lookingUp) return;
+  const name = $("minecraft-name").value.trim();
+  if (!/^[A-Za-z0-9_]{1,16}$/.test(name)) { $("minecraft-skin-status").textContent = 'Enter a Minecraft Java username (1–16 letters, numbers, or underscores).'; return; }
+  lookingUp = true; $("preview-minecraft-skin").disabled = true; $("save-profile").disabled = true;
+  $("minecraft-skin-status").textContent = 'Finding their skin…';
+  try {
+    const {skin} = await request('/api/skins/minecraft', {method:'POST',headers:{'Content-Type':'application/json','x-csrf-token':session.csrf},body:JSON.stringify({name})});
+    await skinImage(skin); linkedSkin = skin; $("linked-skin").hidden = false;
+    await selectSkin(skin.id);
+    $("minecraft-skin-status").textContent = `Linked to ${skin.name}. Save below to use this skin.`;
+  } catch(error) { $("minecraft-skin-status").textContent = error.message; }
+  finally { lookingUp = false; $("preview-minecraft-skin").disabled = false; $("save-profile").disabled = false; }
 }
 async function loadWardrobe() {
   ({skins} = await request('/api/skins'));
@@ -90,6 +110,9 @@ $("profile-form").addEventListener("submit", async event => {
 });
 $("skin-prev").addEventListener('click', () => cycleSkin(-1));
 $("skin-next").addEventListener('click', () => cycleSkin(1));
+$("preview-minecraft-skin").addEventListener('click', previewMinecraftSkin);
+$("minecraft-name").addEventListener('keydown', event => { if(event.key==='Enter') { event.preventDefault(); previewMinecraftSkin(); } });
+$("linked-skin").addEventListener('click', () => { if(linkedSkin) selectSkin(linkedSkin.id).catch(reportFailure); });
 $("edit-profile").addEventListener('click', () => { editing = true; showSession(session); });
 $("cancel-profile").addEventListener('click', () => { editing = false; showSession(session); });
 $("play").addEventListener("click", () => play().catch(reportFailure));

@@ -56,7 +56,7 @@ Create a JSON file readable only by the service account (`0600`), outside every 
 
 Configure Discord's authorization-code flow with the exact callback `${origin}/auth/discord/callback`. Request only `identify`; store the application secret in this private configuration. Generate a separate owner secret with `node hash-secret.mjs` on standard input and put only its scrypt hash in `adminHash`. Never put plaintext secrets in command arguments, committed files or browser configuration.
 
-Discord friend sessions use Secure, HttpOnly, SameSite=Strict cookies for 30 days. The one-time OAuth binding cookie uses SameSite=Lax so Discord's top-level callback can send it. Profiles and hashed session tokens persist atomically in private mode-0600 `accounts.json`; raw session tokens and Discord access tokens are not persisted. Owner sessions remain independent, twenty-minute, memory-only sessions. Every account must choose a case-insensitively unique, permanent IGN and one of the nine skin IDs before joining or uploading. Skins can be changed later.
+Discord friend sessions use Secure, HttpOnly, SameSite=Strict cookies for 30 days. The one-time OAuth binding cookie uses SameSite=Lax so Discord's top-level callback can send it. Profiles and hashed session tokens persist atomically in private mode-0600 `accounts.json`; raw session tokens and Discord access tokens are not persisted. Owner sessions remain independent, twenty-minute, memory-only sessions. Every account must choose a case-insensitively unique, permanent IGN and a wardrobe skin or previewed Minecraft username link before joining or uploading. Skins can be changed later.
 
 **`protectedNames` must include every operator name in the native server.** A matching name can only be claimed by `discord.ownerIds` or with an independently authenticated owner session. The native TCP server stays loopback-only. Installations without a `discord` configuration can still use the legacy `inviteHash` API; the hosted Discord launcher does not expose that flow. Configuring Discord disables legacy `/api/login`.
 
@@ -80,6 +80,8 @@ Every mutation requires the exact same Origin. Authenticated mutations also requ
 | `GET /auth/discord` | Public | Start the Discord authorization-code flow |
 | `GET /auth/discord/callback` | OAuth state + cookie | Consume the code and establish a remembered session |
 | `GET /api/skins` | Public | Nine wardrobe IDs and local preview URLs |
+| `POST /api/skins/minecraft` | Signed in + CSRF | `{name}` Minecraft Java IGN → `{skin}` live preview/link descriptor; six lookups/account/minute |
+| `GET /player-skins/mc_<model>_<sha256>.png` | Signed in | Bounded, normalized immutable skin image; no arbitrary file paths |
 | `POST /api/profile` | Signed in + CSRF | Claim a unique IGN once; choose/change an allowed skin |
 | `GET /api/players/skins` | Complete profile | UUID-to-IGN/skin mapping, without Discord IDs |
 | `POST /api/login` | Legacy only | Disabled (410) when Discord is configured |
@@ -151,3 +153,13 @@ The default network bounds are 32 concurrent WebSockets, four per friend session
 [Measured native-engine memory results](deploy/memory-results.md) document the compact gameplay loader's reduction from roughly 1,082 MiB to 556 MiB idle RSS with one worker. Those local idle results are separate from deployed two-player capacity.
 
 The provider implementation follows [Discord's OAuth2 authorization-code documentation](https://docs.discord.com/developers/topics/oauth2). The `discordFetch` dependency passed only by tests simulates Discord responses without adding an authentication bypass or configurable provider URL to production configuration.
+
+Minecraft skin links use `minecraft:<username>` in the saved profile, independently
+of the Modcraft IGN. Their latest texture descriptor is refreshed at most every
+ten minutes for connected players and polled by browsers every 15 seconds. Mojang
+outages keep the previous skin. Username/profile resolution and texture downloads
+use fixed HTTPS hosts with redirects disabled, response/time limits and PNG
+validation. The `pngjs` dependency normalizes legacy skins and strips extra image
+chunks. Private `player-skins/links` metadata and SHA-256 PNGs survive releases;
+include them in the same private-data backup as accounts. `minecraftFetch` is a
+test-only dependency injection argument, never a production configuration URL.

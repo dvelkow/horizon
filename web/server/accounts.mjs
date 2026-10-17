@@ -18,10 +18,11 @@ export function offlineUuid(name) {
 
 /** One gateway owns this atomic private store. Discord tokens are never saved. */
 export class Accounts {
-  constructor(root, { protectedNames = [], ownerIds = [] } = {}) {
+  constructor(root, { protectedNames = [], ownerIds = [], skinStore } = {}) {
     this.file = join(root, 'accounts.json'); this.tail = Promise.resolve();
     this.protectedNames = new Set(protectedNames.map(name => name.toLowerCase()));
     this.ownerIds = new Set(ownerIds);
+    this.skinStore = skinStore;
   }
   async init() {
     try { this.data = JSON.parse(await fs.readFile(this.file, 'utf8')); }
@@ -69,7 +70,8 @@ export class Accounts {
   delete(token) { return this.mutate(data => { if (token) delete data.sessions[digest(token)]; }); }
   async saveProfile(session, { name, skin }, owner = false) {
     if (typeof name !== 'string' || !/^[A-Za-z0-9_]{1,16}$/.test(name)) throw new ProfileError(400, 'Use 1–16 letters, numbers, or underscores for your in-game name');
-    if (!SKINS.includes(skin)) throw new ProfileError(400, 'Choose a skin from the wardrobe');
+    const customSkin = this.skinStore?.linked(skin);
+    if (!SKINS.includes(skin) && !customSkin) throw new ProfileError(400, 'Choose a wardrobe skin or preview a Minecraft username first');
     await this.mutate(data => {
       const user = data.users[session.discordId];
       if (!user) throw new ProfileError(401, 'Sign in with Discord again');
@@ -78,10 +80,12 @@ export class Accounts {
       if (!user.name && this.protectedNames.has(name.toLowerCase()) && !owner && !this.ownerIds.has(session.discordId)) throw new ProfileError(403, 'That name is reserved for the host');
       if (Object.values(data.users).some(other => other.discordId !== user.discordId && other.name?.toLowerCase() === name.toLowerCase())) throw new ProfileError(409, 'That name is already taken. Try another');
       user.name = name; user.skin = skin; user.uuid = offlineUuid(name); data.revision++;
+      if (customSkin) { user.customSkin = customSkin; user.minecraftName = customSkin.name; }
+      else { delete user.customSkin; delete user.minecraftName; }
     });
     return this.get(session.id);
   }
-  skins() {
-    return { revision: this.data.revision, players: Object.fromEntries(Object.values(this.data.users).filter(user => user.name).map(user => [user.uuid, { name: user.name, skin: user.skin }])) };
+  skins(activeNames = new Set()) {
+    return { revision: this.data.revision, players: Object.fromEntries(Object.values(this.data.users).filter(user => user.name).map(user => [user.uuid, { name: user.name, skin: this.skinStore?.latest(user.minecraftName,user.customSkin,activeNames.has(user.name))?.textureId ?? user.skin }])) };
   }
 }

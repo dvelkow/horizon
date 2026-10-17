@@ -19,7 +19,14 @@
         <fieldset class="wardrobe"><legend>Pick your look</legend>
           <div class="skin-stage"><button id="skin-prev" type="button" class="skin-arrow" aria-label="Previous skin">‹</button><canvas id="skin-preview" width="96" height="144" aria-label="Selected character preview"></canvas><button id="skin-next" type="button" class="skin-arrow" aria-label="Next skin">›</button></div>
           <p id="skin-name" role="status"></p><div id="skin-options" class="skin-options" role="radiogroup" aria-label="Character skins"></div>
+          <button id="linked-skin" type="button" class="quiet" hidden>Use linked Minecraft skin</button>
         </fieldset>
+        <details class="minecraft-skin"><summary>Copy Minecraft skin</summary>
+          <label for="minecraft-name">Minecraft Java username</label>
+          <div class="minecraft-lookup"><input id="minecraft-name" maxlength="16" autocomplete="off" spellcheck="false" placeholder="Enter their IGN"><button id="preview-minecraft-skin" type="button">Preview</button></div>
+          <small>Follows this player's Minecraft skin. Changes may take up to 10 minutes.</small>
+          <p id="minecraft-skin-status" role="status" aria-live="polite"></p>
+        </details>
         <button type="submit" id="save-profile" class="primary">That's me — let's play</button>
         <button id="cancel-profile" type="button" class="quiet" hidden>Back</button>
       </form>

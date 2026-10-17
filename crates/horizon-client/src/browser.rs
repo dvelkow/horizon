@@ -30,6 +30,10 @@ extern "C" {
     fn browser_options() -> Result<JsValue, JsValue>;
     #[wasm_bindgen(js_name = selectedPlayerSkin)]
     fn selected_player_skin(uuid: &str) -> String;
+    #[wasm_bindgen(js_name = requestPlayerSkin)]
+    fn request_player_skin(path: &str);
+    #[wasm_bindgen(js_name = takePlayerSkinTextures)]
+    fn take_player_skin_textures() -> Array;
     #[wasm_bindgen(catch, js_name = loadResourceIndex)]
     async fn load_resource_index() -> Result<JsValue, JsValue>;
     #[wasm_bindgen(catch, js_name = fetchVerified)]
@@ -54,13 +58,67 @@ extern "C" {
     fn schedule_persistence(callback: &js_sys::Function);
 }
 
-/// The hosted wardrobe only selects prepared wide-model textures. Never accept
-/// arbitrary URLs or resource paths from page state.
+thread_local! {
+    static READY_PLAYER_SKINS: RefCell<BTreeSet<String>> = const { RefCell::new(BTreeSet::new()) };
+}
+fn imported_skin_hash(path: &str) -> Option<&str> {
+    let value = path.strip_prefix("modcraft/skins/")?;
+    let (model, hash) = value.split_once('/')?;
+    (matches!(model, "wide" | "slim")
+        && hash.len() == 64
+        && hash
+            .bytes()
+            .all(|c| c.is_ascii_hexdigit() && !c.is_ascii_uppercase()))
+    .then_some(hash)
+}
+pub fn player_skin_ready(path: &str, ready: bool) {
+    READY_PLAYER_SKINS.with_borrow_mut(|skins| {
+        if ready {
+            skins.insert(path.to_owned());
+        } else {
+            skins.remove(path);
+        }
+    });
+}
+pub fn take_player_skins() -> Vec<(String, Vec<u8>)> {
+    take_player_skin_textures()
+        .iter()
+        .take(32)
+        .filter_map(|entry| {
+            let path = Reflect::get(&entry, &"path".into()).ok()?.as_string()?;
+            let hash = imported_skin_hash(&path)?;
+            let data = Reflect::get(&entry, &"bytes".into())
+                .ok()?
+                .dyn_into::<Uint8Array>()
+                .ok()?;
+            if data.length() > 64 * 1024 {
+                return None;
+            }
+            let bytes = data.to_vec();
+            if format!("{:x}", Sha256::digest(&bytes)) != hash
+                || bytes.get(..8)? != b"\x89PNG\r\n\x1a\n"
+                || bytes.get(16..24)? != [0, 0, 0, 64, 0, 0, 0, 64]
+            {
+                return None;
+            }
+            let (width, height, rgba) = crate::hud::decode_bytes(&bytes).ok()?;
+            (width == 64 && height == 64).then_some((path, rgba))
+        })
+        .collect()
+}
+/// Only prepared skins or verified, bounded textures on our own host.
 pub fn player_skin(uuid: Option<u128>) -> Option<String> {
     let key = uuid
         .map(|value| format!("{value:032x}"))
         .unwrap_or_default();
     let path = selected_player_skin(&key);
+    if imported_skin_hash(&path).is_some() {
+        if READY_PLAYER_SKINS.with_borrow(|skins| skins.contains(&path)) {
+            return Some(path);
+        }
+        request_player_skin(&path);
+        return None;
+    }
     let name = path.strip_prefix("entity/player/wide/")?;
     [
         "steve", "alex", "ari", "efe", "kai", "makena", "noor", "sunny", "zuri",

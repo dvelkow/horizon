@@ -689,6 +689,10 @@ pub struct Resources {
     threads: usize,
     player_arm: Option<horizon_client::mobs::Part>,
     player_type: Option<Arc<horizon_client::mobs::MobType>>,
+    #[cfg(target_arch = "wasm32")]
+    player_slim_model: Option<Arc<horizon_client::mobs::Part>>,
+    #[cfg(target_arch = "wasm32")]
+    player_slim_arm: Option<horizon_client::mobs::Part>,
     /// Enchantments, workstation recipes and brewing (game/stations.rs).
     stations: horizon_client::stations::StationData,
 }
@@ -7655,6 +7659,12 @@ impl Game<'_> {
                 let Some(arm) = self.res.player_arm.clone() else {
                     continue;
                 };
+                #[cfg(target_arch = "wasm32")]
+                let arm = if self.local_player_skin().starts_with("modcraft/skins/slim/") {
+                    self.res.player_slim_arm.clone().unwrap_or(arm)
+                } else {
+                    arm
+                };
                 let Some(r) = self.atlas.sprites.get(&self.local_player_skin()).copied() else {
                     continue;
                 };
@@ -10643,6 +10653,12 @@ pub fn run() -> Result<()> {
         mob_data,
         threads,
         player_type: perspective::player_type(&root),
+        #[cfg(target_arch = "wasm32")]
+        player_slim_model: horizon_client::mobs::load_model(&root, "minecraft:player_slim#main")
+            .map(Arc::new),
+        #[cfg(target_arch = "wasm32")]
+        player_slim_arm: horizon_client::mobs::load_model(&root, "minecraft:player_slim#main")
+            .and_then(|m| m.children.into_iter().find(|c| c.name == "right_arm")),
         player_arm: horizon_client::mobs::load_model(&root, "minecraft:player#main")
             .and_then(|m| m.children.into_iter().find(|c| c.name == "right_arm")),
     });
