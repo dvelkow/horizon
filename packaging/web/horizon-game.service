@@ -12,6 +12,8 @@ Environment=HORIZON_APPROVED_MODS=/var/lib/horizon-portal/approved-server
 Environment=MALLOC_ARENA_MAX=2
 Restart=on-failure
 RestartSec=5
+# Only the supervisor gets SIGTERM; it stops the game cleanly so players are saved.
+KillMode=mixed
 TimeoutStopSec=90
 UMask=0077
 NoNewPrivileges=true

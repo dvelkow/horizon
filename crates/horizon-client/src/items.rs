@@ -43,6 +43,64 @@ pub struct ToolRule {
     pub speed: Option<f32>,
     pub correct: Option<bool>,
 }
+/// A `ConsumeEffect` of `Consumable.onConsumeEffects`.
+#[derive(Clone, Debug, PartialEq)]
+pub enum ConsumeEffect {
+    /// ApplyStatusEffectsConsumeEffect: (effect id without namespace,
+    /// duration, amplifier), all applied together with this probability.
+    Apply {
+        effects: Vec<(String, i32, i32)>,
+        probability: f32,
+    },
+    /// RemoveStatusEffectsConsumeEffect (honey's poison cure).
+    Remove(Vec<String>),
+    /// ClearAllStatusEffectsConsumeEffect (milk).
+    ClearAll,
+    /// TeleportRandomlyConsumeEffect (chorus fruit): the diameter.
+    Teleport(f32),
+}
+impl ConsumeEffect {
+    /// The `on_consume_effects` list of a `minecraft:consumable` component.
+    pub fn parse(list: &Value) -> Vec<Self> {
+        let bare = |id: &str| id.trim_start_matches("minecraft:").to_owned();
+        let ids = |v: &Value| -> Vec<String> {
+            match v {
+                Value::String(id) => vec![bare(id)],
+                Value::Array(list) => list.iter().filter_map(Value::as_str).map(bare).collect(),
+                _ => Vec::new(),
+            }
+        };
+        list.as_array()
+            .into_iter()
+            .flatten()
+            .filter_map(|e| {
+                Some(match e["type"].as_str()?.trim_start_matches("minecraft:") {
+                    "apply_effects" => Self::Apply {
+                        effects: e["effects"]
+                            .as_array()
+                            .into_iter()
+                            .flatten()
+                            .filter_map(|x| {
+                                Some((
+                                    bare(x["id"].as_str()?),
+                                    x["duration"].as_i64().unwrap_or(0) as i32,
+                                    x["amplifier"].as_i64().unwrap_or(0) as i32,
+                                ))
+                            })
+                            .collect(),
+                        probability: e["probability"].as_f64().unwrap_or(1.0) as f32,
+                    },
+                    "remove_effects" => Self::Remove(ids(&e["effects"])),
+                    "clear_all_effects" => Self::ClearAll,
+                    "teleport_randomly" => {
+                        Self::Teleport(e["diameter"].as_f64().unwrap_or(16.0) as f32)
+                    }
+                    _ => return None,
+                })
+            })
+            .collect()
+    }
+}
 #[derive(Clone, Debug)]
 pub struct ItemInfo {
     pub fire_resistant: bool,
@@ -53,6 +111,11 @@ pub struct ItemInfo {
     pub tool: Vec<ToolRule>,
     pub tool_default_speed: f32,
     pub food: Option<(u32, f32)>,
+    /// `Consumable.onConsumeEffects`: what eating or drinking it does beyond
+    /// the food (rotten flesh's hunger, a golden apple's regeneration).
+    pub consume_effects: Vec<ConsumeEffect>,
+    /// `FoodProperties.canAlwaysEat`: eaten even when full (golden apples).
+    pub can_always_eat: bool,
     pub consumable: bool,
     pub model: String,
     /// Main-hand `attack_damage` / `attack_speed` modifier amounts.
@@ -440,6 +503,12 @@ impl Items {
                         .unwrap_or(1.0) as f32,
                     food,
                     consumable: c.get("minecraft:consumable").is_some(),
+                    consume_effects: ConsumeEffect::parse(
+                        &c["minecraft:consumable"]["on_consume_effects"],
+                    ),
+                    can_always_eat: c["minecraft:food"]["can_always_eat"]
+                        .as_bool()
+                        .unwrap_or(false),
                     model: c["minecraft:item_model"]
                         .as_str()
                         .unwrap_or(name)

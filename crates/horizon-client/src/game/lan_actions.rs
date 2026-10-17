@@ -555,16 +555,10 @@ impl Game<'_> {
             S::RenameItem(p) => self.lan_station_rename(host, conn, &p.name),
             S::SelectTrade(p) => self.lan_select_trade(host, conn, p.item),
             S::ContainerClose(p) if self.lan_merchant_closed(host, conn, Some(p.container)) => {
-                let g = &mut host.hub.guests[gi];
-                if let Some(c) = g.carried.take() {
-                    self.drop_guest_items(host, gi, vec![c]);
-                }
+                self.place_back_carried(host, conn);
             }
             S::ContainerClose(p) if self.lan_crafting_closed(host, conn, Some(p.container)) => {
-                let g = &mut host.hub.guests[gi];
-                if let Some(c) = g.carried.take() {
-                    self.drop_guest_items(host, gi, vec![c]);
-                }
+                self.place_back_carried(host, conn);
             }
             S::ContainerClose(p) if self.lan_station_closed(host, conn, Some(p.container)) => {}
             S::ContainerClick(p) => {
@@ -581,10 +575,7 @@ impl Game<'_> {
                     self.guest_container_closed(host, conn);
                 }
                 host.hub.container_closed(conn, p.container);
-                let g = &mut host.hub.guests[gi];
-                if let Some(c) = g.carried.take() {
-                    self.drop_guest_items(host, gi, vec![c]);
-                }
+                self.place_back_carried(host, conn);
             }
             S::ChatCommand(c) => self.guest_command(host, conn, &c.command),
             // A swing at nothing (attack missed): the arm swings for everyone
@@ -739,6 +730,20 @@ impl Game<'_> {
         Some(out)
     }
 
+    /// AbstractContainerMenu.removed: the stack on the cursor goes back into
+    /// the inventory (Inventory.placeItemBackInInventory); only what does
+    /// not fit is dropped.
+    fn place_back_carried(&mut self, host: &mut LanHost, conn: u32) {
+        let Some(gi) = host.hub.guests.iter().position(|g| g.conn == conn) else {
+            return;
+        };
+        let Some(carried) = host.hub.guests[gi].carried.take() else {
+            return;
+        };
+        if let Some(left) = self.as_guest(host, conn, |g| g.give(carried)).flatten() {
+            self.drop_guest_items(host, gi, vec![left]);
+        }
+    }
     pub(super) fn drop_guest_items(&mut self, host: &LanHost, gi: usize, stacks: Vec<ItemStack>) {
         let g = &host.hub.guests[gi];
         let eye = [
@@ -1086,6 +1091,9 @@ impl Game<'_> {
                 if self.ui.rules.bool("show_death_messages") {
                     host.hub.system_message(message);
                 }
+                // ServerPlayer.die: the guest's items spill where they fell.
+                let chest = [at[0], at[1] + 1.32, at[2]];
+                self.as_guest(host, conn, |g| g.drop_all_on_death(chest));
                 // LivingEntity.die: the death animation, the dying player included.
                 host.hub.entity_event(id, 3, at);
                 self.spawn_orbs(at, reward);

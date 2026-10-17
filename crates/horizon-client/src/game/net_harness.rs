@@ -87,7 +87,7 @@ impl Game<'_> {
         let chat: Vec<String> = self
             .remote
             .as_ref()
-            .map(|r| r.chat.iter().map(|(t, _)| t.clone()).collect())
+            .map(|r| r.chat.iter().map(|(t, ..)| super::remote::strip_codes(t)).collect())
             .unwrap_or_default();
         if self.remote.is_some() {
             self.leave_server(None)?;

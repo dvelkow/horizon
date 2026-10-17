@@ -2779,7 +2779,7 @@ impl Game<'_> {
             || !self
                 .player
                 .as_ref()
-                .is_some_and(|p| p.health.food.food < 20 || self.creative)
+                .is_some_and(|p| p.health.food.food < 20 || self.creative || info.can_always_eat)
         {
             return false;
         }
@@ -2905,6 +2905,7 @@ impl Game<'_> {
                 );
                 self.trigger_item("minecraft:consume_item", &stack);
                 self.consume_held();
+                self.apply_consume_effects(&info.consume_effects);
             }
         } else {
             self.using = Some((slot, ticks));
@@ -3497,27 +3498,35 @@ impl Game<'_> {
                 .experience
                 .death_reward(self.ui.rules.bool("keep_inventory") || self.spectator());
             self.spawn_orbs(feet, reward);
-            if !self.creative && !self.ui.rules.bool("keep_inventory") {
-                // Inventory.dropAll: slots 0..36, armor feet to head (36..39), off hand (40).
-                let mut stacks: Vec<ItemStack> =
-                    self.inventory.iter_mut().filter_map(Option::take).collect();
-                stacks.extend(self.armor.iter_mut().rev().filter_map(Option::take));
-                stacks.extend(self.offhand.take());
-                self.apply_equipment();
-                for stack in stacks {
-                    let r = &mut self.world.random;
-                    let strength = f64::from(r.next_float()) * 0.5;
-                    let angle = f64::from(r.next_float()) * std::f64::consts::TAU;
-                    let v = [-angle.sin() * strength, 0.2, angle.cos() * strength];
-                    self.spawn_item(stack, at, v, 40);
-                }
-            }
+            self.drop_all_on_death(at);
             self.audio
                 .play("minecraft:entity.player.death", Some(at), 1.0, 1.0);
             self.screen = Screen::Dead;
             self.capture(false);
         }
         self.tick_world(running)
+    }
+    /// Player.dropEquipment on death unless keep_inventory: Inventory.dropAll
+    /// throws every stack from `at` (the chest) in a random direction. Run
+    /// for a guest under `as_guest`, so it empties their inventory.
+    fn drop_all_on_death(&mut self, at: [f64; 3]) {
+        if self.creative || self.spectator() || self.ui.rules.bool("keep_inventory") {
+            return;
+        }
+        // Inventory.dropAll: slots 0..36, armor feet to head (36..39), off hand (40).
+        let mut stacks: Vec<ItemStack> =
+            self.inventory.iter_mut().filter_map(Option::take).collect();
+        stacks.extend(self.armor.iter_mut().rev().filter_map(Option::take));
+        stacks.extend(self.offhand.take());
+        stacks.extend(self.carried.take());
+        self.apply_equipment();
+        for stack in stacks {
+            let r = &mut self.world.random;
+            let strength = f64::from(r.next_float()) * 0.5;
+            let angle = f64::from(r.next_float()) * std::f64::consts::TAU;
+            let v = [-angle.sin() * strength, 0.2, angle.cos() * strength];
+            self.spawn_item(stack, at, v, 40);
+        }
     }
     /// What the tick runs after the local player's own update: effects, the
     /// world's entities and blocks, and the network hub.
@@ -8683,6 +8692,7 @@ impl Game<'_> {
         self.save_warden_tracker();
         self.sync_level();
         self.store_owner();
+        self.save_players();
         self.level.write(&self.world_root)?;
         self.save_world_state();
         self.message = Some(("Saved the game".into(), Instant::now()));

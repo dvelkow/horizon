@@ -637,6 +637,20 @@ impl Game<'_> {
         host.play.entry(conn).or_default().stats = stats;
     }
     /// The integrated server's owner into the world's player, for `Level::write`.
+    /// PlayerList.saveAll, part of every save (`save-all`, the autosave):
+    /// each player in their own file. An integrated server's owner is saved
+    /// with the world instead (`store_owner`); a guest still joining has
+    /// nothing new to save.
+    pub(super) fn save_players(&self) {
+        let Some(host) = &self.lan else {
+            return;
+        };
+        let owner = host.owner.as_ref().map(|o| o.uuid);
+        for g in host.hub.guests.iter().filter(|g| g.placed && Some(g.uuid) != owner) {
+            playerdata::save(g, &self.world_root);
+            self.save_guest_records(host, g);
+        }
+    }
     pub(super) fn store_owner(&mut self) {
         let Some(host) = &self.lan else {
             return;

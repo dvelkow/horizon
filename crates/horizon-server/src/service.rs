@@ -64,6 +64,8 @@ Type=simple
 {run_as}WorkingDirectory={dir}
 ExecStart=\"{program}\" --dir \"{dir}\" run
 # SIGTERM makes the supervisor stop the game cleanly; saving a big world takes a moment.
+# Only the supervisor gets it: a SIGTERM to the game itself would end it unsaved.
+KillMode=mixed
 TimeoutStopSec=180
 Restart=on-failure
 RestartSec=10

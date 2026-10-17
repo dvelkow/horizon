@@ -251,6 +251,42 @@ impl Game<'_> {
         }
         true
     }
+    /// `Consumable.onConsume`'s `ConsumeEffect.apply` for each effect of the
+    /// item just eaten, on the player eating (a guest under `as_guest`).
+    pub(super) fn apply_consume_effects(
+        &mut self,
+        effects: &[horizon_client::items::ConsumeEffect],
+    ) {
+        use horizon_client::items::ConsumeEffect;
+        for effect in effects {
+            match effect {
+                ConsumeEffect::Apply {
+                    effects,
+                    probability,
+                } => {
+                    // ApplyStatusEffectsConsumeEffect: one roll for the lot.
+                    if self.world.random.next_float() >= *probability {
+                        continue;
+                    }
+                    for (id, duration, amplifier) in effects {
+                        if let Some(def) = horizon_client::brewing::effect(id) {
+                            self.potions.effects.add(EffectInstance::new(
+                                def.id,
+                                *duration,
+                                *amplifier,
+                            ));
+                        }
+                    }
+                }
+                ConsumeEffect::Remove(ids) => {
+                    self.potions.effects.list.retain(|e| !ids.iter().any(|id| id == e.id));
+                }
+                ConsumeEffect::ClearAll => self.potions.effects.clear(),
+                // Chorus fruit's random teleport is not done yet.
+                ConsumeEffect::Teleport(_) => {}
+            }
+        }
+    }
     fn apply_effect_action(&mut self, action: EffectAction) {
         let creative = self.creative;
         let rules = self.world.health_rules;

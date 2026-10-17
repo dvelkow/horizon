@@ -35,7 +35,7 @@ use horizon_protocol::{
         play::{self, Clientbound as C, Serverbound as S},
     },
     registry::{Builtin, DimensionType, Dynamic, ceil_log2},
-    text::{Language, format_java, plain},
+    text::{Language, format_java, legacy, plain},
 };
 use horizon_world::{nbt::Tag, registry::BlockStateId};
 use std::{
@@ -134,7 +134,12 @@ pub(super) struct Remote {
     pending_items: HashMap<i32, PendingItem>,
     health: (f32, i32, f32),
     game_mode: i32,
-    pub chat: Vec<(String, Instant)>,
+    /// The chat: each line in legacy `§` colours, when it came, and what
+    /// hovering it shows.
+    pub chat: Vec<(String, Instant, Option<ChatHover>)>,
+    /// The message under the mouse while the chat is open (an index in
+    /// `chat`), from the last frame drawn.
+    chat_hovered: std::cell::Cell<Option<usize>>,
     pub chat_input: Option<String>,
     action_bar: Option<(String, Instant)>,
     players: HashMap<u128, String>,
@@ -162,6 +167,54 @@ pub(super) struct Remote {
     clock_rate: f32,
     /// `ClientChunkCache.Storage`'s view centre (ClientboundSetChunkCacheCenterPacket).
     chunk_center: (i32, i32),
+}
+
+/// What hovering a chat line shows, and whether clicking it opens the
+/// advancements (an advancement message).
+#[derive(Clone, Debug)]
+pub(super) struct ChatHover {
+    pub text: String,
+    pub advancement: bool,
+}
+
+/// `text` without its legacy `§` codes.
+pub(super) fn strip_codes(text: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+    let mut chars = text.chars();
+    while let Some(c) = chars.next() {
+        if c == '§' {
+            chars.next();
+        } else {
+            out.push(c);
+        }
+    }
+    out
+}
+
+/// The `§` codes in force at the end of `text`: its last colour and the
+/// formats set since, for a continued line.
+fn active_codes(text: &str) -> String {
+    let mut codes = String::new();
+    let mut chars = text.chars();
+    while let Some(c) = chars.next() {
+        if c != '§' {
+            continue;
+        }
+        let Some(code) = chars.next().map(|c| c.to_ascii_lowercase()) else {
+            break;
+        };
+        match code {
+            // A colour or a reset clears the formats.
+            '0'..='9' | 'a'..='f' => codes = format!("§{code}"),
+            'r' => codes.clear(),
+            'k'..='o' => {
+                codes.push('§');
+                codes.push(code);
+            }
+            _ => {}
+        }
+    }
+    codes
 }
 
 fn face_direction(face: [i32; 3]) -> u8 {
@@ -249,6 +302,7 @@ impl Game<'_> {
         );
         streaming.remote = true;
         streaming.radius = self.settings.render_distance;
+        self.remote_streaming_options(&mut streaming);
         self.streaming = streaming;
         self.world = World::new(self.res.facts.air, 0);
         self.save = Arc::new(SaveDir::new(
@@ -324,6 +378,7 @@ impl Game<'_> {
             health: (20.0, 20, 5.0),
             game_mode: 0,
             chat: Vec::new(),
+            chat_hovered: Default::default(),
             chat_input: None,
             action_bar: None,
             players: HashMap::new(),
@@ -500,9 +555,13 @@ impl Game<'_> {
         Some(stack)
     }
     pub(super) fn chat_line(&mut self, text: String) {
-        log::info!("[chat] {text}");
+        self.chat_line_with(text, None);
+    }
+    /// A chat line with what hovering it shows.
+    pub(super) fn chat_line_with(&mut self, text: String, hover: Option<ChatHover>) {
+        log::info!("[chat] {}", strip_codes(&text));
         if let Some(r) = self.remote.as_mut() {
-            r.chat.push((text, Instant::now()));
+            r.chat.push((text, Instant::now(), hover));
             if r.chat.len() > 100 {
                 r.chat.remove(0);
             }
@@ -512,7 +571,7 @@ impl Game<'_> {
     /// The server's last `n` chat lines, newest first.
     pub(super) fn remote_chat(&self, n: usize) -> Option<Vec<String>> {
         let r = self.remote.as_ref()?;
-        Some(r.chat.iter().rev().take(n).map(|l| l.0.clone()).collect())
+        Some(r.chat.iter().rev().take(n).map(|l| strip_codes(&l.0)).collect())
     }
 
     /// Process everything the network thread received (once per frame, like
@@ -609,6 +668,7 @@ impl Game<'_> {
             );
             streaming.remote = true;
             streaming.radius = self.streaming.radius;
+            self.remote_streaming_options(&mut streaming);
             self.streaming = streaming;
             let (time, day, weather) = (
                 self.world.game_time,
@@ -1120,6 +1180,7 @@ impl Game<'_> {
             C::Respawn(p) => {
                 // A new player, without effects: the server sends them again.
                 self.potions.effects.clear();
+                self.ui.died_at = None;
                 self.enter_remote_dimension(&p.spawn, true);
                 self.screen = Screen::Playing;
                 if let Some(r) = self.remote.as_mut() {
@@ -1550,6 +1611,8 @@ impl Game<'_> {
                 self.apply_remote_health();
                 if p.health <= 0.0 && self.screen != Screen::Dead && self.player.is_some() {
                     self.screen = Screen::Dead;
+                    // The death camera's clock (LivingEntity.deathTime).
+                    self.ui.died_at.get_or_insert_with(Instant::now);
                     self.capture(false);
                 }
             }
@@ -1559,7 +1622,7 @@ impl Game<'_> {
                     .as_ref()
                     .map(|r| r.lang.clone())
                     .unwrap_or_default();
-                let message = plain(&p.message, &lang);
+                let message = legacy(&p.message, &lang);
                 let me = self.remote.as_ref().is_some_and(|r| r.entity_id == p.id);
                 if let Some(r) = self.remote.as_mut() {
                     r.death_message = Some(message);
@@ -1568,6 +1631,7 @@ impl Game<'_> {
                 // screen, whatever health was last sent.
                 if me && self.screen != Screen::Dead && self.player.is_some() {
                     self.screen = Screen::Dead;
+                    self.ui.died_at.get_or_insert_with(Instant::now);
                     self.capture(false);
                 }
             }
@@ -1705,20 +1769,27 @@ impl Game<'_> {
                 }
             }
             C::SystemChat(p) => {
-                let text = plain(
-                    &p.content,
-                    &self
-                        .remote
-                        .as_ref()
-                        .map(|r| r.lang.clone())
-                        .unwrap_or_default(),
-                );
+                let lang = self
+                    .remote
+                    .as_ref()
+                    .map(|r| r.lang.clone())
+                    .unwrap_or_default();
+                let text = legacy(&p.content, &lang);
                 if p.overlay {
                     if let Some(r) = self.remote.as_mut() {
                         r.action_bar = Some((text, Instant::now()));
                     }
                 } else {
-                    self.chat_line(text);
+                    // An advancement's name shows its description on hover
+                    // and opens the advancements when clicked.
+                    let advancement = horizon_protocol::text::translate_key(&p.content)
+                        .is_some_and(|k| k.starts_with("chat.type.advancement."));
+                    let hover = horizon_protocol::text::hover(&p.content, &lang);
+                    let hover = (hover.is_some() || advancement).then(|| ChatHover {
+                        text: hover.unwrap_or_default(),
+                        advancement,
+                    });
+                    self.chat_line_with(text, hover);
                 }
             }
             C::PlayerChat(p) => {
@@ -1730,7 +1801,7 @@ impl Game<'_> {
                 let content = p
                     .unsigned_content
                     .as_ref()
-                    .map_or_else(|| p.content.clone(), |t| plain(t, &lang));
+                    .map_or_else(|| p.content.clone(), |t| legacy(t, &lang));
                 let line = self.format_chat(&p.chat_type, &content);
                 self.chat_line(line);
             }
@@ -1740,7 +1811,7 @@ impl Game<'_> {
                     .as_ref()
                     .map(|r| r.lang.clone())
                     .unwrap_or_default();
-                let content = plain(&p.message, &lang);
+                let content = legacy(&p.message, &lang);
                 let line = self.format_chat(&p.chat_type, &content);
                 self.chat_line(line);
             }
@@ -1953,7 +2024,7 @@ impl Game<'_> {
                     .as_ref()
                     .map(|r| r.lang.clone())
                     .unwrap_or_default();
-                let text = plain(&p.text, &lang);
+                let text = legacy(&p.text, &lang);
                 if let Some(r) = self.remote.as_mut() {
                     r.action_bar = Some((text, Instant::now()));
                 }
@@ -2958,6 +3029,15 @@ impl Game<'_> {
                 self.swing_arm();
                 return;
             }
+            // MultiPlayerGameMode.useItemOn: a block that is used (a crafting
+            // table, a chest, a door) takes the click: the hand swings and the
+            // held item is not used too. Sneaking with something in hand
+            // skips the block (Player.isSecondaryUseActive).
+            let holding = self.held().is_some() || self.offhand.is_some();
+            if self.interactive_block(hit.pos) && !(sneaking && holding) {
+                self.swing_arm();
+                return;
+            }
             // Minecraft.startUseItem tries the off hand when the main hand did
             // nothing: an off-hand torch beside a pickaxe. Blocks that are used
             // (chests, doors) took the main hand's click already.
@@ -3041,6 +3121,17 @@ impl Game<'_> {
             ]
             .iter()
             .any(|part| facts.name.contains(part))
+    }
+    /// The player's meshing options and the dimension's lighting for a
+    /// server's chunks, as the game's own worlds get them: smooth lighting,
+    /// biome blend, the leaves' mode, the Nether's sky.
+    fn remote_streaming_options(&self, streaming: &mut Streaming) {
+        streaming.biome_blend = self.settings.biome_blend;
+        streaming.smooth_lighting = self.settings.smooth_lighting;
+        streaming.cutout_leaves = self.settings.cutout_leaves;
+        streaming.cull_leaves = self.settings.horizon.cull_leaves;
+        streaming.sky_light = self.dim != Dim::Nether;
+        streaming.nether_shading = self.dim == Dim::Nether;
     }
     /// Options.broadcastOptions for a changed render distance: the client keeps
     /// within the server's view distance and tells the server what it wants.
@@ -3174,7 +3265,20 @@ impl Game<'_> {
     }
     /// Left click: attack the targeted entity (MultiPlayerGameMode.attack).
     pub(super) fn remote_mouse(&mut self, button: MouseButton, pressed: bool) -> Result<()> {
-        if self.remote.as_ref().is_some_and(|r| r.chat_input.is_some()) {
+        if let Some(r) = self.remote.as_mut()
+            && r.chat_input.is_some()
+        {
+            // Clicking an advancement message opens the advancements.
+            let advancement = r
+                .chat_hovered
+                .get()
+                .and_then(|i| r.chat.get(i))
+                .is_some_and(|(_, _, h)| h.as_ref().is_some_and(|h| h.advancement));
+            if pressed && button == MouseButton::Left && advancement {
+                r.chat_input = None;
+                r.chat_hovered.set(None);
+                self.open_advancements(false);
+            }
             return Ok(());
         }
         match button {
@@ -3244,6 +3348,11 @@ impl Game<'_> {
                 Ok(true)
             }
             KeyCode::KeyQ => {
+                // Minecraft.handleKeybinds: an empty hand drops nothing and
+                // does not swing (LocalPlayer.drop returns false).
+                if self.inventory[self.selected].is_none() {
+                    return Ok(true);
+                }
                 let all = self.keys.contains(&KeyCode::ControlLeft);
                 self.send(S::PlayerAction(play::PlayerAction {
                     action: if all { 4 } else { 5 },
@@ -3601,6 +3710,9 @@ impl Game<'_> {
             r.menu = None;
             r.menu_title = None;
         }
+        // The server puts the cursor's stack back into the inventory and
+        // sends the slots; nothing stays drawn under the mouse.
+        self.carried = None;
         // A trading window or workstation is the server's menu too.
         if self
             .station
@@ -3864,13 +3976,16 @@ impl Game<'_> {
                     continue;
                 }
                 if !line.is_empty() {
-                    lines.push(std::mem::take(&mut line));
+                    // A wrapped line goes on in the colour the last one ended in.
+                    let carry = active_codes(&line);
+                    lines.push(std::mem::replace(&mut line, carry));
                 }
                 for c in word.chars() {
                     line.push(c);
-                    if HudBatch::text_width(atlas, &line) > max && line.chars().count() > 1 {
+                    if HudBatch::text_width(atlas, &line) > max && strip_codes(&line).chars().count() > 1 {
                         line.pop();
-                        lines.push(std::mem::take(&mut line));
+                        let carry = active_codes(&line);
+                        lines.push(std::mem::replace(&mut line, carry));
                         line.push(c);
                     }
                 }
@@ -3894,7 +4009,8 @@ impl Game<'_> {
         // screen's if narrower) and the line count is what is limited.
         let width = 320f32.min(w - 4.0);
         let mut lines_left = shown;
-        'messages: for (text, at) in r.chat.iter().rev() {
+        let mut hovered = None;
+        'messages: for (index, (text, at, hover)) in r.chat.iter().enumerate().rev() {
             let age = now.duration_since(*at);
             // Lines fade out after ten seconds unless the chat is open.
             let alpha = if open {
@@ -3920,8 +4036,24 @@ impl Game<'_> {
                     rgba(0, 0, 0, (alpha * 128.0) as u8),
                 );
                 batch.text(atlas, line, 4.0, y, rgba(255, 255, 255, a), true);
+                let (cx, cy) = self.cursor;
+                if open && hover.is_some() && cx >= 2.0 && cx < 2.0 + width && cy >= y - 1.0 && cy < y + 8.0 {
+                    hovered = Some(index);
+                }
                 y -= 9.0;
             }
+        }
+        r.chat_hovered.set(hovered);
+        if let Some((_, _, Some(hover))) = hovered.and_then(|i| r.chat.get(i))
+            && !hover.text.is_empty()
+        {
+            // Lines carry their colour over, as in the chat.
+            let mut lines: Vec<(String, u32)> = Vec::new();
+            for part in hover.text.split('\n') {
+                let carry = lines.last().map(|(l, _)| active_codes(l)).unwrap_or_default();
+                lines.push((format!("{carry}{part}"), u32::MAX));
+            }
+            self.draw_tooltip_lines(batch, &lines, self.cursor.0, self.cursor.1);
         }
         if let Some(input) = &r.chat_input {
             batch.fill(atlas, 2.0, h - 14.0, w - 4.0, 12.0, rgba(0, 0, 0, 128));
@@ -4010,7 +4142,7 @@ impl Game<'_> {
             "health": r.health.0,
             "food": r.health.1,
             "decode_errors": r.decode_errors,
-            "chat": r.chat.iter().rev().take(10).rev().map(|(t, _)| t.clone()).collect::<Vec<_>>(),
+            "chat": r.chat.iter().rev().take(10).rev().map(|(t, ..)| strip_codes(t)).collect::<Vec<_>>(),
         }))
     }
 }
