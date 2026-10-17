@@ -7988,6 +7988,9 @@ impl Game<'_> {
                 .clamp_gui_scale([r.config.width as i32, r.config.height as i32]);
         }
         self.streaming.radius = self.settings.render_distance;
+        // Online: the server's view distance bounds it, and the server hears
+        // of the change (Options.broadcastOptions).
+        self.remote_render_distance();
         // Options.biomeBlendRadius, ambientOcclusion and cutoutLeaves:
         // LevelExtractor.allChanged when they change.
         let (s, st) = (&self.settings, &self.streaming);
@@ -10686,7 +10689,14 @@ pub fn run() -> Result<()> {
     {
         horizon_client::ui_theme::set_style(horizon_client::ui_theme::MenuStyle::Classic);
     }
-    if let Some(d) = options.distance_override {
+    // In the browser `--render-distance` is only the first visit's default:
+    // a distance the player chose and saved in options.txt wins.
+    let saved_distance = cfg!(target_arch = "wasm32")
+        && std::fs::read_to_string(std::env::current_dir()?.join("options.txt"))
+            .is_ok_and(|t| t.lines().any(|l| l.starts_with("renderDistance:")));
+    if let Some(d) = options.distance_override
+        && !saved_distance
+    {
         settings.render_distance = d;
     }
     // The browser event loop outlives this function. Collision and movement

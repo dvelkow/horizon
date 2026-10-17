@@ -6,7 +6,7 @@ bind = "127.0.0.1"
 max_players = 8
 online_mode = false
 whitelist = false
-view_distance = 4
+view_distance = 6
 simulation_distance = 3
 
 [world]

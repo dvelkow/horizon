@@ -98,6 +98,8 @@ pub(super) struct Remote {
     biome_map: Vec<u16>,
     biome_bits: u8,
     view_distance: i32,
+    /// The render distance last told to the server (ClientInformation).
+    sent_view_distance: i32,
     sequence: i32,
     last_pos: [f64; 3],
     last_rot: (f32, f32),
@@ -297,6 +299,7 @@ impl Game<'_> {
             biome_map: Vec::new(),
             biome_bits: 7,
             view_distance: self.settings.render_distance,
+            sent_view_distance: 0,
             sequence: 0,
             last_pos: [0.0; 3],
             last_rot: (0.0, 0.0),
@@ -1097,10 +1100,12 @@ impl Game<'_> {
                 self.streaming.radius =
                     self.settings.render_distance.min(p.chunk_radius + 1).max(2);
                 self.enter_remote_dimension(&p.spawn, false);
+                let wanted = self.settings.render_distance.clamp(2, 32);
+                if let Some(r) = self.remote.as_mut() {
+                    r.sent_view_distance = wanted;
+                }
                 self.send(S::ClientInformation(
-                    horizon_protocol::packets::configuration::ClientInformation::new(
-                        self.settings.render_distance.clamp(2, 32) as i8,
-                    ),
+                    horizon_protocol::packets::configuration::ClientInformation::new(wanted as i8),
                 ));
             }
             C::Respawn(p) => {
@@ -3006,6 +3011,21 @@ impl Game<'_> {
             ]
             .iter()
             .any(|part| facts.name.contains(part))
+    }
+    /// Options.broadcastOptions for a changed render distance: the client keeps
+    /// within the server's view distance and tells the server what it wants.
+    pub(super) fn remote_render_distance(&mut self) {
+        let wanted = self.settings.render_distance.clamp(2, 32);
+        let Some(r) = self.remote.as_mut() else {
+            return;
+        };
+        self.streaming.radius = wanted.min(r.view_distance + 1).max(2);
+        if r.sent_view_distance != wanted {
+            r.sent_view_distance = wanted;
+            self.send(S::ClientInformation(
+                horizon_protocol::packets::configuration::ClientInformation::new(wanted as i8),
+            ));
+        }
     }
     /// The crack drawn this frame: the player's own, else the latest of other
     /// players' (the renderer draws one; vanilla forgets one after 400 ticks).
