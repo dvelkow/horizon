@@ -5231,6 +5231,17 @@ impl Game<'_> {
         let Some((ty, slots)) = self.inv_drag.take() else {
             return;
         };
+        // Online the server's menu runs the drag: vanilla's QUICK_CRAFT clicks.
+        if self.remote.is_some() {
+            match slots.as_slice() {
+                [] => {}
+                [slot] => {
+                    self.remote_slot_click(*slot, ty as i8, 0);
+                }
+                _ => self.remote_quick_craft(ty, &slots),
+            }
+            return;
+        }
         if slots.len() == 1 {
             if !self.menu_click(Some(slots[0]), ty, Input::Pickup) {
                 self.click_inventory(ty == 1);

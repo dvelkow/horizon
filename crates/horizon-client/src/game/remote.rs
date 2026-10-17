@@ -3387,24 +3387,47 @@ impl Game<'_> {
     /// (`input` is the ContainerInput ordinal). False when the menu has no
     /// such slot.
     pub(super) fn remote_slot_click(&mut self, internal: usize, button: i8, input: i32) -> bool {
-        let (container, menu) = match self.remote.as_ref().and_then(|r| r.menu.clone()) {
-            Some((id, name)) => (id, name),
-            None => (0, "inventory".to_owned()),
+        let menu = match self.remote.as_ref().and_then(|r| r.menu.clone()) {
+            Some((_, name)) => name,
+            None => "inventory".to_owned(),
         };
         let slot = (0..64).find(|&s| Self::menu_slot(&menu, s) == Some(internal));
         let Some(slot) = slot else { return false };
+        self.remote_menu_click(slot as i16, button, input);
+        true
+    }
+    /// A `ContainerClick` on network slot `slot` of the open menu (-999: none).
+    fn remote_menu_click(&mut self, slot: i16, button: i8, input: i32) {
+        let container = self
+            .remote
+            .as_ref()
+            .and_then(|r| r.menu.as_ref())
+            .map_or(0, |m| m.0);
         let carried = self.to_network(&self.carried).map(|s| Hashed::of(&s));
         let state = self.remote.as_ref().map_or(0, |r| r.state_id);
         self.send(S::ContainerClick(play::ContainerClick {
             container,
             state,
-            slot: slot as i16,
+            slot,
             button,
             input,
             changed: Vec::new(),
             carried,
         }));
-        true
+    }
+    /// AbstractContainerScreen.mouseReleased's quick craft: a left drag
+    /// (`ty` 0) spreads the stack evenly, a right drag (1) one item a slot.
+    /// The server's menu answers with the slots.
+    pub(super) fn remote_quick_craft(&mut self, ty: i32, slots: &[usize]) {
+        // ContainerInput.QUICK_CRAFT; the button is the header (start, add,
+        // end) with the drag type above it (AbstractContainerMenu.getQuickcraftMask).
+        const QUICK_CRAFT: i32 = 5;
+        let mask = |header: i32| (header | (ty << 2)) as i8;
+        self.remote_menu_click(-999, mask(0), QUICK_CRAFT);
+        for &slot in slots {
+            self.remote_slot_click(slot, mask(1), QUICK_CRAFT);
+        }
+        self.remote_menu_click(-999, mask(2), QUICK_CRAFT);
     }
     /// The server's open menu is the inventory or a chest-like container
     /// (chests, barrels, ender chests: `generic_9xN`; shulker boxes).
