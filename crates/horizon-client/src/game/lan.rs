@@ -51,6 +51,8 @@ pub(super) struct LanHost {
     pub models: HashMap<u32, Mob>,
     host_mode: i32,
     pub play: HashMap<u32, super::lan_actions::GuestPlay>,
+    /// SleepStatus.amountSleeping when it was last announced.
+    pub sleepers: usize,
     /// Blocks broken this tick (their sound is a level event for the guests).
     pub broken: Vec<[f64; 3]>,
     /// Hurt and death state of the mobs guests see.
@@ -505,6 +507,7 @@ impl Game<'_> {
             models: HashMap::new(),
             host_mode: self.mode_id(),
             play: HashMap::new(),
+            sleepers: 0,
             broken: Vec::new(),
             mob_state: HashMap::new(),
             mob_players: HashMap::new(),

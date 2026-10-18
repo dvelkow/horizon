@@ -22,6 +22,7 @@ use horizon_core::geometry::Vec3;
 #[cfg(target_arch = "wasm32")]
 use horizon_platform as std;
 use horizon_protocol::{
+    entity_data::{Value, serializer},
     packets::play::{self, Clientbound as C, Serverbound as S},
     text::literal,
 };
@@ -196,8 +197,24 @@ impl Game<'_> {
         self.update_totem_ready();
         // A bed the guest uses is their own respawn point, not the world's.
         let world_spawn = (self.spawn, self.level.spawn, self.respawn_config.take());
+        // Sleeping and the status line are the guest's while they act.
+        let host_sleep = (self.sleeping.take(), self.message.take());
 
         let result = f(self);
+        let slept = std::mem::replace(&mut self.sleeping, host_sleep.0);
+        if let Some((text, _)) = std::mem::replace(&mut self.message, host_sleep.1) {
+            // Player.displayClientMessage(…, true): the action bar.
+            host.hub.send_to(
+                conn,
+                &C::SystemChat(play::SystemChat {
+                    content: horizon_protocol::text::literal(&text),
+                    overlay: true,
+                }),
+            );
+        }
+        if let Some((head, _)) = slept {
+            self.guest_start_sleeping(host, i, head);
+        }
         if self.spawn != world_spawn.0 {
             if let Some(bed) = self.spawn {
                 let head = [
@@ -415,6 +432,143 @@ impl Game<'_> {
         {
             self.container_openers_changed(pos, false);
         }
+    }
+
+    /// ServerPlayer.startSleepInBed for a guest the bed accepted: they lie on
+    /// it (pose and sleeping position, their own client included) and count
+    /// for skipping the night.
+    fn guest_start_sleeping(&mut self, host: &mut LanHost, i: usize, head: [i32; 3]) {
+        let g = &mut host.hub.guests[i];
+        g.sleeping = true;
+        g.sleep_pos = Some(head);
+        g.sleep_ticks = 0;
+        let (id, conn) = (g.entity_id, g.conn);
+        let at = [
+            f64::from(head[0]) + 0.5,
+            f64::from(head[1]) + 0.5625,
+            f64::from(head[2]) + 0.5,
+        ];
+        host.hub.guests[i].position = at;
+        if let Some(m) = host.hub.guests[i].motion.as_mut() {
+            m.position = Vec3::new(at[0], at[1], at[2]);
+            m.velocity = Vec3::new(0.0, 0.0, 0.0);
+        }
+        host.hub.send_to(
+            conn,
+            &C::SetEntityData(play::SetEntityData {
+                id,
+                values: vec![
+                    (6, serializer::POSE, Value::Id(2)),
+                    (14, serializer::OPTIONAL_BLOCK_POS, Value::OptPos(Some(head))),
+                ],
+            }),
+        );
+    }
+
+    /// Player.stopSleepInBed for a guest: they stand, everyone sees them wake
+    /// (ClientboundAnimatePacket WAKE_UP).
+    fn guest_wake(&mut self, host: &mut LanHost, i: usize) {
+        let g = &mut host.hub.guests[i];
+        g.sleeping = false;
+        g.sleep_pos = None;
+        g.sleep_ticks = 0;
+        let (id, conn, at) = (g.entity_id, g.conn, g.position);
+        host.hub
+            .broadcast_near(at, 128.0, &C::Animate(play::Animate { id, action: 0 }), None);
+        host.hub.send_to(
+            conn,
+            &C::SetEntityData(play::SetEntityData {
+                id,
+                values: vec![
+                    (6, serializer::POSE, Value::Id(0)),
+                    (14, serializer::OPTIONAL_BLOCK_POS, Value::OptPos(None)),
+                ],
+            }),
+        );
+    }
+
+    /// ServerLevel.tick's sleeping: players leave beds that went, by dying or
+    /// by their own choice; once enough of them (players_sleeping_percentage)
+    /// have slept 100 ticks the night is skipped and everyone wakes.
+    fn guest_sleep_tick(&mut self, host: &mut LanHost) {
+        let woke: Vec<usize> = host
+            .hub
+            .guests
+            .iter()
+            .enumerate()
+            .filter(|(_, g)| {
+                g.sleep_pos.is_some_and(|b| {
+                    !g.sleeping
+                        || g.dead
+                        || !self
+                            .res
+                            .facts
+                            .get(self.world.block(b[0], b[1], b[2]))
+                            .name
+                            .ends_with("_bed")
+                })
+            })
+            .map(|(i, _)| i)
+            .collect();
+        for i in woke {
+            self.guest_wake(host, i);
+        }
+        for g in host.hub.guests.iter_mut().filter(|g| g.sleep_pos.is_some()) {
+            g.sleep_ticks = (g.sleep_ticks + 1).min(100);
+        }
+        // SleepStatus.update: the players who are not spectators.
+        let players: Vec<_> = host
+            .hub
+            .guests
+            .iter()
+            .filter(|g| g.placed && !g.spectator())
+            .collect();
+        let sleeping = players.iter().filter(|g| g.sleep_pos.is_some()).count();
+        let deep = players.iter().filter(|g| g.sleep_ticks >= 100).count();
+        let percentage = self.ui.rules.int("players_sleeping_percentage").max(0) as usize;
+        let needed = (players.len() * percentage).div_ceil(100).max(1);
+        if sleeping != host.sleepers {
+            host.sleepers = sleeping;
+            // ServerLevel.announceSleepStatus, on everyone's action bar.
+            if sleeping > 0 {
+                let text = if sleeping >= needed {
+                    horizon_protocol::text::translatable("sleep.skipping_night", &[])
+                } else {
+                    horizon_protocol::text::translatable(
+                        "sleep.players_sleeping",
+                        &[&sleeping.to_string(), &needed.to_string()],
+                    )
+                };
+                for g in &host.hub.guests {
+                    g.send(&C::SystemChat(play::SystemChat {
+                        content: text.clone(),
+                        overlay: true,
+                    }));
+                }
+            }
+        }
+        if sleeping == 0 || sleeping < needed || deep < needed {
+            return;
+        }
+        // The morning: the next day's 0, clear skies, everyone up.
+        if self.ui.rules.bool("advance_time") {
+            let t = self.world.day_time + 24000;
+            self.world.day_time = t - t.rem_euclid(24000);
+        }
+        if self.ui.rules.bool("advance_weather") && self.world.weather.raining {
+            let w = &mut self.world.weather;
+            w.raining = false;
+            w.thundering = false;
+            w.rain_time = 0;
+            w.thunder_time = 0;
+        }
+        let asleep: Vec<usize> = (0..host.hub.guests.len())
+            .filter(|&i| host.hub.guests[i].sleep_pos.is_some())
+            .collect();
+        for i in asleep {
+            self.guest_wake(host, i);
+        }
+        host.sleepers = 0;
     }
 
     /// ExperienceOrb.playerTouch for a guest: everyone sees the orb fly to
@@ -1091,6 +1245,7 @@ impl Game<'_> {
 
     /// Per tick, for every guest: dig, use items, pick up drops, die.
     pub(super) fn tick_guests(&mut self, host: &mut LanHost) {
+        self.guest_sleep_tick(host);
         self.lan_merchant_tick(host);
         self.lan_stations_tick(host);
         self.announce_guest_advancements(host);

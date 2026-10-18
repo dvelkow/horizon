@@ -1440,6 +1440,14 @@ impl Game<'_> {
                 }
             }
             C::SetEntityData(p) => {
+                // LivingEntity.SLEEPING_POS_ID on this player: in bed or up.
+                if self.remote.as_ref().is_some_and(|r| r.entity_id == p.id) {
+                    for (index, _, value) in &p.values {
+                        if let (14, Value::OptPos(pos)) = (index, value) {
+                            self.sleeping = pos.map(|head| (head, 0));
+                        }
+                    }
+                }
                 // ExperienceOrb.DATA_VALUE: the orb's size.
                 if let Some(o) = self.orbs.iter_mut().find(|o| o.id == p.id as u32) {
                     for (index, _, value) in &p.values {
@@ -2477,8 +2485,19 @@ impl Game<'_> {
         let Some(player) = self.player.as_mut() else {
             return Ok(());
         };
+        // LocalPlayer in bed (the server's sleeping position): held on it,
+        // no steps of its own until it gets up.
+        let asleep = self.sleeping;
+        if let Some((head, _)) = asleep {
+            player.position = Vec3::new(
+                f64::from(head[0]) + 0.5,
+                f64::from(head[1]) + 0.5625,
+                f64::from(head[2]) + 0.5,
+            );
+            player.velocity = Vec3::new(0.0, 0.0, 0.0);
+        }
         let chatting = self.remote.as_ref().is_some_and(|r| r.chat_input.is_some());
-        let playing = self.screen == Screen::Playing && !chatting;
+        let playing = self.screen == Screen::Playing && !chatting && asleep.is_none();
         let held = |k| playing && self.keys.contains(&k);
         let keys = Keys {
             forward: held(KeyCode::KeyW),
@@ -2517,7 +2536,7 @@ impl Game<'_> {
             })
             .and_then(|s| self.res.items.get(&s.item))
             .map(|i| i.use_speed);
-        let dead = self.screen == Screen::Dead;
+        let dead = self.screen == Screen::Dead || asleep.is_some();
         if !dead {
             // Mods' movement nudges (docs/mods.md), bounded, before the step.
             if let Some(nudge) = nudge
@@ -2590,6 +2609,24 @@ impl Game<'_> {
                 self.use_delay = 4;
             }
             self.tick_remote_using();
+        }
+        // InBedChatScreen's Leave Bed (sneaking here, as in single player):
+        // ServerboundPlayerCommandPacket STOP_SLEEPING.
+        if let Some((head, ticks)) = self.sleeping {
+            let leave = self.screen == Screen::Playing
+                && !chatting
+                && self.keys.contains(&KeyCode::ShiftLeft);
+            if leave {
+                let id = self.remote.as_ref().map_or(0, |r| r.entity_id);
+                self.send(S::PlayerCommand(play::PlayerCommand {
+                    id,
+                    action: 0,
+                    data: 0,
+                }));
+                self.sleeping = None;
+            } else {
+                self.sleeping = Some((head, ticks.saturating_add(1)));
+            }
         }
         self.remote_send_state(input);
         self.send(S::ClientTickEnd(Empty));

@@ -106,6 +106,10 @@ pub struct Guest {
     pub ender_items: Vec<Option<ItemStack>>,
     /// ServerPlayer.respawnConfig: the head of the bed they last used, if any.
     pub respawn_bed: Option<[i32; 3]>,
+    /// LivingEntity.getSleepingPos: the bed they lie in, and
+    /// Player.sleepCounter: how long they have slept (100 is deep sleep).
+    pub sleep_pos: Option<[i32; 3]>,
+    pub sleep_ticks: u32,
     pub health: f32,
     pub food: i32,
     pub saturation: f32,
@@ -217,6 +221,8 @@ impl Guest {
             craft_result: None,
             ender_items: vec![None; 27],
             respawn_bed: None,
+            sleep_pos: None,
+            sleep_ticks: 0,
             health: 20.0,
             food: 20,
             saturation: 5.0,
