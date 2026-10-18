@@ -978,6 +978,67 @@ impl Game<'_> {
                     &[lit(&name)],
                 ));
             }
+            // No vanilla command: full health and hunger for an online player.
+            "heal" if rest.len() == 1 => {
+                let Some(h) = self.lan.as_mut() else {
+                    return;
+                };
+                let Some(g) = h
+                    .hub
+                    .guests
+                    .iter_mut()
+                    .find(|g| g.name.eq_ignore_ascii_case(rest[0]) && !g.dead)
+                else {
+                    self.console_reply(Text::translate("argument.entity.notfound.player", &[]));
+                    return;
+                };
+                let name = g.name.clone();
+                let max = g
+                    .motion
+                    .as_mut()
+                    .and_then(|m| m.attribute("minecraft:max_health").ok())
+                    .map_or(20.0, |v| v as f32);
+                (g.health, g.food, g.saturation) = (max, 20, 5.0);
+                if let Some(m) = g.motion.as_mut() {
+                    let _ = m.set_health(max, false);
+                    m.health.food.food = 20;
+                    m.health.food.saturation = 5.0;
+                }
+                self.console_reply(Text::literal(format!("Healed {name}")));
+            }
+            // `as PLAYER COMMAND`: a command run as an online player (their @s,
+            // position and rotation) with the console's permission, since the
+            // console's selectors do not reach players connected here.
+            "as" if rest.len() >= 2 => {
+                let Some(mut host) = self.lan.take() else {
+                    return;
+                };
+                let conn = host
+                    .hub
+                    .guests
+                    .iter()
+                    .find(|g| g.name.eq_ignore_ascii_case(rest[0]))
+                    .map(|g| g.conn);
+                let Some(conn) = conn else {
+                    self.lan = Some(host);
+                    self.console_reply(Text::translate("argument.entity.notfound.player", &[]));
+                    return;
+                };
+                let command = rest[1..].join(" ");
+                let lines = self
+                    .as_guest(&mut host, conn, |g| {
+                        g.chat_capture = Some(Vec::new());
+                        let level = std::mem::replace(&mut g.ui.registries.permission, 4);
+                        g.run_command(command.trim_start_matches('/'));
+                        g.ui.registries.permission = level;
+                        g.chat_capture.take().unwrap_or_default()
+                    })
+                    .unwrap_or_default();
+                self.lan = Some(host);
+                for line in lines {
+                    self.console_reply(line);
+                }
+            }
             "kick" if !rest.is_empty() => {
                 let user = self.resolve(rest[0]);
                 let online = self
