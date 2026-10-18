@@ -147,6 +147,8 @@ pub struct Guest {
     pub last_move_dy: f64,
     /// Entity.getKnownMovement: where the last tick's moves took them.
     pub known_movement: [f64; 3],
+    /// Wears the `/aot` gear: flies and lands unhurt (game/lan_aot.rs).
+    pub aot: bool,
     pub dead: bool,
     /// The join packets were sent (PlayerList.placeNewPlayer ran).
     pub placed: bool,
@@ -251,6 +253,7 @@ impl Guest {
             moves_from_ground: false,
             last_move_dy: 0.0,
             known_movement: [0.0; 3],
+            aot: false,
             dead: false,
             placed: false,
             menu: None,

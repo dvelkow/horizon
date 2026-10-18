@@ -69,6 +69,7 @@ mod lan_actions;
 mod lan_crafting;
 mod lan_mobs;
 mod lan_pvp;
+mod lan_aot;
 mod lan_homes;
 mod lan_screen;
 mod lan_stations;
@@ -94,6 +95,7 @@ mod natural_spawning;
 mod nautili;
 mod net_harness;
 mod nether_portal;
+mod odm;
 mod ominous_item_spawner;
 mod options;
 mod packs;
@@ -1205,6 +1207,8 @@ struct Game<'a> {
     spear_contacts: HashMap<(u128, u32), i64>,
     /// A guest's spear charge this tick, for the players it reaches.
     spear_charged: Option<spear::Charge>,
+    /// The `/aot` gear (game/odm.rs).
+    odm: odm::OdmState,
     /// Command feedback to forward to a guest.
     chat_capture: Option<Vec<horizon_client::text::Text>>,
     /// State of `/spectate`, `/posteffect`, `/debug`, `/waypoint` and friends.
@@ -3254,6 +3258,8 @@ impl Game<'_> {
         } else {
             None
         };
+        // The `/aot` gear pulls before the move (game/odm.rs).
+        self.odm_step();
         let Some(player) = self.player.as_mut() else {
             // A dedicated server has no local player: the world still runs.
             if self.options.dedicated.is_some() {
@@ -3372,6 +3378,7 @@ impl Game<'_> {
         self.eye += (camera_eye.unwrap_or(player.dimensions.eye_height) - self.eye) * 0.5;
         let crouching = player.pose == horizon_client::pose::Pose::Crouching;
         self.tick_avatar(before, riding);
+        self.odm_after_step();
         self.record_combat(&events);
         for event in events {
             match event {
@@ -4006,6 +4013,7 @@ impl Game<'_> {
                 let draws = hud_layout::crosshair(wi, hi, attack, full);
                 hud_layout::paint(&mut batch, &self.atlas, &draws);
             }
+            self.draw_odm_hud(&mut batch, w, h);
             if !spectator {
                 let inputs = hud_layout::HotbarInputs {
                     selected: self.selected as i32,
@@ -8902,6 +8910,7 @@ impl Game<'_> {
         // FishingHookRenderer's line, then DebugRenderer: chunk borders and
         // hitboxes (F3+G, F3+B).
         let mut lines = self.fishing_line(alpha, size);
+        lines.extend(self.odm_lines(alpha, size));
         let mut on_top = Vec::new();
         if self.show_hitboxes || self.show_chunk_borders {
             let g = self.debug_gizmos(alpha as f32);
@@ -9262,6 +9271,10 @@ impl Game<'_> {
     /// A key press while a world is open (keyboard or control socket).
     fn key_pressed(&mut self, key: KeyCode) -> Result<()> {
         if self.sort_key_press(key) {
+            return Ok(());
+        }
+        // The `/aot` gear's hooks hold on Q and E (game/odm.rs).
+        if self.odm_takes_key(key) {
             return Ok(());
         }
         if self.remote.is_some() && self.remote_key(key)? {
@@ -10706,6 +10719,7 @@ impl<'a> Game<'a> {
             spear_movement: None,
             spear_contacts: HashMap::new(),
             spear_charged: None,
+            odm: Default::default(),
             chat_capture: None,
             cmds: Default::default(),
             ui: Default::default(),

@@ -246,6 +246,9 @@ pub struct PlayerMotion {
     pub speed: f32,
     /// `LocalPlayer.itemUseSpeedMultiplier` while using an item (not riding).
     pub item_use_speed: Option<f32>,
+    /// The `/aot` gear flies this tick (odm.rs): its forces are already in
+    /// the velocity, and the air holds the speed better.
+    pub odm_glide: bool,
     pub last_climbable: Option<BlockPos>,
     /// `Entity.moveDist`, `flyDist` and `nextStep`: footsteps come once per
     /// metre walked, not once per move.
@@ -397,6 +400,7 @@ impl PlayerMotion {
             respiration: 0,
             speed: 0.0,
             item_use_speed: None,
+            odm_glide: false,
             last_climbable: None,
             steps: MovementDistances {
                 next_step: 1.0,
@@ -903,6 +907,8 @@ impl MotionWorld<'_, '_, '_> {
             && (self.player.fluids.was_touching_water || self.player.is_in_lava())
         {
             horizon_world::living_fluid::travel_in_fluid(self, input)?;
+        } else if self.player.odm_glide {
+            self.travel_odm()?;
         } else if self.player.fall_flying {
             self.travel_fall_flying()?;
         } else {
@@ -1256,6 +1262,20 @@ impl MotionWorld<'_, '_, '_> {
             .health
             .food
             .add_exhaustion(if self.player.sprinting { 0.2 } else { 0.05 });
+        Ok(())
+    }
+    /// The `/aot` gear's flight (odm.rs): the gear has steered and pulled
+    /// already; the move, then gravity and the gear's lighter drag.
+    fn travel_odm(&mut self) -> Result<()> {
+        let movement = self.player.velocity;
+        self.move_self(movement)?;
+        let gravity = living_motion::effective_gravity(self)?;
+        let v = self.player.velocity;
+        self.player.velocity = Vec3::new(
+            v.x * crate::odm::DRAG,
+            (v.y - gravity) * 0.98,
+            v.z * crate::odm::DRAG,
+        );
         Ok(())
     }
     /// LivingEntity.travelFallFlying with updateFallFlyingMovement.

@@ -122,6 +122,7 @@ pub mod music;
 pub mod nbt_path;
 pub mod net;
 pub mod nether_portal;
+pub mod odm;
 pub mod offline_name;
 pub mod options_file;
 pub mod options_fixes;

@@ -83,6 +83,12 @@ impl Game<'_> {
         if self.mod_command(command) {
             return;
         }
+        // `/aot` in a world of one's own (a server's players have lan_aot.rs).
+        if command.trim() == "aot" && self.lan_acting.is_none() && self.options.dedicated.is_none()
+        {
+            self.local_odm_command();
+            return;
+        }
         let d = vanilla::game_dispatcher();
         let parse = d.parse(command, &self.ui.registries);
         let result = match parse.executable() {

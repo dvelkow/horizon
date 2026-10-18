@@ -161,17 +161,19 @@ impl Game<'_> {
     }
     /// How far from `from` towards `to` the first block's collision shape
     /// lies (`ClipContext.Block.COLLIDER`, no fluids).
-    fn collider_distance(&self, from: [f64; 3], to: [f64; 3]) -> Option<f64> {
+    pub(super) fn collider_distance(&self, from: [f64; 3], to: [f64; 3]) -> Option<f64> {
         let (from, to) = (
             Vec3::new(from[0], from[1], from[2]),
             Vec3::new(to[0], to[1], to[2]),
         );
+        // At most three blocks entered for each block along the ray.
+        let visits = (from.distance(to) * 3.0) as usize + 8;
         let mut scene = SceneCollisions {
             world: &self.world,
             binding: &self.collision,
             subject: None,
         };
-        let hit = traverse_blocks(from, to, 64, |p: BlockPos| {
+        let hit = traverse_blocks(from, to, visits, |p: BlockPos| {
             let state = self.world.block(p.x, p.y, p.z);
             if self.res.facts.is_air(state) {
                 return None;

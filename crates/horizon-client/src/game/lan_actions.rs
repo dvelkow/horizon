@@ -616,6 +616,10 @@ impl Game<'_> {
         }
         let spectator = host.hub.guests[gi].spectator();
         match packet {
+            // The `/aot` gear's cables, for the others (game/lan_aot.rs).
+            S::CustomPayload(p) if p.channel == horizon_client::odm::wire::CHANNEL => {
+                self.guest_aot_state(host, conn, &p.data);
+            }
             S::PlayerAction(a) => match a.action {
                 0 => {
                     host.hub.ack(conn, a.sequence);
@@ -1199,7 +1203,10 @@ impl Game<'_> {
             return;
         }
         // Teleport requests need no permission either: the other player answers.
-        if super::lan_tpa::command(host, conn, &words) || self.home_command(host, conn, &words) {
+        if super::lan_tpa::command(host, conn, &words)
+            || self.home_command(host, conn, &words)
+            || self.aot_command(host, conn, &words)
+        {
             return;
         }
         // An integrated server runs every player's commands at their own
@@ -1551,6 +1558,8 @@ impl Game<'_> {
             return;
         };
         let moves = std::mem::take(&mut g.moves);
+        // The `/aot` gear: flying and falling are theirs (game/lan_aot.rs).
+        let aot = g.aot;
         g.known_movement = moves.iter().fold([0.0; 3], |a, (m, _)| {
             [a[0] + m[0], a[1] + m[1], a[2] + m[2]]
         });
@@ -1587,6 +1596,7 @@ impl Game<'_> {
             let allowed = g.creative()
                 || g.fall_flying
                 || g.sleeping
+                || aot
                 || g.effects.get("levitation").is_some();
             let height = g.eye_height() + 0.2;
             let allowed = allowed && !(g.creative() && host.hub.config.survival_only);
@@ -1627,6 +1637,9 @@ impl Game<'_> {
                 if boost {
                     let fall = &mut w.player.fall_distance;
                     *fall = (*fall - DOUBLE_JUMP_FALL_GRACE).max(0.0);
+                }
+                if aot {
+                    w.player.fall_distance = 0.0;
                 }
                 let movement = Vec3::new(moved[0], moved[1], moved[2]);
                 if w.player.ground.on_ground && !on_ground && moved[1] > 0.0 {

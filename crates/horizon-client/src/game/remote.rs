@@ -1647,6 +1647,10 @@ impl Game<'_> {
                     m.hurt_time = 10;
                 }
             }
+            // The `/aot` gear (game/odm.rs): on or off, and others' cables.
+            C::CustomPayload(p) if p.channel == horizon_client::odm::wire::CHANNEL => {
+                self.remote_odm_payload(&p.data);
+            }
             C::EntityEvent(p) => {
                 // LocalPlayer.setPermissions also refreshes an open World Options screen.
                 if (24..=28).contains(&p.event)
@@ -1661,18 +1665,26 @@ impl Game<'_> {
                 {
                     horizon_client::mobs::rabbit::hop_event(m);
                 }
-                // EntityEvent 2, LivingEntity.onKineticHit: a spear's charge
-                // struck, and the held spear jolts back (at most every 10 ticks).
+                // EntityEvent 2: for a player, LivingEntity.onKineticHit (a
+                // spear's charge struck, and the held spear jolts back, at most
+                // every 10 ticks); for a mob, the hurt flash Horizon's server
+                // still sends that way.
                 if p.event == 2 {
                     let fresh = |t: Option<u32>| t.is_none_or(|t| t > 10);
+                    let player = self
+                        .remote
+                        .as_ref()
+                        .is_some_and(|r| r.level_players.contains_key(&p.id));
                     if self.remote.as_ref().is_some_and(|r| r.entity_id == p.id) {
                         if fresh(self.kinetic_hit) {
                             self.kinetic_hit = Some(0);
                         }
-                    } else if let Some(m) = self.mobs.iter_mut().find(|m| m.id == p.id as u32)
-                        && fresh(m.extra.kinetic_hit)
-                    {
-                        m.extra.kinetic_hit = Some(0);
+                    } else if let Some(m) = self.mobs.iter_mut().find(|m| m.id == p.id as u32) {
+                        if !player {
+                            m.hurt_time = 10;
+                        } else if fresh(m.extra.kinetic_hit) {
+                            m.extra.kinetic_hit = Some(0);
+                        }
                     }
                 }
                 // EntityEvent.USE_ITEM_COMPLETE: the server finished our eating or
@@ -2531,6 +2543,8 @@ impl Game<'_> {
         } else {
             None
         };
+        // The `/aot` gear pulls before the move (game/odm.rs).
+        self.odm_step();
         let Some(player) = self.player.as_mut() else {
             return Ok(());
         };
@@ -2677,6 +2691,8 @@ impl Game<'_> {
                 self.sleeping = Some((head, ticks.saturating_add(1)));
             }
         }
+        self.odm_after_step();
+        self.tick_odm_others();
         self.remote_send_state(input);
         self.send(S::ClientTickEnd(Empty));
         Ok(())
