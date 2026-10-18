@@ -58,6 +58,14 @@ test('the world\'s content mods are verified and handed to the game once, by id'
   assert.equal(rows.rules.status, 'off');
 });
 
+test('a content-only mod sits through the game\'s ticks, frames and chat', async t => {
+  const {host} = await page(t, [entry('ruby')]);
+  const manager = await host.startMods();
+  manager.dispatch('snapshot', {player: {name: 'Alex'}});
+  for (const method of ['tick', 'frame', 'chat']) assert.deepEqual(manager.dispatch(method, {}), {});
+  assert.deepEqual(manager.dispatch('command', '/ruby'), {handled: false});
+});
+
 test('a content change waits for a reload, and a bad package stops the page joining', async t => {
   const ruby = entry('ruby');
   const {host, state, requests} = await page(t, [ruby]);

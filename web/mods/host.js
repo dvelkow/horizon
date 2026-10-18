@@ -119,7 +119,7 @@ async function contentPackages(index) {
 }
 /* A Mods-page row with nothing to run in this page. */
 function placeholder(row, status, error = "") {
-  return {manifest: row.manifest, hash: row.entry.sha256, status, error, panel: null, hooks: {commands: []}, stop() {}, enqueue() { return false; }};
+  return {manifest: row.manifest, hash: row.entry.sha256, status, error, panel: null, hooks: {commands: []}, stop() {}, enqueue() { return false; }, runStartup() {}};
 }
 function boundedPanel(panel) {
   if (panel === null || panel === undefined) return null;
@@ -403,7 +403,8 @@ class ModManager {
       return {handled: false};
     }
     if (["tick", "frame", "chat"].includes(method)) {
-      for (const instance of this.instances.values()) if (instance.status === "running") { instance.runStartup(); instance.enqueue(method, payload); }
+      // Content-only mods are running placeholders with no code to call.
+      for (const instance of this.instances.values()) if (instance.status === "running") { instance.runStartup?.(); instance.enqueue(method, payload); }
     }
     return {};
   }
