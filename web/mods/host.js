@@ -8,6 +8,10 @@ const MAX_CONTENT = 64 * 1024 * 1024;
 const MAX_OUTPUT = 64;
 const MAX_QUEUE = 32;
 const LIMITS = {initialize: 15000, tick: 1000, frame: 1000, chat: 1000, command: 1500};
+/* The host's choices for approved mods: commands each runs quietly once the
+   player is in the world, before its panel shows. Infinity Stones' gauntlet
+   panel starts hidden; /infinity hud shows it (the mod keeps no settings). */
+const STARTUP_COMMANDS = {infinity_stones: ["infinity hud"]};
 const clip = (value, maximum = 256) => Array.from(String(value).slice(0, maximum * 2)).slice(0, maximum).join("");
 const hex = value => typeof value === "string" && /^[a-f0-9]{64}$/.test(value);
 const errorText = error => clip(error?.message ?? error);
@@ -130,6 +134,15 @@ class Instance {
     this.queue = []; this.busy = null; this.serial = 0; this.worker = null; this.deadline = null; this.committed = false;
     this.initialOutput = [];
     this.logWindow = 0; this.logCount = 0;
+    this.startup = [...(STARTUP_COMMANDS[normalized.id] ?? [])];
+  }
+  /* The startup commands, once there is a player for them to act on. */
+  runStartup() {
+    if (!this.startup.length || this.status !== "running" || !this.manager.snapshot.player) return;
+    for (const line of this.startup.splice(0)) {
+      const name = line.split(" ", 1)[0];
+      if (this.hooks.commands.includes(name)) this.enqueue("command", {name, args: line.slice(name.length).trimStart()}, true);
+    }
   }
   async initialize() {
     const verified = await verifiedFiles(this.entry);
@@ -159,8 +172,10 @@ class Instance {
         this.status = "running"; this.resolve(this); return;
       }
       if (message.kind !== "result" || !this.busy || message.call !== this.busy.call) throw new Error("Unexpected mod response");
-      clearTimeout(this.deadline); this.busy = null;
-      this.panel = boundedPanel(message.panel); this.manager.addOutput(this.sanitizeOutput(message.out));
+      clearTimeout(this.deadline); const quiet = this.busy.quiet; this.busy = null;
+      this.panel = boundedPanel(message.panel);
+      const out = this.sanitizeOutput(message.out);
+      if (!quiet) this.manager.addOutput(out);
       if (this.manifest.capabilities.includes("movement")) this.manager.addNudge(message.nudge);
       this.pump();
     } catch (error) { this.fail(errorText(error)); }
@@ -182,7 +197,7 @@ class Instance {
   commit() {
     this.committed = true; this.manager.addOutput(this.initialOutput); this.initialOutput = [];
   }
-  enqueue(method, payload) {
+  enqueue(method, payload, quiet = false) {
     if (this.status !== "running") return false;
     if (method !== "command" && !this.hooks[method]) return false;
     if (method === "tick" || method === "frame") {
@@ -193,14 +208,14 @@ class Instance {
       if (method === "command") this.manager.addOutput([{kind: "feedback", text: `${this.manifest.name} is busy; try again shortly`, error: true}]);
       return false;
     }
-    this.queue.push({method, payload}); this.pump(); return true;
+    this.queue.push({method, payload, quiet}); this.pump(); return true;
   }
   pump() {
     if (this.busy || this.status !== "running" || !this.queue.length) return;
     const item = this.queue.shift(); const call = ++this.serial;
-    this.busy = {call, method: item.method};
+    this.busy = {call, method: item.method, quiet: item.quiet === true};
     this.deadline = setTimeout(() => this.fail(`${item.method} exceeded its time budget`), LIMITS[item.method]);
-    this.worker.postMessage({kind: "call", call, ...item, snapshot: this.manager.snapshot});
+    this.worker.postMessage({kind: "call", call, method: item.method, payload: item.payload, snapshot: this.manager.snapshot});
   }
   fail(reason) {
     if (this.status === "failed" || this.status === "off") return;
@@ -367,7 +382,8 @@ class ModManager {
     for (const instance of this.instances.values()) {
       entries.push({manifest: instance.manifest, status: instance.status, error: instance.error});
       if (instance.status !== "running") continue;
-      if (instance.panel) panels.push(instance.panel);
+      // Hidden until its startup commands have had their say.
+      if (instance.panel && !instance.startup.length && !instance.queue.some(item => item.quiet) && !instance.busy?.quiet) panels.push(instance.panel);
       for (const command of instance.hooks.commands) if (commands.size < 128) commands.add(command);
     }
     const nudge = drain ? this.nudge : null;
@@ -387,7 +403,7 @@ class ModManager {
       return {handled: false};
     }
     if (["tick", "frame", "chat"].includes(method)) {
-      for (const instance of this.instances.values()) if (instance.status === "running") instance.enqueue(method, payload);
+      for (const instance of this.instances.values()) if (instance.status === "running") { instance.runStartup(); instance.enqueue(method, payload); }
     }
     return {};
   }
