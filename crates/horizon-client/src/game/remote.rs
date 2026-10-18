@@ -3310,6 +3310,8 @@ impl Game<'_> {
         let hungry = self.creative || self.remote.as_ref().is_some_and(|r| r.health.1 < 20);
         let item = &*stack.item;
         let usable = info.blocks_attacks.is_some()
+            // A spear's charge (kinetic_weapon) is held like a shield.
+            || info.kinetic.is_some()
             || matches!(
                 item,
                 "minecraft:spyglass"
@@ -3454,6 +3456,15 @@ impl Game<'_> {
             self.eat_particles(&stack, 16);
         }
     }
+    /// Player.cannotAttackWithItem on this side: the held spear's minimum
+    /// charge against the attack indicator's strength.
+    fn remote_spear_charged(&self) -> bool {
+        let min = self
+            .held()
+            .and_then(|h| self.res.items.get(&h.item))
+            .map_or(0.0, |i| i.minimum_attack_charge);
+        min <= 0.0 || self.hand_strength.scale(0.0, self.main_hand_attack_speed()) >= min
+    }
     /// Left click: attack the targeted entity (MultiPlayerGameMode.attack).
     pub(super) fn remote_mouse(&mut self, button: MouseButton, pressed: bool) -> Result<()> {
         if let Some(r) = self.remote.as_mut()
@@ -3474,6 +3485,25 @@ impl Game<'_> {
         }
         match button {
             MouseButton::Left => {
+                // Minecraft.startAttack with a spear: no swing below its
+                // minimum charge, else MultiPlayerGameMode.piercingAttack
+                // (STAB; the server finds what it hits). A spear never breaks
+                // blocks (continueAttack does nothing).
+                if self.holds_piercing_weapon() {
+                    if pressed && self.remote_spear_charged() {
+                        self.send(S::PlayerAction(play::PlayerAction {
+                            action: 8,
+                            pos: [0; 3],
+                            direction: 0,
+                            sequence: 0,
+                        }));
+                        let animation = self.held_attack_animation();
+                        self.swing_hand(horizon_client::first_person::Hand::Main, animation);
+                        self.reset_attack_strength();
+                    }
+                    self.left = false;
+                    return Ok(());
+                }
                 if pressed && let Some((i, _)) = self.mob_hit() {
                     let id = self.mobs[i].id as i32;
                     self.send(S::Attack(play::Attack { id }));

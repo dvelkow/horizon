@@ -650,6 +650,8 @@ impl Game<'_> {
                     host.hub.ack(conn, a.sequence);
                     self.guest_stop_digging(host, conn, a.pos);
                 }
+                // ServerboundPlayerActionPacket STAB: a spear's attack.
+                8 if !spectator => self.guest_stab(host, conn),
                 2 => {
                     host.hub.ack(conn, a.sequence);
                     let play = host.play.entry(conn).or_default();
@@ -1053,6 +1055,106 @@ impl Game<'_> {
         host.hub.guests[gi].pitch = old_pitch;
     }
 
+    /// ServerGamePacketListenerImpl's STAB: with the spear's full charge
+    /// (five ticks' allowance), PiercingWeapon.attack along the guest's look:
+    /// the mobs in reach, and the other players in it as player attacks.
+    fn guest_stab(&mut self, host: &mut LanHost, conn: u32) {
+        let Some(gi) = host.hub.guests.iter().position(|g| g.conn == conn) else {
+            return;
+        };
+        let movement = host.hub.guests[gi].known_movement;
+        let stab = self
+            .as_guest(host, conn, |g| {
+                if g.cannot_attack_with_held(5) {
+                    return None;
+                }
+                g.spear_movement = Some(movement);
+                let stab = g.spear_stab();
+                g.spear_movement = None;
+                stab
+            })
+            .flatten();
+        let Some(stab) = stab else {
+            return;
+        };
+        let Some(reach) = stab.reach else {
+            return;
+        };
+        let (from, name) = {
+            let g = &host.hub.guests[gi];
+            (g.position, g.name.clone())
+        };
+        let victims: Vec<u32> = host
+            .hub
+            .guests
+            .iter()
+            .filter(|v| v.conn != conn && v.placed && !v.dead && !v.spectator())
+            .filter(|v| {
+                let height = if v.sneaking { 1.5 } else { 1.8 };
+                let p = v.position;
+                reach.hits(horizon_core::geometry::Aabb::new(
+                    Vec3::new(p[0] - 0.3, p[1], p[2] - 0.3),
+                    Vec3::new(p[0] + 0.3, p[1] + height, p[2] + 0.3),
+                ))
+            })
+            .map(|v| v.conn)
+            .collect();
+        for victim in victims {
+            let strike = super::lan_pvp::Strike::stab(stab.player_damage, stab.scale, from, name.clone());
+            self.pvp_land(host, super::lan_pvp::Victim::Guest(victim), &strike);
+        }
+    }
+
+    /// `KineticWeapon.damageEntities` on the other players a guest's spear
+    /// charge reaches: each not struck in the cooldown takes the charge's
+    /// damage when the guest closes in on them fast enough.
+    fn guest_charge(&mut self, host: &mut LanHost, conn: u32, charge: super::spear::Charge) {
+        let Some(g) = host.hub.guest(conn) else {
+            return;
+        };
+        let (from, name, who) = (g.position, g.name.clone(), g.uuid);
+        let look = charge.reach.look;
+        let now = self.world.game_time;
+        let victims: Vec<(u32, u32, [f64; 3])> = host
+            .hub
+            .guests
+            .iter()
+            .filter(|v| v.conn != conn && v.placed && !v.dead && !v.spectator())
+            .filter(|v| {
+                let height = if v.sneaking { 1.5 } else { 1.8 };
+                let p = v.position;
+                charge.reach.hits(horizon_core::geometry::Aabb::new(
+                    Vec3::new(p[0] - 0.3, p[1], p[2] - 0.3),
+                    Vec3::new(p[0] + 0.3, p[1] + height, p[2] + 0.3),
+                ))
+            })
+            .map(|v| (v.conn, v.entity_id as u32, v.known_movement))
+            .collect();
+        for (victim, id, moved) in victims {
+            let key = (who, id);
+            let cooldown = charge.kinetic.contact_cooldown_ticks as i64;
+            if self.spear_contacts.get(&key).is_some_and(|at| now - *at < cooldown) {
+                continue;
+            }
+            self.spear_contacts.insert(key, now);
+            let target = (0..3).map(|a| moved[a] * look[a]).sum::<f64>() * 20.0;
+            let relative = (charge.attacker - target).max(0.0);
+            let Some(effects) = super::spear::Effects::of_charge(
+                &charge.kinetic,
+                charge.ticks,
+                charge.attacker,
+                relative,
+            ) else {
+                continue;
+            };
+            if effects.damage {
+                let amount = charge.kinetic.charge_damage(relative);
+                let strike = super::lan_pvp::Strike::stab(amount, 1.0, from, name.clone());
+                self.pvp_land(host, super::lan_pvp::Victim::Guest(victim), &strike);
+            }
+        }
+    }
+
     /// Runs `f` (an attack) with the guest's fall distance as of the moves
     /// already received: `fall` is (landed since the last tick, fallen since).
     fn with_pending_fall<R>(&mut self, fall: (bool, f64), f: impl FnOnce(&mut Self) -> R) -> R {
@@ -1303,6 +1405,7 @@ impl Game<'_> {
                     &C::EntityEvent(play::EntityEvent { id, event: 9 }),
                 );
             }
+            let movement = host.hub.guests[gi].known_movement;
             let play = host.play.entry(conn).or_default();
             let digging = play.digging;
             let using = play.using.is_some();
@@ -1325,15 +1428,22 @@ impl Game<'_> {
                     g.forced_hit = None;
                     g.right = g.using.is_some();
                     let was_using = g.using.is_some();
+                    // A spear's charge reads how they moved (game/spear.rs).
+                    g.spear_movement = Some(movement);
                     g.tick_using();
+                    g.spear_movement = None;
                     if g.use_delay > 0 {
                         g.use_delay -= 1;
                     }
                     // The client still holds the button: only finishing ends a use here.
-                    was_using && g.using.is_none()
+                    (was_using && g.using.is_none(), g.spear_charged.take())
                 });
+                let (finished, charge) = finished.unzip();
                 if finished == Some(true) {
                     host.play.entry(conn).or_default().use_finished = true;
+                }
+                if let Some(charge) = charge.flatten() {
+                    self.guest_charge(host, conn, charge);
                 }
             }
             // LivingEntity.DATA_LIVING_ENTITY_FLAGS for the others: the hand in use.
@@ -1431,6 +1541,9 @@ impl Game<'_> {
             return;
         };
         let moves = std::mem::take(&mut g.moves);
+        g.known_movement = moves.iter().fold([0.0; 3], |a, (m, _)| {
+            [a[0] + m[0], a[1] + m[1], a[2] + m[2]]
+        });
         let from_ground = if moves.is_empty() {
             g.on_ground
         } else {

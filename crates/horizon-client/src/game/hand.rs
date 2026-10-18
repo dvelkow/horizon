@@ -390,18 +390,22 @@ impl HandWorld for GameHands<'_, '_> {
         self.game.creative
     }
     fn cannot_attack(&mut self) -> bool {
-        false
+        // Player.cannotAttackWithItem: a spear needs its full charge.
+        self.game.cannot_attack_with_held(0)
     }
     fn piercing_weapon(&mut self) -> bool {
-        false
+        self.game.holds_piercing_weapon()
     }
     fn attack_animation(&mut self) -> SwingAnimation {
-        SwingAnimation::DEFAULT
+        self.game.held_attack_animation()
     }
     fn interact_animation(&mut self, _: Hand) -> SwingAnimation {
         SwingAnimation::DEFAULT
     }
-    fn piercing_attack(&mut self, _: SwingAnimation) {}
+    fn piercing_attack(&mut self, _: SwingAnimation) {
+        // MultiPlayerGameMode.piercingAttack, then the server's STAB.
+        let _ = self.game.spear_stab();
+    }
     fn attack_entity(&mut self) -> bool {
         self.game.attack()
     }

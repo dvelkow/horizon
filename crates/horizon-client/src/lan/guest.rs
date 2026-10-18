@@ -145,6 +145,8 @@ pub struct Guest {
     /// The height change of the last move the server applied: a fall that
     /// turns into a climb in mid-air is a double jump (lan_actions.rs).
     pub last_move_dy: f64,
+    /// Entity.getKnownMovement: where the last tick's moves took them.
+    pub known_movement: [f64; 3],
     pub dead: bool,
     /// The join packets were sent (PlayerList.placeNewPlayer ran).
     pub placed: bool,
@@ -248,6 +250,7 @@ impl Guest {
             moves: Vec::new(),
             moves_from_ground: false,
             last_move_dy: 0.0,
+            known_movement: [0.0; 3],
             dead: false,
             placed: false,
             menu: None,

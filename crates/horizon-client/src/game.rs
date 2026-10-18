@@ -122,6 +122,7 @@ mod sculk_fixture;
 mod server_travel;
 mod shader_packs;
 mod shield;
+mod spear;
 mod sign_edit;
 mod sniffers;
 mod spawner;
@@ -1193,6 +1194,14 @@ struct Game<'a> {
     lan_acting_name: Option<String>,
     /// Their UUID (`Player.getUUID`).
     lan_acting_uuid: Option<u128>,
+    /// A guest's movement in the last tick while they act with a spear
+    /// (game/spear.rs); None for the local player, whose own is known.
+    spear_movement: Option<[f64; 3]>,
+    /// LivingEntity.recentKineticEnemies: (holder, mob) → the game time a
+    /// spear's charge last struck it.
+    spear_contacts: HashMap<(u128, u32), i64>,
+    /// A guest's spear charge this tick, for the players it reaches.
+    spear_charged: Option<spear::Charge>,
     /// Command feedback to forward to a guest.
     chat_capture: Option<Vec<horizon_client::text::Text>>,
     /// State of `/spectate`, `/posteffect`, `/debug`, `/waypoint` and friends.
@@ -2656,6 +2665,8 @@ impl Game<'_> {
             return Ok(true);
         }
         if self.raise_shield(self.held_slot())
+            // Item.use of a kinetic weapon (spears): the charge is held.
+            || self.start_spear_charge(self.held_slot())
             || self.use_fishing_rod(&stack)
             || self.use_crossbow(&stack)
             || self.use_trident(&stack)
@@ -2851,6 +2862,12 @@ impl Game<'_> {
             self.using = None;
             return;
         };
+        if info.kinetic.is_some() {
+            // A spear's use lasts until released (72000 ticks), charging.
+            self.spear_charge_tick(ticks);
+            self.using = Some((slot, ticks + 1));
+            return;
+        }
         if info.blocks_attacks.is_some() {
             // ShieldItem: used for 72000 ticks, i.e. until released.
             self.using = Some((slot, ticks + 1));
@@ -10664,6 +10681,9 @@ impl<'a> Game<'a> {
             lan_acting: None,
             lan_acting_name: None,
             lan_acting_uuid: None,
+            spear_movement: None,
+            spear_contacts: HashMap::new(),
+            spear_charged: None,
             chat_capture: None,
             cmds: Default::default(),
             ui: Default::default(),

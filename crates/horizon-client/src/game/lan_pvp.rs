@@ -24,6 +24,20 @@ pub(super) struct Strike {
     pub(super) attacker: Option<String>,
 }
 
+impl Strike {
+    /// A spear's stab on a player (PiercingWeapon.attack): no critical hit.
+    pub(super) fn stab(amount: f32, scale: f32, from: [f64; 3], attacker: String) -> Self {
+        Self {
+            amount,
+            scale,
+            crit: false,
+            from,
+            sweep: None,
+            attacker: Some(attacker),
+        }
+    }
+}
+
 impl Game<'_> {
     /// The guest on the host's crosshair and how far, within reach.
     pub(super) fn guest_hit(&self) -> Option<(u32, f64)> {

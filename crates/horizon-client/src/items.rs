@@ -137,6 +137,15 @@ pub struct ItemInfo {
     pub modifiers: Vec<(String, String, f64, String, String)>,
     /// `blocks_attacks` (shields).
     pub blocks_attacks: Option<BlocksAttacks>,
+    /// Spears: `attack_animation` (SwingAnimationType ordinal: 0 none,
+    /// 1 whack, 2 stab, and its ticks), `attack_range`,
+    /// `minimum_attack_charge`, `piercing_weapon` (the stab) and
+    /// `kinetic_weapon` (the charge while the use is held).
+    pub attack_animation: Option<(u8, i32)>,
+    pub attack_range: Option<AttackRange>,
+    pub minimum_attack_charge: f32,
+    pub piercing: Option<Piercing>,
+    pub kinetic: Option<Kinetic>,
     /// `weapon.disable_blocking_for_seconds` (axes).
     pub disable_blocking_seconds: f32,
     /// `weapon.item_damage_per_attack`, when the item is a weapon.
@@ -178,6 +187,103 @@ pub struct BlockReduction {
     pub types: Option<Vec<String>>,
     pub base: f32,
     pub factor: f32,
+}
+/// The `attack_range` component (AttackRange).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct AttackRange {
+    pub min_reach: f32,
+    pub max_reach: f32,
+    pub min_creative_reach: f32,
+    pub max_creative_reach: f32,
+    pub hitbox_margin: f32,
+}
+impl AttackRange {
+    fn parse(v: &Value) -> Option<Self> {
+        let f = |key: &str, default: f32| v[key].as_f64().map_or(default, |x| x as f32);
+        v.is_object().then(|| Self {
+            min_reach: f("min_reach", 0.0),
+            max_reach: f("max_reach", 3.0),
+            min_creative_reach: f("min_creative_reach", 0.0),
+            max_creative_reach: f("max_creative_reach", 5.0),
+            hitbox_margin: f("hitbox_margin", 0.3),
+        })
+    }
+}
+/// The `piercing_weapon` component (PiercingWeapon): a stab along the look.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Piercing {
+    pub deals_knockback: bool,
+    pub dismounts: bool,
+    pub sound: Option<String>,
+    pub hit_sound: Option<String>,
+}
+/// A `kinetic_weapon` condition (KineticWeapon.Condition).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct KineticCondition {
+    pub max_duration_ticks: u32,
+    pub min_speed: f32,
+    pub min_relative_speed: f32,
+}
+impl KineticCondition {
+    fn parse(v: &Value) -> Option<Self> {
+        v.is_object().then(|| Self {
+            max_duration_ticks: v["max_duration_ticks"].as_u64().unwrap_or(0) as u32,
+            min_speed: v["min_speed"].as_f64().unwrap_or(0.0) as f32,
+            min_relative_speed: v["min_relative_speed"].as_f64().unwrap_or(0.0) as f32,
+        })
+    }
+    /// `test`: within its time and fast enough.
+    pub fn test(&self, ticks_used: u32, attacker_speed: f64, relative_speed: f64) -> bool {
+        ticks_used <= self.max_duration_ticks
+            && attacker_speed >= f64::from(self.min_speed)
+            && relative_speed >= f64::from(self.min_relative_speed)
+    }
+}
+/// The `kinetic_weapon` component (KineticWeapon): the spear's charge.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Kinetic {
+    pub contact_cooldown_ticks: u64,
+    pub delay_ticks: u32,
+    pub dismount: Option<KineticCondition>,
+    pub knockback: Option<KineticCondition>,
+    pub damage: Option<KineticCondition>,
+    pub damage_multiplier: f32,
+    pub sound: Option<String>,
+    pub hit_sound: Option<String>,
+}
+fn sound_of(v: &Value) -> Option<String> {
+    v.as_str()
+        .map(str::to_owned)
+        .or_else(|| v["sound_id"].as_str().map(str::to_owned))
+}
+impl Piercing {
+    fn parse(v: &Value) -> Option<Self> {
+        v.is_object().then(|| Self {
+            deals_knockback: v["deals_knockback"].as_bool().unwrap_or(true),
+            dismounts: v["dismounts"].as_bool().unwrap_or(false),
+            sound: sound_of(&v["sound"]),
+            hit_sound: sound_of(&v["hit_sound"]),
+        })
+    }
+}
+impl Kinetic {
+    /// The charge's damage to a target closed in on at `relative` blocks a
+    /// second: a player's base attack damage, 1, plus the speed's share.
+    pub fn charge_damage(&self, relative: f64) -> f32 {
+        1.0 + (relative * f64::from(self.damage_multiplier)).floor() as f32
+    }
+    fn parse(v: &Value) -> Option<Self> {
+        v.is_object().then(|| Self {
+            contact_cooldown_ticks: v["contact_cooldown_ticks"].as_u64().unwrap_or(10),
+            delay_ticks: v["delay_ticks"].as_u64().unwrap_or(0) as u32,
+            dismount: KineticCondition::parse(&v["dismount_conditions"]),
+            knockback: KineticCondition::parse(&v["knockback_conditions"]),
+            damage: KineticCondition::parse(&v["damage_conditions"]),
+            damage_multiplier: v["damage_multiplier"].as_f64().unwrap_or(1.0) as f32,
+            sound: sound_of(&v["sound"]),
+            hit_sound: sound_of(&v["hit_sound"]),
+        })
+    }
 }
 /// The `blocks_attacks` component.
 #[derive(Clone, Debug)]
@@ -544,6 +650,20 @@ impl Items {
                         .as_f64()
                         .unwrap_or(0.2) as f32,
                     blocks_attacks: BlocksAttacks::parse(&c["minecraft:blocks_attacks"]),
+                    attack_animation: c["minecraft:attack_animation"]["type"].as_str().map(|t| {
+                        let kind = match t {
+                            "none" => 0,
+                            "stab" => 2,
+                            _ => 1,
+                        };
+                        (kind, c["minecraft:attack_animation"]["duration"].as_i64().unwrap_or(6) as i32)
+                    }),
+                    attack_range: AttackRange::parse(&c["minecraft:attack_range"]),
+                    minimum_attack_charge: c["minecraft:minimum_attack_charge"]
+                        .as_f64()
+                        .unwrap_or(0.0) as f32,
+                    piercing: Piercing::parse(&c["minecraft:piercing_weapon"]),
+                    kinetic: Kinetic::parse(&c["minecraft:kinetic_weapon"]),
                     disable_blocking_seconds: c["minecraft:weapon"]["disable_blocking_for_seconds"]
                         .as_f64()
                         .unwrap_or(0.0) as f32,
