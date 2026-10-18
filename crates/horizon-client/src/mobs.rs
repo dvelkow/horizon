@@ -688,6 +688,10 @@ pub struct Extra {
     pub legs: Option<Arc<str>>,
     pub feet: Option<Arc<str>>,
     pub using_item: i32,
+    /// A held spear's timings (players), and the ticks since its last
+    /// kinetic hit (EntityEvent 2) while under 20.
+    pub spear: Option<crate::spear_anim::Timings>,
+    pub kinetic_hit: Option<u32>,
     pub fall_flying: bool,
     pub fall_fly_ticks: i32,
     pub main_hand_left: bool,

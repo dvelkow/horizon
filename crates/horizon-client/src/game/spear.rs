@@ -77,6 +77,8 @@ pub(super) struct Charge {
     /// The holder's speed along the look, blocks a second.
     pub attacker: f64,
     pub kinetic: Kinetic,
+    /// It struck a mob this tick (EntityEvent 2 follows).
+    pub hit: bool,
 }
 pub(super) struct Stab {
     /// None when a block stands nearer than the minimum reach.
@@ -367,6 +369,7 @@ impl Game<'_> {
                 ticks,
                 attacker,
                 kinetic,
+                hit,
             });
         }
     }

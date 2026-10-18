@@ -210,6 +210,7 @@ impl Game<'_> {
             self.sway.tick(self.pitch, self.yaw);
         }
         self.swing.tick();
+        self.kinetic_hit = self.kinetic_hit.map(|t| t + 1).filter(|t| *t < 20);
         let main = self.inventory[self.selected].clone();
         self.hand_strength.tick(main.as_ref().map(|s| HeldStack {
             item: s.item.to_string(),

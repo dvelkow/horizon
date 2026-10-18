@@ -248,6 +248,8 @@ pub struct Kinetic {
     pub knockback: Option<KineticCondition>,
     pub damage: Option<KineticCondition>,
     pub damage_multiplier: f32,
+    /// How far the spear reaches forward while charging (the poses only).
+    pub forward_movement: f32,
     pub sound: Option<String>,
     pub hit_sound: Option<String>,
 }
@@ -280,6 +282,7 @@ impl Kinetic {
             knockback: KineticCondition::parse(&v["knockback_conditions"]),
             damage: KineticCondition::parse(&v["damage_conditions"]),
             damage_multiplier: v["damage_multiplier"].as_f64().unwrap_or(1.0) as f32,
+            forward_movement: v["forward_movement"].as_f64().unwrap_or(0.0) as f32,
             sound: sound_of(&v["sound"]),
             hit_sound: sound_of(&v["hit_sound"]),
         })

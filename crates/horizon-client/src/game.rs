@@ -999,6 +999,9 @@ struct Game<'a> {
     last_level_up: u64,
     /// The arm swing (`LivingEntity.SwingState`) and how many swings started.
     swing: horizon_client::first_person::SwingState,
+    /// Ticks since the server's last kinetic hit for us (EntityEvent 2,
+    /// `LivingEntity.onKineticHit`): the held spear's jolt back.
+    kinetic_hit: Option<u32>,
     swings_started: u32,
     /// The first-person equip heights and the items the hands show (with
     /// the slot each came from).
@@ -7888,7 +7891,25 @@ impl Game<'_> {
             let ticks_used =
                 owner.use_duration as f32 - (owner.use_item_remaining_ticks as f32 - a + 1.0);
             use horizon_client::first_person::ItemPose;
+            // A spear's charge, and its stab (FirstPersonHandsAndItemsRenderer).
+            let spear = self
+                .res
+                .items
+                .get(&stack.item)
+                .and_then(|i| i.kinetic.as_ref())
+                .map(horizon_client::spear_anim::Timings::of)
+                .filter(|_| using);
+            let stab = self
+                .swing
+                .current
+                .is_some_and(|c| c.hand == hand && c.animation.kind == 2);
             let pose = match &*stack.item {
+                _ if spear.is_some() => ItemPose::Spear {
+                    timings: spear.unwrap_or_default(),
+                    ticks_used,
+                    since_hit: self.kinetic_hit.map_or(0.0, |t| t as f32 + a),
+                },
+                _ if stab && !using => ItemPose::Stab,
                 "minecraft:bow" if using => ItemPose::Bow { ticks_used },
                 "minecraft:crossbow" => {
                     let charged = stack.data().is_some_and(|d| !d.charged.is_empty());
@@ -10557,6 +10578,7 @@ impl<'a> Game<'a> {
             xp_delay: 0,
             last_level_up: 0,
             swing: Default::default(),
+            kinetic_hit: None,
             swings_started: 0,
             heights: Default::default(),
             sway: Default::default(),

@@ -162,6 +162,8 @@ pub(super) struct Remote {
     player_type: Option<Arc<MobType>>,
     /// Inventory as last synchronised, for creative-mode slot updates.
     synced: Vec<Option<ItemStack>>,
+    /// The armor the equipment modifiers were last applied for.
+    equipped: Option<[Option<ItemStack>; 4]>,
     decode_errors: u32,
     clock: Option<i32>,
     clock_rate: f32,
@@ -394,6 +396,7 @@ impl Game<'_> {
             death_message: None,
             player_type,
             synced: vec![None; 36],
+            equipped: None,
             decode_errors: 0,
             clock: None,
             clock_rate: 1.0,
@@ -1658,11 +1661,19 @@ impl Game<'_> {
                 {
                     horizon_client::mobs::rabbit::hop_event(m);
                 }
-                // EntityEvent.HURT (the server's older hurt signal): the red flash.
-                if p.event == 2
-                    && let Some(m) = self.mobs.iter_mut().find(|m| m.id == p.id as u32)
-                {
-                    m.hurt_time = 10;
+                // EntityEvent 2, LivingEntity.onKineticHit: a spear's charge
+                // struck, and the held spear jolts back (at most every 10 ticks).
+                if p.event == 2 {
+                    let fresh = |t: Option<u32>| t.is_none_or(|t| t > 10);
+                    if self.remote.as_ref().is_some_and(|r| r.entity_id == p.id) {
+                        if fresh(self.kinetic_hit) {
+                            self.kinetic_hit = Some(0);
+                        }
+                    } else if let Some(m) = self.mobs.iter_mut().find(|m| m.id == p.id as u32)
+                        && fresh(m.extra.kinetic_hit)
+                    {
+                        m.extra.kinetic_hit = Some(0);
+                    }
                 }
                 // EntityEvent.USE_ITEM_COMPLETE: the server finished our eating or
                 // drinking (LocalPlayer.completeUsingItem).
@@ -2426,6 +2437,11 @@ impl Game<'_> {
                 self.previous_eye = 1.62;
                 self.clock.reset();
                 self.apply_remote_health();
+                // A new player: its equipment modifiers start over.
+                self.applied_modifiers.clear();
+                if let Some(r) = self.remote.as_mut() {
+                    r.equipped = None;
+                }
             }
         }
         self.previous_position = position;
@@ -2451,6 +2467,16 @@ impl Game<'_> {
     /// One client tick while connected (Minecraft.tick with a ClientLevel).
     pub(super) fn tick_remote(&mut self) -> Result<()> {
         self.ticks += 1;
+        // The server's attribute updates are not read: the armor worn (from
+        // the inventory packets or a predicted click) gives the armor bar and
+        // the rest of the equipment modifiers, as on the server.
+        if self.player.is_some()
+            && let Some(r) = self.remote.as_mut()
+            && r.equipped.as_ref() != Some(&self.armor)
+        {
+            r.equipped = Some(self.armor.clone());
+            self.apply_equipment();
+        }
         // Minecraft.tick: TickRateManager.tick; ClientLevel.tick advances
         // the time only while the level runs normally.
         let running = self.clock.world_runs();
@@ -2754,6 +2780,15 @@ impl Game<'_> {
                 m.extra.using_item += 1;
             }
             if players.contains_key(&(m.id as i32)) {
+                // A held spear's poses (SpearAnimations) and its hit's jolt.
+                m.extra.spear = m
+                    .extra
+                    .main_hand
+                    .as_ref()
+                    .and_then(|id| self.res.items.get(id))
+                    .and_then(|i| i.kinetic.as_ref())
+                    .map(horizon_client::spear_anim::Timings::of);
+                m.extra.kinetic_hit = m.extra.kinetic_hit.map(|t| t + 1).filter(|t| *t < 20);
                 // Another player's item in use, and food's crumbs
                 // (LivingEntity.triggerItemUseEffects, 32 ticks to eat).
                 if m.extra.using_item > 0 {

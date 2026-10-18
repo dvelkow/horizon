@@ -261,11 +261,28 @@ impl Game<'_> {
         // ItemInHandLayer submits with OverlayTexture.NO_OVERLAY: no hurt tint.
         for (item, left) in [(&mob.extra.main_hand, false), (&mob.extra.off_hand, true)] {
             let Some(item) = item else { continue };
-            let Some(t) =
+            let Some(mut t) =
                 render::held_item_transform(mob, alpha as f32, camera, &self.res.mob_data, left)
             else {
                 continue;
             };
+            // ItemInHandLayer: a player's spear thrusts in a stab and, in a
+            // charge, takes ArmPose.SPEAR's animateUseItem.
+            if !left && let Some(timings) = mob.extra.spear {
+                let a = alpha as f32;
+                let swing = horizon_client::mobs::anim::state(mob, a).swing;
+                t *= horizon_client::spear_anim::third_person_attack_item(
+                    swing,
+                    timings.forward_movement,
+                );
+                if mob.extra.using_item > 0 {
+                    let ticks = (mob.extra.using_item - 1) as f32 + a;
+                    let since_hit = mob.extra.kinetic_hit.map_or(0.0, |h| h as f32 + a);
+                    t *= horizon_client::spear_anim::third_person_item(
+                        &timings, ticks, swing, since_hit, false,
+                    );
+                }
+            }
             let slot = if left {
                 horizon_client::mobs::gear::OFF
             } else {

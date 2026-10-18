@@ -330,6 +330,12 @@ impl Game<'_> {
         let main = self.inventory[self.selected]
             .as_ref()
             .map(|s| s.item.clone());
+        let spear = main
+            .as_ref()
+            .and_then(|id| self.res.items.get(id))
+            .and_then(|i| i.kinetic.as_ref())
+            .map(horizon_client::spear_anim::Timings::of);
+        let kinetic_hit = self.kinetic_hit;
         let off = self.offhand.as_ref().map(|s| s.item.clone());
         let riding = self.riding.is_some();
         let hurt = p.health.hurt.hurt_time;
@@ -399,6 +405,8 @@ impl Game<'_> {
         m.extra.fall_fly_ticks = fly_ticks;
         m.extra.main_hand_left = self.settings.main_hand_left;
         m.extra.using_item = using;
+        m.extra.spear = spear;
+        m.extra.kinetic_hit = kinetic_hit;
         m.extra.charged = charged;
         m.extra.ints[5] = charge_duration;
         m.extra.elytra.tick(fall_flying, crouching, velocity);

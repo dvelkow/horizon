@@ -237,6 +237,8 @@ pub enum ArmPose {
     Bow,
     CrossbowHold,
     CrossbowCharge,
+    /// A spear held couched, or charging (`SpearAnimations.thirdPersonHandUse`).
+    Spear,
 }
 /// HumanoidModel.setupAnim for piglins: `PiglinModel` poses the arms itself.
 pub fn humanoid_item(p: &mut Poses, s: &State, _holding: bool) {
@@ -278,6 +280,10 @@ pub struct Hum {
     pub charge: (f32, f32),
     /// `PiglinModel.setupAttackAnimation`: swing a held weapon down.
     pub weapon_swing: bool,
+    /// The held spear's timings and the ticks of its charge (0 when not).
+    pub spear: Option<(crate::spear_anim::Timings, f32)>,
+    /// The swing is a stab (`SwingAnimationType.STAB`).
+    pub stab: bool,
 }
 impl Hum {
     pub fn new(right: ArmPose, left: ArmPose) -> Self {
@@ -292,6 +298,8 @@ impl Hum {
             holding: false,
             charge: (0.0, 0.0),
             weapon_swing: false,
+            spear: None,
+            stab: false,
         }
     }
 }
@@ -354,6 +362,15 @@ fn pose_arm(p: &mut Poses, pose: ArmPose, right: bool, h: &Hum) {
         }
         ArmPose::CrossbowHold => crossbow_hold(p, hx, hy, right),
         ArmPose::CrossbowCharge => crossbow_charge(p, h.charge.0, h.charge.1, right),
+        ArmPose::Spear => {
+            let z = p.get(arm)[5];
+            let using = h.spear.as_ref().map(|(t, ticks)| (t, *ticks));
+            let (x, y, z) =
+                crate::spear_anim::third_person_hand((hx, hy), z, !right, h.fall_flying, using);
+            p.xrot(arm, x);
+            p.yrot(arm, y);
+            p.zrot(arm, z);
+        }
     }
 }
 /// `HumanoidModel.setupAnim` (and `ZombieModel.setupAttackAnimation`).
@@ -413,17 +430,23 @@ pub(super) fn humanoid(p: &mut Poses, s: &State, h: &Hum) {
             l[2] = -body_y.msin() * 5.0 * age_scale;
             l[0] = body_y.mcos() * 5.0 * age_scale;
         }
-        p.get("right_arm")[4] += body_y;
-        p.get("left_arm")[4] += body_y;
-        p.get("left_arm")[3] += body_y;
-        // Ease.outQuart
-        let eased = 1.0 - (1.0 - swing).powi(4);
-        let aa = (eased * PI).msin();
-        let bb = (swing * PI).msin() * -(hx - 0.7) * 0.75;
-        let r = p.get("right_arm");
-        r[3] -= aa * 1.2 + bb;
-        r[4] += body_y * 2.0;
-        r[5] += (swing * PI).msin() * -0.4;
+        if h.stab {
+            // SpearAnimations.thirdPersonAttackHand: the arms keep still
+            // while the body turns, and the spear thrusts.
+            p.get("right_arm")[3] += crate::spear_anim::third_person_attack_arm(swing);
+        } else {
+            p.get("right_arm")[4] += body_y;
+            p.get("left_arm")[4] += body_y;
+            p.get("left_arm")[3] += body_y;
+            // Ease.outQuart
+            let eased = 1.0 - (1.0 - swing).powi(4);
+            let aa = (eased * PI).msin();
+            let bb = (swing * PI).msin() * -(hx - 0.7) * 0.75;
+            let r = p.get("right_arm");
+            r[3] -= aa * 1.2 + bb;
+            r[4] += body_y * 2.0;
+            r[5] += (swing * PI).msin() * -0.4;
+        }
     }
     if let Some(aggressive) = h.zombie {
         // AnimationUtils.animateZombieArms
@@ -557,6 +580,7 @@ pub fn setup(
                     Some("minecraft:crossbow") if m.extra.charged && s.swing == 0.0 => {
                         ArmPose::CrossbowHold
                     }
+                    Some(_) if m.extra.spear.is_some() => ArmPose::Spear,
                     Some(_) => ArmPose::Item,
                     None => ArmPose::Empty,
                 }
@@ -574,6 +598,15 @@ pub fn setup(
                 Hum::new(pose, off)
             };
             h.charge = (m.extra.ints[5] as f32, m.extra.using_item as f32);
+            if player && let Some(t) = m.extra.spear {
+                let ticks = if m.extra.using_item > 0 {
+                    (m.extra.using_item - 1) as f32 + s.partial
+                } else {
+                    0.0
+                };
+                h.spear = Some((t, ticks));
+                h.stab = true;
+            }
             h.fall_flying = m.extra.fall_flying;
             if h.fall_flying {
                 let v = m.velocity;

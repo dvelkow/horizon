@@ -31,6 +31,15 @@ pub enum ItemPose {
         charge_duration: f32,
         charged: bool,
     },
+    /// A spear's charge (`ItemUseAnimation.SPEAR`), `ticks_used` into it and
+    /// `since_hit` ticks after a kinetic hit (0 without one).
+    Spear {
+        timings: crate::spear_anim::Timings,
+        ticks_used: f32,
+        since_hit: f32,
+    },
+    /// A swing of `SwingAnimationType.STAB`: the spear thrust forward.
+    Stab,
 }
 
 /// `submitArmWithItem`: the pose of an item in the hand on the `left` or
@@ -41,11 +50,23 @@ pub fn item_pose(left: bool, inverse_height: f32, attack: f32, pose: ItemPose) -
     use horizon_core::geometry::trig::Mth;
     let invert = if left { -1.0 } else { 1.0 };
     let pi = std::f32::consts::PI;
+    if let ItemPose::Spear {
+        timings,
+        ticks_used,
+        since_hit,
+    } = pose
+    {
+        // A custom arm transform: no equip height.
+        return crate::spear_anim::first_person_use(&timings, ticks_used, since_hit, left);
+    }
     let mut m = Mat4::from_translation(Vec3::new(
         invert * 0.56,
         -0.52 - inverse_height * 0.6,
         -0.72,
     ));
+    if matches!(pose, ItemPose::Stab) {
+        return m * crate::spear_anim::first_person_attack(attack, left);
+    }
     if let ItemPose::Eat {
         remaining,
         duration,

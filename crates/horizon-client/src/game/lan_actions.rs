@@ -1108,9 +1108,9 @@ impl Game<'_> {
     /// `KineticWeapon.damageEntities` on the other players a guest's spear
     /// charge reaches: each not struck in the cooldown takes the charge's
     /// damage when the guest closes in on them fast enough.
-    fn guest_charge(&mut self, host: &mut LanHost, conn: u32, charge: super::spear::Charge) {
+    fn guest_charge(&mut self, host: &mut LanHost, conn: u32, charge: super::spear::Charge) -> bool {
         let Some(g) = host.hub.guest(conn) else {
-            return;
+            return false;
         };
         let (from, name, who) = (g.position, g.name.clone(), g.uuid);
         let look = charge.reach.look;
@@ -1130,6 +1130,7 @@ impl Game<'_> {
             })
             .map(|v| (v.conn, v.entity_id as u32, v.known_movement))
             .collect();
+        let mut struck = false;
         for (victim, id, moved) in victims {
             let key = (who, id);
             let cooldown = charge.kinetic.contact_cooldown_ticks as i64;
@@ -1151,8 +1152,10 @@ impl Game<'_> {
                 let amount = charge.kinetic.charge_damage(relative);
                 let strike = super::lan_pvp::Strike::stab(amount, 1.0, from, name.clone());
                 self.pvp_land(host, super::lan_pvp::Victim::Guest(victim), &strike);
+                struck = true;
             }
         }
+        struck
     }
 
     /// Runs `f` (an attack) with the guest's fall distance as of the moves
@@ -1443,7 +1446,14 @@ impl Game<'_> {
                     host.play.entry(conn).or_default().use_finished = true;
                 }
                 if let Some(charge) = charge.flatten() {
-                    self.guest_charge(host, conn, charge);
+                    let hit = charge.hit;
+                    // KineticWeapon.damageEntities: the holder's EntityEvent 2
+                    // (the spear's jolt) for everyone near once it struck.
+                    if (self.guest_charge(host, conn, charge) || hit)
+                        && let Some(g) = host.hub.guest(conn)
+                    {
+                        host.hub.entity_event(g.entity_id, 2, g.position);
+                    }
                 }
             }
             // LivingEntity.DATA_LIVING_ENTITY_FLAGS for the others: the hand in use.
