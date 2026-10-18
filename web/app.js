@@ -109,6 +109,13 @@ async function play(join = true) {
   if (join) await startPlayerSkins(session.name);
   globalThis.horizonOptions = Object.freeze({name: session?.name, join, release: pageRelease});
   started = true; $("launcher").hidden = true; $("horizon").hidden = false;
+  // Sprinting is Ctrl and walking W: Ctrl+W closes a browser tab, and no page
+  // can block it. In a world, the browser asks first ("Leave site?"); the
+  // game's own reloads (a new release, the error screen) set horizonReloading.
+  if (join) window.addEventListener("beforeunload", event => {
+    if (globalThis.horizonReloading) return;
+    event.preventDefault(); event.returnValue = "";
+  });
   loadingStatus("Opening your world…", 0);
   if (join) { const {startMods} = await import("/mods-runtime/host.js"); await startMods(); }
   const {default: init} = await import("/pkg/horizon_client.js");

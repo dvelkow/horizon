@@ -18,6 +18,8 @@ let requestedPointerGesture = -1;
 let pointerWasCaptured = false;
 let pointerPauseRequested = false;
 let pointerFullscreenAttempted = false;
+let gameFullscreen = false;
+let fullscreenExited = false;
 
 function pointerHint(show) {
   let hint = document.getElementById("horizon-pointer-hint");
@@ -42,6 +44,20 @@ function pointerChanged() {
   pointerWasCaptured = globalThis.horizonPointerCaptured;
   pointerHint(pointerWanted && !globalThis.horizonPointerCaptured);
 }
+function fullscreenChanged() {
+  // Without the keyboard lock (Chrome 130+ asks permission for it) a short
+  // Escape leaves fullscreen instead of reaching the game: the game closes
+  // the screen that Escape was meant for (takeFullscreenExit).
+  const now = document.fullscreenElement === document.getElementById("horizon");
+  if (gameFullscreen && !now) fullscreenExited = true;
+  gameFullscreen = now;
+  syncEscapeKey();
+}
+export function takeFullscreenExit() {
+  const exited = fullscreenExited;
+  fullscreenExited = false;
+  return exited;
+}
 export function takePointerPauseRequest() {
   const requested = pointerPauseRequested;
   pointerPauseRequested = false;
@@ -52,6 +68,10 @@ export function openModPortal() {
   // The portal uses the existing same-origin session; owner approval stays separate.
   window.open("/portal.html", "_blank", "noopener,noreferrer");
 }
+// The keys the fullscreen keyboard lock gives the game: Escape, and those of
+// browser shortcuts a player presses while playing (Ctrl+W sprinting forward
+// closes the tab, Ctrl+T/N/Q/R and Ctrl+Tab). Other keys keep their shortcuts.
+const LOCKED_KEYS = ["Escape", "KeyW", "KeyA", "KeyS", "KeyD", "KeyT", "KeyN", "KeyQ", "KeyR", "KeyE", "Tab"];
 function syncEscapeKey() {
   // Chrome reserves Escape in a normal tab. Fullscreen keyboard lock lets the
   // game handle a short press while the browser keeps its hold-Escape exit.
@@ -63,7 +83,7 @@ function syncEscapeKey() {
   }
   pointerFullscreenAttempted = true;
   try {
-    Promise.resolve(keyboard.lock(["Escape"])).then(() => {
+    Promise.resolve(keyboard.lock(LOCKED_KEYS)).then(() => {
       if (document.fullscreenElement !== document.getElementById("horizon")) keyboard.unlock();
     }).catch(() => { /* Permission denied: keep normal browser controls. */ });
   } catch (_) { /* Unsupported by this browser or embedding. */ }
@@ -82,7 +102,7 @@ export function setPointerCapture(capture) {
     pointerHandlersInstalled = true;
     document.addEventListener("pointerlockchange", pointerChanged);
     document.addEventListener("pointerlockerror", () => { pointerPending = false; pointerChanged(); });
-    document.addEventListener("fullscreenchange", syncEscapeKey);
+    document.addEventListener("fullscreenchange", fullscreenChanged);
     syncEscapeKey();
     // Clicks and keyboard resumes are both gestures. Capture listeners run
     // before winit; held keys and per-frame calls cannot create retry loops.
@@ -155,7 +175,7 @@ export function installGpuErrorHandling() {
     box.setAttribute("role", "alert");
     box.querySelector("progress").hidden = true;
     const reload = document.createElement("button"); reload.textContent = "Reload (dev)Modcraft";
-    reload.addEventListener("click", () => location.reload()); box.append(reload);
+    reload.addEventListener("click", () => { globalThis.horizonReloading = true; location.reload(); }); box.append(reload);
     console.error("Horizon graphics stopped:", gpuFailure);
     // Do not keep submitting invalid command buffers after a fatal error.
     device.destroy();

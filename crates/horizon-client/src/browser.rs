@@ -24,6 +24,8 @@ extern "C" {
     pub fn pointer_captured() -> bool;
     #[wasm_bindgen(js_name = takePointerPauseRequest)]
     pub fn take_pointer_pause_request() -> bool;
+    #[wasm_bindgen(js_name = takeFullscreenExit)]
+    pub fn take_fullscreen_exit() -> bool;
     #[wasm_bindgen(js_name = openModPortal)]
     pub fn open_mod_portal();
     #[wasm_bindgen(catch, js_name = browserOptions)]

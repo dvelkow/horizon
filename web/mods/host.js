@@ -250,6 +250,7 @@ class ModManager {
       const settled = !motion || motion.on_ground === true || motion.steerable === false;
       if (document.hidden || settled || performance.now() - started > RELOAD_NOTICE_MS + RELOAD_SETTLE_MS) {
         try { sessionStorage.setItem(RELOADED_KEY, release); sessionStorage.setItem(RESUME_KEY, String(Date.now())); } catch (_) {}
+        globalThis.horizonReloading = true;
         location.reload();
       } else setTimeout(attempt, 250);
     };

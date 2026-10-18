@@ -10089,6 +10089,19 @@ impl ApplicationHandler for Game<'_> {
                         {
                             self.key_pressed(KeyCode::Escape)?;
                         }
+                        // Chrome without the keyboard lock spends a short Esc
+                        // on leaving fullscreen: the screen it was meant for (a
+                        // workstation, a chest, the inventory) closes as in
+                        // vanilla, and play goes on with the mouse taken back.
+                        if horizon_client::browser::take_fullscreen_exit()
+                            && self.title.is_none()
+                            && !matches!(
+                                self.screen,
+                                Screen::Playing | Screen::Paused | Screen::Dead | Screen::Options
+                            )
+                        {
+                            self.key_pressed(KeyCode::Escape)?;
+                        }
                     }
                     self.observe_fullscreen();
                     let now = Instant::now();
