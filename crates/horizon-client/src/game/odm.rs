@@ -455,8 +455,9 @@ impl Game<'_> {
     }
 
     /// By the crosshair: how far the hook would fly (a red dash when nothing
-    /// is in reach), the gas left, and a dot each side for a hook out (green
-    /// while it holds).
+    /// is in reach), and a dot each side for a hook out (green while it
+    /// holds). The gas gauge sits in the top right corner, below any effect
+    /// icons.
     pub(super) fn draw_odm_hud(&self, batch: &mut HudBatch, w: f32, h: f32) {
         let Some(gear) = self.odm.gear.as_ref() else {
             return;
@@ -479,15 +480,6 @@ impl Game<'_> {
             color,
             true,
         );
-        let width = 30.0;
-        let (x, y) = (cx - width / 2.0, cy + 20.0);
-        batch.fill(atlas, x - 1.0, y - 1.0, width + 2.0, 4.0, 0x9000_0000);
-        let gas = if gear.gas < 0.2 {
-            0xFFFF_5555
-        } else {
-            0xFFDD_EEFF
-        };
-        batch.fill(atlas, x, y, (width * gear.gas as f32).round(), 2.0, gas);
         for side in [odm::LEFT, odm::RIGHT] {
             let color = match gear.hooks[side] {
                 Hook::Attached { .. } => 0xFF55_FF55,
@@ -501,6 +493,42 @@ impl Game<'_> {
             };
             batch.fill(atlas, x, cy - 1.0, 2.0, 2.0, color);
         }
+        // Hud.extractEffects' rows: the helpful icons at the top, the
+        // harmful ones below them.
+        let icons: Vec<horizon_client::hud_overlays::EffectIcon> = self
+            .potions
+            .effects
+            .list
+            .iter()
+            .map(horizon_client::hud_overlays::EffectIcon::from)
+            .filter(|i| i.show_icon)
+            .collect();
+        let rows = if icons.iter().any(|i| !i.beneficial) {
+            2.0
+        } else if icons.is_empty() {
+            0.0
+        } else {
+            1.0
+        };
+        let width = 50.0;
+        let (x, y) = (w - width - 4.0, 5.0 + rows * 26.0);
+        let label = "Gas";
+        let lw = HudBatch::text_width(atlas, label);
+        batch.text(atlas, label, x - lw - 4.0, y - 1.0, 0xFFFF_FFFF, true);
+        batch.fill(atlas, x - 1.0, y, width + 2.0, 6.0, 0x9000_0000);
+        let fill = if gear.gas < 0.2 {
+            0xFFFF_5555
+        } else {
+            0xFFDD_EEFF
+        };
+        batch.fill(
+            atlas,
+            x,
+            y + 1.0,
+            (width * gear.gas as f32).round(),
+            4.0,
+            fill,
+        );
     }
 }
 
