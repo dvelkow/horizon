@@ -1436,6 +1436,19 @@ impl Game<'_> {
         } else {
             g.moves_from_ground
         };
+        // A double jump (the hosted world's mod): falling, then thrown up in
+        // mid-air. Each forgives DOUBLE_JUMP_FALL_GRACE blocks of the fall so
+        // far, or jumping again while falling hurt more than not jumping.
+        let mut last_dy = g.last_move_dy;
+        let boosts: Vec<bool> = moves
+            .iter()
+            .map(|(moved, on_ground)| {
+                let boost = !on_ground && last_dy < 0.0 && moved[1] > DOUBLE_JUMP_RISE;
+                last_dy = if *on_ground { 0.0 } else { moved[1] };
+                boost
+            })
+            .collect();
+        g.last_move_dy = last_dy;
         if g.spectator() {
             // Spectators' effects still run (LivingEntity.baseTick).
             if !g.effects.list.is_empty() {
@@ -1487,7 +1500,11 @@ impl Game<'_> {
             let _ = w.fluid_base_tick();
             w.player.ground.on_ground = from_ground;
             let travelled: Vec<[f64; 3]> = moves.iter().map(|m| m.0).collect();
-            for (moved, on_ground) in moves {
+            for ((moved, on_ground), boost) in moves.into_iter().zip(boosts) {
+                if boost {
+                    let fall = &mut w.player.fall_distance;
+                    *fall = (*fall - DOUBLE_JUMP_FALL_GRACE).max(0.0);
+                }
                 let movement = Vec3::new(moved[0], moved[1], moved[2]);
                 if w.player.ground.on_ground && !on_ground && moved[1] > 0.0 {
                     let sprinting = w.player.sprinting;
@@ -1787,3 +1804,11 @@ fn pending_fall(g: &horizon_client::lan::guest::Guest) -> (bool, f64) {
     }
     (landed, fallen)
 }
+
+/// The rise in one move (blocks) that turns a mid-air fall into a double
+/// jump. The mod's lift builds up over ticks, so from a fall the first rising
+/// move is small; vanilla has no other way up in mid-air that keeps the fall
+/// (climbing, water and landing reset it).
+const DOUBLE_JUMP_RISE: f64 = 0.001;
+/// Blocks of fall a double jump forgives: vanilla's safe fall height.
+const DOUBLE_JUMP_FALL_GRACE: f64 = 3.0;

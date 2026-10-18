@@ -142,6 +142,9 @@ pub struct Guest {
     pub moves: Vec<([f64; 3], bool)>,
     /// Whether the guest was on the ground before the first of `moves`.
     pub moves_from_ground: bool,
+    /// The height change of the last move the server applied: a fall that
+    /// turns into a climb in mid-air is a double jump (lan_actions.rs).
+    pub last_move_dy: f64,
     pub dead: bool,
     /// The join packets were sent (PlayerList.placeNewPlayer ran).
     pub placed: bool,
@@ -244,6 +247,7 @@ impl Guest {
             ticks: 0,
             moves: Vec::new(),
             moves_from_ground: false,
+            last_move_dy: 0.0,
             dead: false,
             placed: false,
             menu: None,
