@@ -56,6 +56,10 @@ ureq = { version = "2", default-features = false, features = ["tls"] }
 horizon-mods = { path = "../horizon-mods", features = ["runtime"] }
 wgpu = { version = "30.0.1", default-features = false, features = ["vulkan", "metal"] }
 
+[target.'cfg(target_os = "linux")'.dependencies]
+# setpriority for the generation workers (streaming.rs), without unsafe code.
+rustix = { version = "1", default-features = false, features = ["std", "process"] }
+
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 chrono = { version = "0.4.42", default-features = false, features = ["clock", "std", "wasmbind"] }
 wasm-bindgen = "0.2.129"

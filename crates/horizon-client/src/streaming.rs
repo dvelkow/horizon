@@ -353,6 +353,12 @@ impl Streaming {
                 thread::Builder::new()
                     .name(format!("horizon-worker-{i}"))
                     .spawn(move || {
+                        // Generation and meshing yield to the game's own
+                        // thread: on a server with one core, ticks keep their
+                        // 50 ms and the worker takes the time between them.
+                        // Linux's nice value is per thread (no pid: this one).
+                        #[cfg(target_os = "linux")]
+                        let _ = rustix::process::setpriority_process(None, 10);
                         let mut worker = generator.worker();
                         // The face visibility table and its occlusion cache stay with
                         // the worker across mesh jobs, like vanilla's per-thread cache:

@@ -1036,9 +1036,7 @@ impl Game<'_> {
             .guests
             .iter()
             .filter(|g| g.placed)
-            // The tracked square's corners and their lit neighbours lie
-            // within (view distance + 2) * √2 of the player's chunk.
-            .map(|g| (g.chunk(), (g.view_distance + 2) * 3 / 2 + 1))
+            .map(|g| (g.chunk(), guest_load_radius(g.view_distance)))
             .collect();
     }
 
@@ -1146,6 +1144,60 @@ impl Game<'_> {
     pub(super) fn lan_host_chat(&mut self, message: &str) {
         if let Some(host) = &self.lan {
             host.hub.chat(&host.host_name, message);
+        }
+    }
+}
+
+/// The radius of the area kept loaded around a guest (`Streaming::extra`):
+/// the smallest whose finished chunks (decoration reaches its radius + 2) hold
+/// every chunk the guest is sent (vanilla's ChunkTrackingView, `hub::tracked`)
+/// with the eight neighbours its lighting needs, plus one for safety. A circle
+/// around the whole tracked square, as before, generated and kept about twice
+/// the chunks (radius 13 instead of 9 at view distance 6).
+fn guest_load_radius(view: i32) -> i32 {
+    static RADII: std::sync::OnceLock<Vec<i32>> = std::sync::OnceLock::new();
+    let radii = RADII.get_or_init(|| {
+        (0..=32)
+            .map(|view: i32| {
+                let tracked = |x: i32, z: i32| {
+                    let dx = i64::from((x.abs() - 2).max(0));
+                    let dz = i64::from((z.abs() - 2).max(0));
+                    dx * dx + dz * dz < i64::from(view) * i64::from(view)
+                };
+                let reach = view + 3;
+                let mut need = 0i64;
+                for z in -reach..=reach {
+                    for x in -reach..=reach {
+                        if !tracked(x, z) {
+                            continue;
+                        }
+                        for dz in -1..=1 {
+                            for dx in -1..=1 {
+                                need = need.max(i64::from(x + dx).pow(2) + i64::from(z + dz).pow(2));
+                            }
+                        }
+                    }
+                }
+                let mut r = 0;
+                while i64::from(r + 2).pow(2) < need {
+                    r += 1;
+                }
+                r + 1
+            })
+            .collect()
+    });
+    radii[view.clamp(2, 32) as usize]
+}
+
+#[cfg(test)]
+mod load_radius_tests {
+    #[test]
+    fn guests_keep_what_they_are_sent_and_little_more() {
+        assert_eq!(super::guest_load_radius(6), 9);
+        assert_eq!(super::guest_load_radius(2), 5);
+        for view in 2..=32 {
+            // Never more than the old circle around the tracked square.
+            assert!(super::guest_load_radius(view) <= (view + 2) * 3 / 2 + 1);
         }
     }
 }
