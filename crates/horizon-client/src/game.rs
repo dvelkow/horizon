@@ -3259,8 +3259,9 @@ impl Game<'_> {
             None
         };
         // The `/aot` gear pulls before the move (game/odm.rs). Its Space is
-        // gas: a mod's jumps (the double jump) rest while it is on.
-        let nudge = nudge.filter(|_| self.odm.gear.is_none());
+        // gas: a mod's jumps (the double jump, the Space Stone's dash) rest
+        // while the blades are in hand.
+        let nudge = nudge.filter(|_| !self.odm_held());
         self.odm_step();
         let Some(player) = self.player.as_mut() else {
             // A dedicated server has no local player: the world still runs.
@@ -4015,7 +4016,7 @@ impl Game<'_> {
                 let draws = hud_layout::crosshair(wi, hi, attack, full);
                 hud_layout::paint(&mut batch, &self.atlas, &draws);
             }
-            self.draw_odm_hud(&mut batch, w, h);
+            self.draw_odm_hud(&mut batch, w);
             if !spectator {
                 let inputs = hud_layout::HotbarInputs {
                     selected: self.selected as i32,
@@ -7819,11 +7820,12 @@ impl Game<'_> {
         }
         let shown = self.hands_to_render();
         let used_hand = self.used_hand();
-        for (i, (hand, item)) in Hand::BOTH
-            .into_iter()
-            .zip(self.visible_hand_items())
-            .enumerate()
-        {
+        // The `/aot` blades come as a pair: an empty off hand holds the other.
+        let mut items = self.visible_hand_items();
+        if items[1].is_none() && horizon_client::odm::is_blades(items[0].as_ref()) {
+            items[1] = items[0].clone();
+        }
+        for (i, (hand, item)) in Hand::BOTH.into_iter().zip(items).enumerate() {
             if !shown[i] {
                 continue;
             }

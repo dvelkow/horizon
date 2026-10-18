@@ -1,0 +1,11 @@
+# The Attack on Titan gear's blades (content only, API 0.2): `/aot` hands a
+# pair to a player with an empty hand, and the omni-directional mobility gear
+# (game/odm.rs) works while they hold them. Pack with `cargo horizon-mod build`.
+id = "aot"
+name = "ODM Blades"
+version = "1.0.0"
+description = "The Survey Corps' twin blades: /aot puts a pair in your empty hand, and while you hold them the omni-directional mobility gear is yours (hold Q / E to fire the hooks, Space to reel in fast). They strike like a copper sword, 5 damage, and never wear out."
+authors = ["Horizon"]
+api = "0.2"
+side = "both"
+capabilities = ["registries"]

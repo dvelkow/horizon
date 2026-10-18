@@ -1,0 +1,13 @@
+{
+  "model": {
+    "type": "minecraft:select",
+    "property": "minecraft:display_context",
+    "cases": [
+      {
+        "when": ["gui", "ground", "fixed"],
+        "model": { "type": "minecraft:model", "model": "aot:item/odm_blades" }
+      }
+    ],
+    "fallback": { "type": "minecraft:model", "model": "aot:item/odm_blade" }
+  }
+}

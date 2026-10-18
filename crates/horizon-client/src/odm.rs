@@ -1,7 +1,11 @@
 //! Attack on Titan's omni-directional mobility gear (`/aot`): two hooks fired
 //! from the hips at what the player looks at, each winding its cable in so
-//! the player swings around its anchor and closes on it, and a gas tank for
-//! bursts in the air and a faster reel. Let go and the momentum carries on.
+//! the player swings around its anchor and closes on it, burning gas (more
+//! for the faster reel). An empty tank winches nothing: the cables only hold.
+//! Let go and the momentum carries on; there is no gas without a cable.
+//!
+//! The gear works while the player holds the ODM blades (`BLADES`, the `aot`
+//! content mod's item, which `/aot` hands out).
 //!
 //! This is the state and the physics only: the game supplies the world (what
 //! a hook hits, where an entity is) and applies the velocity it returns, with
@@ -30,12 +34,6 @@ pub const GAS_PULL: f64 = 0.06;
 /// While a cable winches, the gear carries this much of the player's
 /// weight (gravity is 0.08 a tick): the pull runs along the cable.
 pub const CARRY: f64 = 0.075;
-/// Gas held in the air with no cable: a push along the look.
-pub const THRUST: f64 = 0.05;
-/// A press of the gas in the air with no cable: a burst toward the keys
-/// pressed (or the look), and how long until the next.
-pub const BURST: f64 = 0.6;
-pub const BURST_COOLDOWN: u32 = 12;
 /// Steering in the air with the movement keys.
 pub const STEER: f64 = 0.015;
 /// The gear never goes faster (blocks a tick, 36 a second).
@@ -44,9 +42,8 @@ pub const MAX_SPEED: f64 = 1.8;
 pub const DRAG: f64 = 0.985;
 /// Gas: a full tank is 1. What each use costs, and the refill a tick on
 /// the ground.
-pub const GAS_REEL_COST: f64 = 0.004;
-pub const THRUST_COST: f64 = 0.004;
-pub const BURST_COST: f64 = 0.06;
+pub const REEL_COST: f64 = 0.003;
+pub const GAS_REEL_COST: f64 = 0.006;
 pub const REFILL: f64 = 0.01;
 /// Hips: this high above the feet, this far to each side.
 const HIP_HEIGHT: f64 = 0.85;
@@ -54,6 +51,25 @@ const HIP_SIDE: f64 = 0.3;
 
 pub const LEFT: usize = 0;
 pub const RIGHT: usize = 1;
+
+/// The gear's blades (the `aot` content mod's item).
+pub const BLADES: &str = "aot:odm_blades";
+
+/// Whether `stack` is the blades.
+pub fn is_blades(stack: Option<&crate::items::ItemStack>) -> bool {
+    stack.is_some_and(|s| &*s.item == BLADES)
+}
+
+/// A pair of blades as `/aot` hands them out: they never wear
+/// (`minecraft:unbreakable`).
+pub fn blades() -> crate::items::ItemStack {
+    let mut stack = crate::items::ItemStack::new(BLADES, 1);
+    stack.data_mut().set_other(
+        "minecraft:unbreakable",
+        Some(horizon_world::nbt::Tag::Compound(Default::default())),
+    );
+    stack
+}
 
 /// What a hook can hit.
 pub trait World {
@@ -138,8 +154,6 @@ pub enum Event {
     Fire(usize),
     Attach(usize, [f64; 3]),
     Release(usize),
-    /// A burst of gas, along this direction.
-    Burst([f64; 3]),
     /// The gas key with an empty tank.
     Empty,
 }
@@ -161,8 +175,7 @@ pub struct Gear {
     pub gas: f64,
     held: [bool; 2],
     gas_held: bool,
-    burst_cooldown: u32,
-    /// In flight since a cable or a burst took them off the ground: the
+    /// In flight since a cable took them off the ground: the
     /// lighter drag lasts until they land.
     flying: bool,
 }
@@ -179,9 +192,17 @@ impl Gear {
             gas: 1.0,
             held: [false; 2],
             gas_held: false,
-            burst_cooldown: 0,
             flying: false,
         }
+    }
+
+    /// Put away (the blades out of hand): both hooks in at once, the keys
+    /// let go and the flight over; the tank keeps what it has.
+    pub fn stow(&mut self) {
+        self.hooks = [Hook::Idle; 2];
+        self.held = [false; 2];
+        self.gas_held = false;
+        self.flying = false;
     }
 
     /// Whether `side`'s hook holds.
@@ -318,22 +339,25 @@ impl Gear {
         let gas_pressed = controls.gas && !self.gas_held;
         self.gas_held = controls.gas;
         let has_gas = self.gas > 0.0;
-        if gas_pressed && !has_gas {
+        if gas_pressed && !has_gas && !anchors.is_empty() {
             events.push(Event::Empty);
         }
         let airborne = !body.on_ground;
         let mut gas = false;
         if !anchors.is_empty() {
             self.flying = true;
-            let reel_gas = controls.gas && has_gas;
-            if reel_gas {
-                self.gas -= GAS_REEL_COST;
-                gas = true;
+            // Standing, the ground holds the player up, not the cables.
+            if body.on_ground {
+                v[1] = v[1].max(0.0);
             }
-            let (rate, pull) = if reel_gas {
-                (GAS_REEL, GAS_PULL)
+            // The winch burns gas, the fast reel twice as much; with the
+            // tank empty the cables only hold.
+            let (rate, pull, cost) = if !has_gas {
+                (0.0, 0.0, 0.0)
+            } else if controls.gas {
+                (GAS_REEL, GAS_PULL, GAS_REEL_COST)
             } else {
-                (REEL, 0.0)
+                (REEL, 0.0, REEL_COST)
             };
             let mut winching = false;
             for &(side, at) in &anchors {
@@ -348,7 +372,7 @@ impl Gear {
                 // The cable winds in and never pays out: shorter than the
                 // player is far, less what it winds this tick.
                 *length = length.min(dist.max(ARRIVE));
-                if dist > ARRIVE {
+                if dist > ARRIVE && rate > 0.0 {
                     winching = true;
                     *length = (*length - rate).max(ARRIVE);
                     // The winch: along the cable at least at its pace.
@@ -369,26 +393,9 @@ impl Gear {
             }
             if winching {
                 v[1] += CARRY;
+                self.gas -= cost;
+                gas = controls.gas;
             }
-        } else if airborne && controls.gas && has_gas && !body.in_fluid {
-            if gas_pressed && self.burst_cooldown == 0 {
-                let steer = steer_vector(controls.steer, body.yaw);
-                let dir = if len(steer) > 1.0e-6 {
-                    normalize(add(steer, [0.0, 0.25, 0.0]))
-                } else {
-                    view_vector(body.yaw, body.pitch)
-                };
-                v = add(v, scale(dir, BURST));
-                self.gas -= BURST_COST;
-                self.burst_cooldown = BURST_COOLDOWN;
-                self.flying = true;
-                events.push(Event::Burst(dir));
-            } else {
-                v = add(v, scale(view_vector(body.yaw, body.pitch), THRUST));
-                self.gas -= THRUST_COST;
-                self.flying = true;
-            }
-            gas = true;
         }
         self.gas = self.gas.clamp(0.0, 1.0);
         let glide = !anchors.is_empty() || (airborne && self.flying);
@@ -401,9 +408,11 @@ impl Gear {
         }
         if body.on_ground && anchors.is_empty() {
             self.flying = false;
-            self.gas = (self.gas + REFILL).min(1.0);
+            // The tank refills on the ground with both hooks in.
+            if self.hooks.iter().all(|h| *h == Hook::Idle) {
+                self.gas = (self.gas + REFILL).min(1.0);
+            }
         }
-        self.burst_cooldown = self.burst_cooldown.saturating_sub(1);
         Step {
             velocity: v,
             glide,
@@ -471,18 +480,12 @@ fn len(a: [f64; 3]) -> f64 {
 fn distance(a: [f64; 3], b: [f64; 3]) -> f64 {
     len(sub(a, b))
 }
-fn normalize(a: [f64; 3]) -> [f64; 3] {
-    let l = len(a);
-    if l < 1.0e-9 { a } else { scale(a, 1.0 / l) }
-}
-
-/// The `horizon:aot` payloads. To the player: `[0, on]`. From the player:
-/// `[1, flags, tips...]`, the hooks out (flags bit 0 left, bit 1 right),
-/// holding (bits 3 and 4) and the gas (bit 2), then each out hook's tip as
-/// three big-endian f32. To the others: `[1, entity id (i32), flags, tips...]`.
+/// The `horizon:aot` payloads. From the player: `[1, flags, tips...]`, the
+/// hooks out (flags bit 0 left, bit 1 right), holding (bits 3 and 4) and the
+/// gas (bit 2), then each out hook's tip as three big-endian f32. To the
+/// others: `[1, entity id (i32), flags, tips...]`.
 pub mod wire {
     pub const CHANNEL: &str = "horizon:aot";
-    pub const MODE: u8 = 0;
     pub const STATE: u8 = 1;
     pub const LEFT_OUT: u8 = 1;
     pub const RIGHT_OUT: u8 = 2;
@@ -711,20 +714,20 @@ mod tests {
     #[test]
     fn letting_go_mid_swing_keeps_the_momentum() {
         let mut world = Wall {
-            wall: 120.0,
+            wall: 60.0,
             top: 60.0,
             entities: vec![],
         };
         let mut gear = Gear::new();
         // Hold a while, then let go and see how far the momentum carries.
         let controls = |t| Controls {
-            hooks: [t < 25; 2],
-            gas: t < 25,
+            hooks: [t < 22; 2],
+            gas: t < 22,
             ..Default::default()
         };
-        let path = fly(&mut gear, &mut world, [0.0, 10.0, 0.0], -10.0, controls, 40);
-        let released = path[25];
-        let later = path[39];
+        let path = fly(&mut gear, &mut world, [0.0, 10.0, 0.0], -10.0, controls, 34);
+        let released = path[22];
+        let later = path[33];
         assert!(later[2] - released[2] > 5.0, "{released:?} {later:?}");
     }
 
@@ -770,31 +773,67 @@ mod tests {
     }
 
     #[test]
-    fn gas_bursts_in_the_air_and_runs_out() {
+    fn no_gas_in_the_open_air() {
         let mut world = Wall {
             wall: 1000.0,
             top: 0.0,
             entities: vec![],
         };
         let mut gear = Gear::new();
-        let up = body([0.0, 20.0, 0.0], [0.0; 3], 0.0, false);
-        let press = Controls {
+        let up = body([0.0, 20.0, 0.0], [0.0, 0.1, 0.2], 0.0, false);
+        let space = Controls {
             gas: true,
             steer: [0.0, 1.0],
             ..Default::default()
         };
-        let step = gear.tick(&mut world, &up, &press);
-        assert!(matches!(step.events[..], [Event::Burst(_)]));
-        assert!(step.velocity[2] > 0.5 && step.glide && step.gas);
+        for _ in 0..5 {
+            let step = gear.tick(&mut world, &up, &space);
+            assert_eq!(step.velocity, up.velocity);
+            assert!(!step.glide && !step.gas && step.events.is_empty());
+        }
+        assert_eq!(gear.gas, 1.0);
+    }
+
+    #[test]
+    fn the_winch_burns_gas_and_an_empty_tank_only_holds() {
+        let mut world = Wall {
+            wall: 30.0,
+            top: 40.0,
+            entities: vec![],
+        };
+        let mut gear = Gear::new();
+        let hooks = |_| Controls {
+            hooks: [true, true],
+            ..Default::default()
+        };
+        fly(&mut gear, &mut world, [0.0, 0.0, 0.0], -30.0, hooks, 30);
+        assert!(gear.gas < 1.0 && gear.gas > 0.9, "{}", gear.gas);
+        // Empty: the cables hold but winch nothing, so the player hangs.
+        let mut gear = Gear::new();
         gear.gas = 0.0;
-        gear.tick(&mut world, &up, &Controls::default());
-        let step = gear.tick(&mut world, &up, &press);
+        let path = fly(&mut gear, &mut world, [0.0, 0.0, 0.0], -30.0, hooks, 60);
+        assert!(
+            path.iter().all(|f| f[1] < 0.5 && f[2] < 1.0),
+            "{:?}",
+            path.last()
+        );
+        // Space with an empty tank while hooked clicks.
+        let b = body([0.0, 0.0, 0.0], [0.0; 3], -30.0, true);
+        let step = gear.tick(
+            &mut world,
+            &b,
+            &Controls {
+                hooks: [true, true],
+                gas: true,
+                ..Default::default()
+            },
+        );
         assert_eq!(step.events, vec![Event::Empty]);
-        assert!(!step.gas);
-        // On the ground the tank fills again.
-        let ground = body([0.0, 0.0, 0.0], [0.0; 3], 0.0, true);
+        // The ground fills the tank again.
+        let mut gear = Gear::new();
+        gear.gas = 0.0;
         for _ in 0..100 {
-            gear.tick(&mut world, &ground, &Controls::default());
+            gear.tick(&mut world, &b, &Controls::default());
         }
         assert_eq!(gear.gas, 1.0);
     }

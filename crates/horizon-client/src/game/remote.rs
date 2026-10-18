@@ -2544,8 +2544,9 @@ impl Game<'_> {
             None
         };
         // The `/aot` gear pulls before the move (game/odm.rs). Its Space is
-        // gas: a mod's jumps (the double jump) rest while it is on.
-        let nudge = nudge.filter(|_| self.odm.gear.is_none());
+        // gas: a mod's jumps (the double jump, the Space Stone's dash) rest
+        // while the blades are in hand.
+        let nudge = nudge.filter(|_| !self.odm_held());
         self.odm_step();
         let Some(player) = self.player.as_mut() else {
             return Ok(());

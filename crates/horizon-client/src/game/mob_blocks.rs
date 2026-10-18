@@ -259,7 +259,14 @@ impl Game<'_> {
         out: &mut Vec<Vertex>,
     ) {
         // ItemInHandLayer submits with OverlayTexture.NO_OVERLAY: no hurt tint.
-        for (item, left) in [(&mob.extra.main_hand, false), (&mob.extra.off_hand, true)] {
+        // The `/aot` blades come as a pair: an empty off hand holds the other.
+        let pair = mob
+            .extra
+            .main_hand
+            .clone()
+            .filter(|m| mob.extra.off_hand.is_none() && &**m == horizon_client::odm::BLADES);
+        let off_hand = mob.extra.off_hand.clone().or(pair);
+        for (item, left) in [(&mob.extra.main_hand, false), (&off_hand, true)] {
             let Some(item) = item else { continue };
             let Some(mut t) =
                 render::held_item_transform(mob, alpha as f32, camera, &self.res.mob_data, left)

@@ -7,7 +7,7 @@ use super::{Game, Screen};
 use horizon_client::{
     gizmos::Line,
     hud::HudBatch,
-    odm::{self, Body, Controls, Event, Gear, Hook, wire},
+    odm::{self, Body, Controls, Event, Gear, wire},
     particles::{ParticleOptions, ParticleType},
     text::Text,
 };
@@ -18,11 +18,13 @@ use horizon_protocol::packets::{configuration::CustomPayload, play::Serverbound 
 use std::collections::HashMap;
 use winit::keyboard::KeyCode;
 
-/// What `/aot` says when the gear goes on (the server sends the same).
-pub(super) const HELP: &str = "ODM gear on: hold Q / E for the left / right hook, Space for gas \
-     (a burst in the air, or a fast reel while hooked). Shift+E opens the inventory. No fall \
-     damage. Type /aot again to take it off.";
-pub(super) const OFF: &str = "ODM gear off.";
+/// What `/aot` answers.
+const HELP: &str = "ODM blades in hand: hold Q / E to fire the left / right hook (each cable \
+     pulls you in and burns gas), hold Space while hooked to reel in fast. The gas refills on \
+     the ground. No fall damage while you hold them. Shift+E opens the inventory.";
+const HOLDING: &str = "You already hold the ODM blades: hold Q / E to fire the hooks.";
+const EMPTY_FIRST: &str = "Empty your hand first: pick an empty hotbar slot, then type /aot.";
+const NO_BLADES: &str = "The ODM blades are not installed on this world.";
 
 /// The cable and the hook's head.
 const CABLE: u32 = 0xFF6A_7078;
@@ -37,14 +39,12 @@ struct Other {
 
 #[derive(Default)]
 pub(super) struct OdmState {
-    /// The gear, while `/aot` is on.
+    /// The gear (its tank), since the blades were first held.
     pub gear: Option<Gear>,
     /// This player's hook tips last tick and this tick (drawn between).
     tips: [[Option<[f64; 3]>; 2]; 2],
     /// Gas streamed this tick.
     gas: bool,
-    /// How far a hook fired at the crosshair would fly, when it would bite.
-    aim: Option<f64>,
     /// Other players' cables, by entity id.
     others: HashMap<i32, Other>,
     /// The state last sent to the server, and the tick it went.
@@ -95,34 +95,38 @@ impl odm::World for Surroundings<'_, '_> {
 }
 
 impl Game<'_> {
-    /// The gear goes on or off (the server's `horizon:aot`, or `/aot` in a
-    /// world of one's own).
-    pub(super) fn set_odm(&mut self, on: bool) {
-        if on {
-            if self.odm.gear.is_none() {
-                self.odm.gear = Some(Gear::new());
-            }
-        } else {
-            self.odm.gear = None;
-            self.odm.tips = Default::default();
-            self.odm.aim = None;
-            if let Some(p) = self.player.as_mut() {
-                p.odm_glide = false;
+    /// `/aot`: a pair of blades into the empty main hand. The answer, and
+    /// whether the player now holds them. Under `as_guest` for a server's
+    /// players (game/lan_aot.rs).
+    pub(super) fn odm_give_blades(&mut self) -> (&'static str, bool) {
+        if self.res.items.get(odm::BLADES).is_none() {
+            return (NO_BLADES, false);
+        }
+        match &self.inventory[self.selected] {
+            Some(s) if &*s.item == odm::BLADES => (HOLDING, true),
+            Some(_) => (EMPTY_FIRST, false),
+            None => {
+                self.inventory[self.selected] = Some(odm::blades());
+                (HELP, true)
             }
         }
     }
 
     /// `/aot` typed in a world of one's own.
     pub(super) fn local_odm_command(&mut self) {
-        let on = self.odm.gear.is_none();
-        self.set_odm(on);
-        self.system_message(Text::literal(if on { HELP } else { OFF }));
+        let (text, _) = self.odm_give_blades();
+        self.system_message(Text::literal(text));
+    }
+
+    /// Whether the main hand holds the blades: the gear works only then.
+    pub(super) fn odm_held(&self) -> bool {
+        odm::is_blades(self.inventory[self.selected].as_ref())
     }
 
     /// Whether the gear takes this key press: its hooks hold on Q and E
     /// (Shift+E still opens the inventory).
     pub(super) fn odm_takes_key(&self, key: KeyCode) -> bool {
-        self.odm.gear.is_some()
+        self.odm_held()
             && self.screen == Screen::Playing
             && (key == KeyCode::KeyQ
                 || key == KeyCode::KeyE && !self.keys.contains(&KeyCode::ShiftLeft))
@@ -132,12 +136,19 @@ impl Game<'_> {
     /// flight takes the move, and no fall.
     pub(super) fn odm_step(&mut self) {
         self.odm.ticks += 1;
-        let Some(mut gear) = self.odm.gear.take() else {
+        if !self.odm_held() {
+            // Out of hand the gear rests: its hooks in, the tank as it was.
+            if let Some(gear) = self.odm.gear.as_mut() {
+                gear.stow();
+            }
+            self.odm.tips = Default::default();
+            self.odm.gas = false;
             if let Some(p) = self.player.as_mut() {
                 p.odm_glide = false;
             }
             return;
-        };
+        }
+        let mut gear = self.odm.gear.take().unwrap_or_default();
         let Some(p) = self.player.as_ref() else {
             self.odm.gear = Some(gear);
             return;
@@ -180,13 +191,10 @@ impl Game<'_> {
         };
         let mut world = Surroundings { game: self };
         let step = gear.tick(&mut world, &body, &controls);
-        let look = odm::view_vector(self.yaw, self.pitch);
-        let aim = odm::World::cast(&mut world, body.eye, look, odm::RANGE).map(|hit| hit.0);
         let hips = odm::hips(feet, self.yaw);
         let tips = [odm::LEFT, odm::RIGHT].map(|side| gear.tip(side, hips[side], &mut world));
         let hooked = gear.attached(odm::LEFT) || gear.attached(odm::RIGHT);
         self.odm.tips = [self.odm.tips[1], tips];
-        self.odm.aim = aim;
         self.odm.gas = step.gas;
         if let Some(p) = self.player.as_mut() {
             p.velocity = Vec3::new(step.velocity[0], step.velocity[1], step.velocity[2]);
@@ -213,28 +221,6 @@ impl Game<'_> {
                 Event::Release(_) => {
                     self.audio
                         .play("minecraft:entity.fishing_bobber.retrieve", at, 0.6, 1.5);
-                }
-                Event::Burst(dir) => {
-                    self.audio
-                        .play("minecraft:entity.wind_charge.wind_burst", at, 0.5, 1.4);
-                    let behind = [
-                        feet[0] - dir[0] * 0.5,
-                        feet[1] + 0.9 - dir[1] * 0.5,
-                        feet[2] - dir[2] * 0.5,
-                    ];
-                    for _ in 0..10 {
-                        let spread = self.odm_spread(0.25);
-                        let v = [
-                            -dir[0] * 0.2 + spread[0],
-                            -dir[1] * 0.2 + spread[1],
-                            -dir[2] * 0.2 + spread[2],
-                        ];
-                        self.particles.add(
-                            &ParticleOptions::simple(ParticleType::Cloud),
-                            behind,
-                            v,
-                        );
-                    }
                 }
                 Event::Empty => {
                     self.audio
@@ -276,7 +262,7 @@ impl Game<'_> {
     /// After the player's move: still no fall, and the cables for the
     /// others (on a server).
     pub(super) fn odm_after_step(&mut self) {
-        let state = match self.odm.gear.as_ref() {
+        let state = match self.odm.gear.as_ref().filter(|_| self.odm_held()) {
             Some(gear) => {
                 if let Some(p) = self.player.as_mut() {
                     p.fall_distance = 0.0;
@@ -326,11 +312,9 @@ impl Game<'_> {
         }));
     }
 
-    /// A `horizon:aot` payload from the server: the gear on or off, or
-    /// another player's cables.
+    /// A `horizon:aot` payload from the server: another player's cables.
     pub(super) fn remote_odm_payload(&mut self, data: &[u8]) {
         match data.first() {
-            Some(&wire::MODE) => self.set_odm(data.get(1).is_some_and(|&on| on != 0)),
             Some(&wire::STATE) if data.len() >= 5 => {
                 let id = i32::from_be_bytes([data[1], data[2], data[3], data[4]]);
                 let Some(state) = wire::State::decode(&data[5..]) else {
@@ -454,45 +438,15 @@ impl Game<'_> {
         lines
     }
 
-    /// By the crosshair: how far the hook would fly (a red dash when nothing
-    /// is in reach), and a dot each side for a hook out (green while it
-    /// holds). The gas gauge sits in the top right corner, below any effect
-    /// icons.
-    pub(super) fn draw_odm_hud(&self, batch: &mut HudBatch, w: f32, h: f32) {
+    /// The gas gauge, in the top right corner below any effect icons.
+    pub(super) fn draw_odm_hud(&self, batch: &mut HudBatch, w: f32) {
         let Some(gear) = self.odm.gear.as_ref() else {
             return;
         };
-        if self.screen != Screen::Playing {
+        if self.screen != Screen::Playing || !self.odm_held() {
             return;
         }
         let atlas = &self.atlas;
-        let (cx, cy) = ((w / 2.0).floor(), (h / 2.0).floor());
-        let (label, color) = match self.odm.aim {
-            Some(d) => (format!("{}", d.round() as i32), 0xFFFF_FFFF),
-            None => ("-".to_owned(), 0xFFFF_5555),
-        };
-        let tw = HudBatch::text_width(atlas, &label);
-        batch.text(
-            atlas,
-            &label,
-            cx - (tw / 2.0).floor(),
-            cy + 9.0,
-            color,
-            true,
-        );
-        for side in [odm::LEFT, odm::RIGHT] {
-            let color = match gear.hooks[side] {
-                Hook::Attached { .. } => 0xFF55_FF55,
-                Hook::Flying { .. } | Hook::Missed { .. } => 0xFFFF_FFFF,
-                _ => continue,
-            };
-            let x = if side == odm::LEFT {
-                cx - 12.0
-            } else {
-                cx + 10.0
-            };
-            batch.fill(atlas, x, cy - 1.0, 2.0, 2.0, color);
-        }
         // Hud.extractEffects' rows: the helpful icons at the top, the
         // harmful ones below them.
         let icons: Vec<horizon_client::hud_overlays::EffectIcon> = self

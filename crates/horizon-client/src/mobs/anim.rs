@@ -587,7 +587,9 @@ pub fn setup(
             } else {
                 right
             };
-            let off = if player && m.extra.off_hand.is_some() && !pose.two_handed() {
+            // The `/aot` blades come as a pair: the off hand holds the other.
+            let blades = m.extra.main_hand.as_deref() == Some(crate::odm::BLADES);
+            let off = if player && (m.extra.off_hand.is_some() || blades) && !pose.two_handed() {
                 ArmPose::Item
             } else {
                 ArmPose::Empty

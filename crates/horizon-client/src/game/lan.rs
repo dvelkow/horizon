@@ -65,8 +65,6 @@ pub(super) struct LanHost {
     pub tpa: super::lan_tpa::Requests,
     /// Players' `/sethome` homes (game/lan_homes.rs).
     pub homes: super::lan_homes::Homes,
-    /// Who wears the `/aot` gear (game/lan_aot.rs).
-    pub aot: super::lan_aot::Roster,
 }
 
 /// The player who owns an integrated server's world: a guest whose state is
@@ -521,7 +519,6 @@ impl Game<'_> {
             owner: None,
             tpa: Default::default(),
             homes: Default::default(),
-            aot: Default::default(),
         });
         self.audio.capture = Some(Vec::new());
         Ok(())
@@ -970,8 +967,6 @@ impl Game<'_> {
             tick_frozen: self.clock.frozen(),
         };
         host.hub.place_new_player(conn, &mut ctx);
-        // A wearer of the `/aot` gear gets it back (game/lan_aot.rs).
-        self.aot_joined(host, conn);
     }
 
     /// Level events the game queued, for the guests (`process_level_events`).

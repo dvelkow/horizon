@@ -34,3 +34,6 @@
 # Browser dependency caches and generated site artifacts.
 **/node_modules/
 /web/dist/
+
+# Packed mods (cargo horizon-mod build)
+mods/*/target/

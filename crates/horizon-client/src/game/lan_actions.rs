@@ -1558,8 +1558,8 @@ impl Game<'_> {
             return;
         };
         let moves = std::mem::take(&mut g.moves);
-        // The `/aot` gear: flying and falling are theirs (game/lan_aot.rs).
-        let aot = g.aot;
+        // The `/aot` gear in hand: flying and falling are theirs (game/lan_aot.rs).
+        let aot = super::lan_aot::holds_blades(g);
         g.known_movement = moves.iter().fold([0.0; 3], |a, (m, _)| {
             [a[0] + m[0], a[1] + m[1], a[2] + m[2]]
         });
