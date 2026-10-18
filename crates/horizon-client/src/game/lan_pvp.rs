@@ -115,6 +115,16 @@ impl Game<'_> {
             (true, false, true) => "minecraft:entity.player.attack.strong",
             (true, false, false) => "minecraft:entity.player.attack.weak",
         };
+        // Player.crit: the victim's crit particles for everyone.
+        if hurt && s.crit {
+            let victim = match victim {
+                Victim::Host => Some((host.host_entity, s.from)),
+                Victim::Guest(conn) => host.hub.guest(conn).map(|g| (g.entity_id, g.position)),
+            };
+            if let Some((id, at)) = victim {
+                self.lan_animations.push((id, 1, at));
+            }
+        }
         if let Some(at) = s.sweep.filter(|_| hurt) {
             self.sweep_attack(at, Some(s.from));
         } else {

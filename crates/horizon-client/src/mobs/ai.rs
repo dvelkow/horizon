@@ -231,6 +231,12 @@ pub fn register(m: &mut Mob) {
         Family::Bat => super::bat::register(m),
         Family::Bee => super::bee::register(m),
     }
+    // FloatGoal's constructor: getNavigation().setCanFloat(true). Without it
+    // jumpInLiquid lifts a mob 0.3 a tick instead of 0.04, and swimming mobs
+    // shot out of the water and hopped on it.
+    if m.ai.goals.has("FloatGoal") {
+        m.ai.nav.can_float = true;
+    }
 }
 /// Mob.tick additions that run before the entity tick (creeper fuse, puffing).
 fn pre_tick(m: &mut Mob, events: &mut Vec<MobEvent>) {

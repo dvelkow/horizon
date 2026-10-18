@@ -1490,6 +1490,9 @@ impl B {
                 if !swim_condition(m) {
                     return false;
                 }
+                // The constructors of the mobs with Swim set
+                // getNavigation().setCanFloat(true): float up 0.04 a tick.
+                m.ai.nav.can_float = true;
                 t.begin(cx);
                 true
             }

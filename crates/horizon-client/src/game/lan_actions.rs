@@ -1024,8 +1024,13 @@ impl Game<'_> {
         if host.hub.guests[gi].spectator() {
             return;
         }
+        // Moves the client sent before this attack are applied at the tick;
+        // vanilla handles them first, so a jump's fall counts for the crit.
+        let fall = pending_fall(&host.hub.guests[gi]);
         if let Some(victim) = Self::pvp_victim(host, conn, id) {
-            if let Some(Some(mut strike)) = self.as_guest(host, conn, |g| g.pvp_strike()) {
+            if let Some(Some(mut strike)) =
+                self.as_guest(host, conn, |g| g.with_pending_fall(fall, Self::pvp_strike))
+            {
                 strike.attacker = Some(host.hub.guests[gi].name.clone());
                 self.pvp_land(host, victim, &strike);
             }
@@ -1036,7 +1041,9 @@ impl Game<'_> {
             return;
         }
         self.as_guest(host, conn, |g| {
-            g.attack();
+            g.with_pending_fall(fall, |g| {
+                g.attack();
+            });
         });
         // The mob now answers to this guest (game/lan_mobs.rs).
         if let Ok(id) = u32::try_from(id) {
@@ -1044,6 +1051,29 @@ impl Game<'_> {
         }
         host.hub.guests[gi].yaw = old_yaw;
         host.hub.guests[gi].pitch = old_pitch;
+    }
+
+    /// Runs `f` (an attack) with the guest's fall distance as of the moves
+    /// already received: `fall` is (landed since the last tick, fallen since).
+    fn with_pending_fall<R>(&mut self, fall: (bool, f64), f: impl FnOnce(&mut Self) -> R) -> R {
+        let (landed, fallen) = fall;
+        let saved = self.player.as_ref().map(|p| p.fall_distance);
+        let adjusted = self.player.as_mut().map(|p| {
+            if landed {
+                p.fall_distance = 0.0;
+            }
+            p.fall_distance += fallen;
+            p.fall_distance
+        });
+        let result = f(self);
+        // The moves add their fall again at the tick; what the attack itself
+        // did to the fall (a mace's smash ends it) stays.
+        if let (Some(p), Some(saved)) = (self.player.as_mut(), saved)
+            && Some(p.fall_distance) == adjusted
+        {
+            p.fall_distance = saved;
+        }
+        result
     }
 
     /// Commands.performCommand for a guest with command access.
@@ -1740,4 +1770,20 @@ impl Game<'_> {
             play.swung = swinging;
         }
     }
+}
+
+/// Entity.checkFallDamage over the moves a guest sent since the server's
+/// last tick: whether one of them landed (the fall starts over) and how far
+/// the guest has fallen since.
+fn pending_fall(g: &horizon_client::lan::guest::Guest) -> (bool, f64) {
+    let (mut landed, mut fallen) = (false, 0.0);
+    for (moved, on_ground) in &g.moves {
+        if *on_ground {
+            landed = true;
+            fallen = 0.0;
+        } else if moved[1] < 0.0 {
+            fallen -= moved[1];
+        }
+    }
+    (landed, fallen)
 }

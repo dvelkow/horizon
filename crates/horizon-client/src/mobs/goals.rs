@@ -89,6 +89,10 @@ impl GoalSelector {
         self.goals.clear();
         self.locked = [None; 4];
     }
+    /// Whether a goal of this name was added.
+    pub fn has(&self, name: &str) -> bool {
+        self.goals.iter().any(|g| g.goal.name() == name)
+    }
     pub fn running_names(&self) -> Vec<&'static str> {
         self.goals
             .iter()
@@ -665,6 +669,9 @@ impl Mob {
 pub struct Float;
 impl Goal for Float {
     goal_clone!();
+    fn name(&self) -> &'static str {
+        "FloatGoal"
+    }
     fn flags(&self) -> u8 {
         JUMP
     }

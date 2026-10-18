@@ -151,9 +151,14 @@ fn mob_meta(m: &Mob, hub: &Hub) -> Vec<(u8, i32, Value)> {
     if m.health < m.kind.max_health {
         meta.push((9, serializer::FLOAT, Value::Float(m.health.max(0.0))));
     }
-    if kind == "minecraft:rabbit" && m.no_ai {
-        meta.push((15, serializer::BYTE, Value::Byte(1)));
-    }
+    // LivingEntity.DATA_LIVING_ENTITY_FLAGS (an item in use: a skeleton's
+    // bow drawn, a pillager's crossbow charging) and Mob.DATA_MOB_FLAGS_ID
+    // (no AI, aggressive: a skeleton raises its bow). Always present, so the
+    // tracker also sends them going back to 0.
+    let living = i8::from(m.extra.using_item > 0);
+    let mob = i8::from(m.no_ai) | if m.ai.aggressive { 4 } else { 0 };
+    meta.push((8, serializer::BYTE, Value::Byte(living)));
+    meta.push((15, serializer::BYTE, Value::Byte(mob)));
     if m.is_baby()
         && let Some(index) = baby_index(kind)
     {
@@ -1006,6 +1011,16 @@ impl Game<'_> {
         }
         for (id, event, at) in std::mem::take(&mut self.lan_entity_events) {
             host.hub.entity_event(id, event, at);
+        }
+        for (id, action, at) in std::mem::take(&mut self.lan_animations) {
+            host.hub.broadcast_near(
+                at,
+                128.0,
+                &horizon_protocol::packets::play::Clientbound::Animate(
+                    horizon_protocol::packets::play::Animate { id, action },
+                ),
+                None,
+            );
         }
         self.lan_broadcast_effects(host);
         if host.hub.guests.is_empty() {

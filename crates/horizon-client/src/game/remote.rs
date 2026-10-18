@@ -1456,14 +1456,37 @@ impl Game<'_> {
                         }
                     }
                 }
+                let is_player = self
+                    .remote
+                    .as_ref()
+                    .is_some_and(|r| r.level_players.contains_key(&p.id));
+                if !is_player && let Some(m) = self.mobs.iter_mut().find(|m| m.id == p.id as u32) {
+                    for (index, _, value) in &p.values {
+                        match (index, value) {
+                            // Mob.DATA_MOB_FLAGS_ID: no AI, aggressive (a skeleton's
+                            // raised bow, a zombie's arms, a piglin's crossbow).
+                            (15, Value::Byte(flags)) => {
+                                m.no_ai = flags & 1 != 0;
+                                m.ai.aggressive = flags & 4 != 0;
+                            }
+                            // DATA_LIVING_ENTITY_FLAGS: drawing a bow, charging a crossbow.
+                            (8, Value::Byte(flags)) => {
+                                m.extra.using_item = if flags & 1 != 0 {
+                                    m.extra.using_item.max(1)
+                                } else {
+                                    0
+                                };
+                            }
+                            _ => {}
+                        }
+                    }
+                }
                 if let Some(m) = self.mobs.iter_mut().find(|m| m.id == p.id as u32)
                     && m.species() == horizon_client::mobs::Species::Rabbit
                 {
                     for (index, _, value) in &p.values {
-                        match (index, value) {
-                            (15, Value::Byte(flags)) => m.no_ai = flags & 1 != 0,
-                            (16, Value::Bool(baby)) => m.extra.age = if *baby { -1 } else { 0 },
-                            _ => {}
+                        if let (16, Value::Bool(baby)) = (index, value) {
+                            m.extra.age = if *baby { -1 } else { 0 };
                         }
                     }
                 }
@@ -2726,6 +2749,10 @@ impl Game<'_> {
             let target = (((dx * dx + dz * dz).sqrt() * 4.0) as f32).min(1.0);
             m.limb_speed += (target - m.limb_speed) * 0.4;
             m.limb_position += m.limb_speed;
+            // A mob's item in use counts up (the bow string's pull).
+            if !players.contains_key(&(m.id as i32)) && m.extra.using_item > 0 {
+                m.extra.using_item += 1;
+            }
             if players.contains_key(&(m.id as i32)) {
                 // Another player's item in use, and food's crumbs
                 // (LivingEntity.triggerItemUseEffects, 32 ticks to eat).
