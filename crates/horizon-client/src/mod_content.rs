@@ -559,6 +559,34 @@ impl<'a> Plan<'a> {
                     ids.extend(new_blocks());
                 }
             }
+            // The ids the protocol numbers items and blocks by, which the
+            // server and the online client both read: the new ones after
+            // vanilla's, in command-registries.json's order. Without them a
+            // mod's items crossed the network as air.
+            "registries.json" => {
+                let items: Vec<String> = self.items.iter().map(|i| i.rename.to.clone()).collect();
+                let blocks: Vec<String> = self.blocks.iter().map(|b| b.decl.id.clone()).collect();
+                for (registry, names) in [("minecraft:item", items), ("minecraft:block", blocks)] {
+                    let Some(J::Obj(entries)) = doc.at(&format!("{registry}/entries")) else {
+                        return Err(format!("no {registry} entries").into());
+                    };
+                    let next = entries
+                        .iter()
+                        .filter_map(|(_, v)| match v.get("protocol_id") {
+                            Some(J::Num(n)) => n.as_u64(),
+                            _ => None,
+                        })
+                        .max()
+                        .map_or(0, |n| n + 1);
+                    for (k, name) in names.into_iter().enumerate() {
+                        if entries.iter().any(|(n, _)| *n == name) {
+                            continue;
+                        }
+                        let id = serde_json::Number::from(next + k as u64);
+                        entries.push((name, J::Obj(vec![("protocol_id".into(), J::Num(id))])));
+                    }
+                }
+            }
             "mob-data.json" => states(doc, "states", false, false)?,
             "worldgen/block_flags.json" => states(doc, "", false, false)?,
             "worldgen/blocks/structure-blocks.json" => {
@@ -623,7 +651,7 @@ impl<'a> Plan<'a> {
 }
 
 /// The JSON and NBT tables rewritten for new blocks and items.
-const JSON_TABLES: [&str; 13] = [
+const JSON_TABLES: [&str; 14] = [
     "facts.json",
     "gameplay-facts.json",
     "block-behaviours.json",
@@ -632,6 +660,7 @@ const JSON_TABLES: [&str; 13] = [
     "landing-definitions.json",
     "items.json",
     "command-registries.json",
+    "registries.json",
     "mob-data.json",
     "worldgen/block_flags.json",
     "worldgen/blocks/structure-blocks.json",

@@ -112,9 +112,11 @@ fn atlas_sprites(root: &Path, packed: &[PackedImage]) -> Vec<PackedImage> {
                     if texture.starts_with("minecraft:") && path == name {
                         continue;
                     }
+                    // In any namespace (a content mod's `id:item/...` too).
+                    let local = texture.split_once(':').map_or(texture.as_str(), |(_, p)| p);
                     load(texture, "textures").map(|(w, h, p)| {
                         // Animated strips keep their first frame, like the packed files.
-                        if h > w && (path.starts_with("block/") || path.starts_with("item/")) {
+                        if h > w && (local.starts_with("block/") || local.starts_with("item/")) {
                             (w, w, p[..(w * w * 4) as usize].to_vec())
                         } else {
                             (w, h, p)
