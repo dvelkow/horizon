@@ -153,6 +153,9 @@ pub(super) struct Remote {
     online_mode: bool,
     /// Player entities in the level: entity id to profile UUID.
     level_players: HashMap<i32, u128>,
+    /// LocalPlayer.flashOnSetHealth: every health update but the first
+    /// after joining or respawning flashes the hearts.
+    health_flash: bool,
     /// The local player's profile UUID (always in the level).
     profile: u128,
     destroying: Option<([i32; 3], u8, f32)>,
@@ -389,6 +392,7 @@ impl Game<'_> {
             listed: Default::default(),
             online_mode: false,
             level_players: HashMap::new(),
+            health_flash: false,
             profile: 0,
             destroying: None,
             destroy_delay: 0,
@@ -1212,6 +1216,7 @@ impl Game<'_> {
                 if let Some(r) = self.remote.as_mut() {
                     r.death_message = None;
                     r.health = (20.0, 20, 5.0);
+                    r.health_flash = false;
                 }
                 self.capture(true);
             }
@@ -1719,6 +1724,13 @@ impl Game<'_> {
             }
             C::GameRuleValues(p) => self.remote_world_options_rules(p.entries),
             C::SetHealth(p) => {
+                let flash = self
+                    .remote
+                    .as_mut()
+                    .is_some_and(|r| std::mem::replace(&mut r.health_flash, true));
+                if flash {
+                    self.remote_hurt_to(p.health);
+                }
                 if let Some(r) = self.remote.as_mut() {
                     r.health = (p.health, p.food, p.saturation);
                 }
@@ -2386,6 +2398,25 @@ impl Game<'_> {
             pickup_delay: 0,
             bob_offset,
         });
+    }
+    /// LocalPlayer.hurtTo: the server's new health, felt. A gain keeps the
+    /// player invulnerable for 10 ticks and a loss for 20 with the hurt
+    /// shake, which is what makes the HUD's hearts flash (the heal's short
+    /// blink each time natural regeneration or food heals them).
+    fn remote_hurt_to(&mut self, health: f32) {
+        let Some(p) = self.player.as_mut() else {
+            return;
+        };
+        let damage = p.health.health() - health;
+        let hurt = &mut p.health.hurt;
+        if damage < 0.0 {
+            hurt.cooldown = 10;
+        } else if damage > 0.0 {
+            hurt.last_hurt = damage;
+            hurt.cooldown = 20;
+            hurt.hurt_duration = 10;
+            hurt.hurt_time = 10;
+        }
     }
     fn apply_remote_health(&mut self) {
         let Some((health, food, saturation)) = self.remote.as_ref().map(|r| r.health) else {
